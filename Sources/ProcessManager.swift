@@ -9,10 +9,10 @@ final class ProcessManager {
     private var helperProcess: Process?
     private var logSource: DispatchSourceFileSystemObject?
     private var logHandle: FileHandle?
-    private let logFile = FileManager.default.temporaryDirectory.path + "/vpnswift.log"
-    private static let runScript = "/private/tmp/vpnswift-run.sh"
-    private static let stopScript = "/private/tmp/vpnswift-stop.sh"
-    private static let sudoersFile = "/etc/sudoers.d/vpnswift"
+    private let logFile = FileManager.default.temporaryDirectory.path + "/warpveil.log"
+    private static let runScript = "/private/tmp/warpveil-run.sh"
+    private static let stopScript = "/private/tmp/warpveil-stop.sh"
+    private static let sudoersFile = "/etc/sudoers.d/warpveil"
     private var lastConnection: (singBoxPath: String, singBoxConfig: String,
                                   xrayPath: String, xrayConfig: String)?
     private var wakeObserver: Any?
@@ -29,7 +29,7 @@ final class ProcessManager {
             \(user) ALL=(ALL) NOPASSWD: /bin/bash \(Self.stopScript)
 
             """
-        let tmpFile = "/private/tmp/vpnswift-sudoers"
+        let tmpFile = "/private/tmp/warpveil-sudoers"
         try? content.write(toFile: tmpFile, atomically: true, encoding: .utf8)
 
         let process = Process()

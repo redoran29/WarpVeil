@@ -2,9 +2,9 @@
 import PackageDescription
 
 let package = Package(
-    name: "VPNSwift",
+    name: "WarpVeil",
     platforms: [.macOS(.v14)],
     targets: [
-        .executableTarget(name: "VPNSwift", path: "Sources")
+        .executableTarget(name: "WarpVeil", path: "Sources")
     ]
 )

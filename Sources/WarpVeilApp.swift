@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct VPNSwiftApp: App {
+struct WarpVeilApp: App {
     @State private var pm = ProcessManager()
     @State private var loc = LocationService()
     @State private var net = NetworkMonitor()
