@@ -7,3 +7,7 @@ DerivedData/
 *.o
 *.dSYM/
 cache.db
+*.env
+*.pem
+*.key
+*.p12
