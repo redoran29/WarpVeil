@@ -11,3 +11,4 @@ cache.db
 *.pem
 *.key
 *.p12
+*.app

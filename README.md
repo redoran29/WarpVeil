@@ -18,12 +18,23 @@ Lightweight macOS menu bar app for managing **sing-box** and **xray** VPN connec
 - Swift 5.10+
 - [sing-box](https://github.com/SagerNet/sing-box) and/or [xray](https://github.com/XTLS/Xray-core)
 
-## Build & Run
+## Build & Install
+
+**Debug (quick run):**
 
 ```bash
-swift build
 swift run
 ```
+
+**Release (.app bundle):**
+
+```bash
+bash build-app.sh
+cp -r WarpVeil.app /Applications/
+open /Applications/WarpVeil.app
+```
+
+The app runs in the menu bar (no Dock icon).
 
 ## Configuration
 
