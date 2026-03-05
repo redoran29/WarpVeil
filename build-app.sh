@@ -39,11 +39,27 @@ cat > "$CONTENTS/Info.plist" << 'PLIST'
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSExceptionDomains</key>
+        <dict>
+            <key>ip-api.com</key>
+            <dict>
+                <key>NSExceptionAllowsInsecureHTTPLoads</key>
+                <true/>
+            </dict>
+        </dict>
+    </dict>
 </dict>
 </plist>
 PLIST
+
+echo "Signing..."
+codesign --force --deep --sign - "$APP_BUNDLE"
 
 echo "Done! Created $APP_BUNDLE"
 echo ""

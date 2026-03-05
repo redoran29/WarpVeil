@@ -148,8 +148,10 @@ final class SetupService {
         }
 
         let success = await runAndStream(
-            "/bin/bash",
-            arguments: ["-c", "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""]
+            "/usr/bin/osascript",
+            arguments: ["-e", """
+                do shell script "NONINTERACTIVE=1 /bin/bash -c \\\"$(/usr/bin/curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\\\"" with administrator privileges
+                """]
         )
 
         let path = Self.findBrew()

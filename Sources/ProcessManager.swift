@@ -159,7 +159,7 @@ final class ProcessManager {
         tmp: String, hasXray: Bool, hasSingBox: Bool,
         xrayPath: String, singBoxPath: String
     ) -> String {
-        var cmds = ["#!/bin/bash", "exec > '\(logFile)' 2>&1"]
+        var cmds = ["#!/bin/bash", "cd /tmp", "exec > '\(logFile)' 2>&1"]
 
         // Kill stale processes from previous session (e.g. after sleep/wake)
         cmds.append("pkill -f 'sing-box run' 2>/dev/null; pkill -f 'xray run' 2>/dev/null; sleep 1")
@@ -256,10 +256,7 @@ final class ProcessManager {
     // MARK: - Binary auto-detection
 
     static func findBinary(_ name: String) -> String? {
-        if let path = shellCommand("which \(name)"),
-           FileManager.default.isExecutableFile(atPath: path) {
-            return path
-        }
+        // Check well-known paths first (reliable in .app context)
         let candidates = [
             "/opt/homebrew/bin/\(name)",
             "/usr/local/bin/\(name)",
@@ -267,7 +264,15 @@ final class ProcessManager {
             "\(NSHomeDirectory())/.local/bin/\(name)",
             "\(NSHomeDirectory())/go/bin/\(name)",
         ]
-        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+        if let found = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+            return found
+        }
+        // Fallback: shell which (may not work in .app bundle)
+        if let path = shellCommand("which \(name)"),
+           FileManager.default.isExecutableFile(atPath: path) {
+            return path
+        }
+        return nil
     }
 
     private static func shellCommand(_ cmd: String) -> String? {
