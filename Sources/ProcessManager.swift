@@ -96,7 +96,8 @@ final class ProcessManager {
 
     func connect(
         singBoxPath: String, singBoxConfig: String,
-        xrayPath: String, xrayConfig: String
+        xrayPath: String, xrayConfig: String,
+        bypassDomains: [String] = []
     ) {
         guard !isRunning else { return }
         lastConnection = (singBoxPath, singBoxConfig, xrayPath, xrayConfig)
@@ -106,10 +107,16 @@ final class ProcessManager {
         let hasSingBox = !singBoxConfig.isEmpty && !singBoxPath.isEmpty
 
         if hasXray {
-            try? xrayConfig.write(toFile: "\(tmp)/xray-config.json", atomically: true, encoding: .utf8)
+            let finalConfig = BypassService.injectXray(xrayConfig, domains: bypassDomains)
+            try? finalConfig.write(toFile: "\(tmp)/xray-config.json", atomically: true, encoding: .utf8)
         }
         if hasSingBox {
-            try? singBoxConfig.write(toFile: "\(tmp)/singbox-config.json", atomically: true, encoding: .utf8)
+            let finalConfig = BypassService.injectSingBox(singBoxConfig, domains: bypassDomains)
+            try? finalConfig.write(toFile: "\(tmp)/singbox-config.json", atomically: true, encoding: .utf8)
+        }
+
+        if !bypassDomains.isEmpty {
+            logs.append("[Bypass] \(bypassDomains.count) domain(s) will route direct: \(bypassDomains.joined(separator: ", "))")
         }
 
         guard hasXray || hasSingBox else {

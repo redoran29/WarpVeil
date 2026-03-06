@@ -2,6 +2,7 @@ import SwiftUI
 
 enum Tab: String, CaseIterable {
     case dashboard = "Dashboard"
+    case routing = "Routing"
     case setup = "Setup"
     case settings = "Settings"
 }
@@ -19,6 +20,9 @@ struct ContentView: View {
     @AppStorage("singBoxConfig") private var singBoxConfig = ""
     @AppStorage("xrayPath") private var xrayPath = ""
     @AppStorage("singBoxPath") private var singBoxPath = ""
+    @AppStorage("bypassDomains") private var bypassDomainsRaw = ""
+    @AppStorage("bypassEnabled") private var bypassEnabled = true
+    @State private var newDomain = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,6 +45,7 @@ struct ContentView: View {
 
             switch tab {
             case .dashboard: dashboardTab
+            case .routing: routingTab
             case .setup: setupTab
             case .settings: settingsTab
             }
@@ -139,12 +144,8 @@ struct ContentView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(pm.logs.enumerated()), id: \.offset) { i, line in
-                                Text(line)
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.vertical, 0.5)
+                            ForEach(Array(pm.logs.reversed().enumerated()), id: \.offset) { i, line in
+                                logLine(line)
                                     .id(i)
                             }
                         }
@@ -152,13 +153,19 @@ struct ContentView: View {
                     }
                     .background(Color(nsColor: .textBackgroundColor))
                     .onChange(of: pm.logs.count) {
-                        if let last = pm.logs.indices.last {
-                            proxy.scrollTo(last, anchor: .bottom)
-                        }
+                        proxy.scrollTo(0, anchor: .top)
                     }
                 }
             }
         }
+    }
+
+    private func logLine(_ line: String) -> some View {
+        Text(line)
+            .font(.system(size: 11, design: .monospaced))
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 0.5)
     }
 
     // MARK: - Setup
@@ -270,6 +277,148 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Routing
+
+    private var bypassDomains: [String] {
+        bypassDomainsRaw.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    private var routingTab: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Toggle("Enable domain bypass", isOn: $bypassEnabled)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                Spacer()
+                Text("\(bypassDomains.count) domain(s)")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(10)
+
+            Divider()
+
+            HStack(spacing: 6) {
+                TextField("example.com", text: $newDomain)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12, design: .monospaced))
+                    .onSubmit { addDomain() }
+                Button("Add") { addDomain() }
+                    .disabled(newDomain.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+
+            Divider()
+
+            if bypassDomains.isEmpty {
+                Spacer()
+                Text("No bypass domains.\nDomains added here will go outside the VPN.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Spacer()
+            } else {
+                List {
+                    ForEach(bypassDomains, id: \.self) { domain in
+                        HStack {
+                            Image(systemName: "globe")
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                            Text(domain)
+                                .font(.system(size: 12, design: .monospaced))
+                            Spacer()
+                            Button {
+                                removeDomain(domain)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .listStyle(.plain)
+            }
+
+            if pm.isRunning {
+                Divider()
+                HStack {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                    Text("Reconnect to apply routing changes")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(6)
+            }
+
+            Divider()
+
+            // Bypass log — filtered from main log
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("Bypass Log").font(.caption).fontWeight(.medium)
+                    Spacer()
+                    Text("\(bypassLogLines.count) entries")
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            if bypassLogLines.isEmpty {
+                                Text(pm.isRunning
+                                     ? "Waiting for bypass traffic..."
+                                     : "Connect VPN to see bypass log")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .padding(6)
+                            } else {
+                                ForEach(Array(bypassLogLines.enumerated()), id: \.offset) { i, line in
+                                    Text(line)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(.green)
+                                        .textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.vertical, 0.5)
+                                        .id(i)
+                                }
+                            }
+                        }
+                        .padding(6)
+                    }
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .onChange(of: bypassLogLines.count) {
+                        proxy.scrollTo(0, anchor: .top)
+                    }
+                }
+            }
+        }
+    }
+
+    private var bypassLogLines: [String] {
+        let domains = bypassDomains
+        guard !domains.isEmpty else { return [] }
+        return pm.logs.filter { line in
+            let low = line.lowercased()
+            if low.hasPrefix("[bypass]") { return true }
+            return domains.contains(where: { low.contains($0) })
+        }.reversed()
+    }
+
+    private func addDomain() {
+        let domain = newDomain.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !domain.isEmpty, !bypassDomains.contains(domain) else { return }
+        bypassDomainsRaw += (bypassDomainsRaw.isEmpty ? "" : "\n") + domain
+        newDomain = ""
+    }
+
+    private func removeDomain(_ domain: String) {
+        let updated = bypassDomains.filter { $0 != domain }
+        bypassDomainsRaw = updated.joined(separator: "\n")
+    }
+
     // MARK: - Settings
 
     private var settingsTab: some View {
@@ -339,7 +488,8 @@ struct ContentView: View {
     private func doConnect() {
         pm.connect(
             singBoxPath: singBoxPath, singBoxConfig: singBoxConfig,
-            xrayPath: xrayPath, xrayConfig: xrayConfig
+            xrayPath: xrayPath, xrayConfig: xrayConfig,
+            bypassDomains: bypassEnabled ? bypassDomains : []
         )
         connectedAt = Date()
         startLocationTimer()
