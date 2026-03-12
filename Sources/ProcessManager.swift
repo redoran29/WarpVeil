@@ -14,7 +14,8 @@ final class ProcessManager {
     private static let stopScript = "/private/tmp/warpveil-stop.sh"
     private static let sudoersFile = "/etc/sudoers.d/warpveil"
     private var lastConnection: (singBoxPath: String, singBoxConfig: String,
-                                  xrayPath: String, xrayConfig: String)?
+                                  xrayPath: String, xrayConfig: String,
+                                  bypassDomains: [String])?
     private var wakeObserver: Any?
     var onReconnect: (() -> Void)?
 
@@ -87,7 +88,8 @@ final class ProcessManager {
         // Wait for network to come back before reconnecting.
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [self] in
             connect(singBoxPath: params.singBoxPath, singBoxConfig: params.singBoxConfig,
-                    xrayPath: params.xrayPath, xrayConfig: params.xrayConfig)
+                    xrayPath: params.xrayPath, xrayConfig: params.xrayConfig,
+                    bypassDomains: params.bypassDomains)
             onReconnect?()
         }
     }
@@ -100,7 +102,7 @@ final class ProcessManager {
         bypassDomains: [String] = []
     ) {
         guard !isRunning else { return }
-        lastConnection = (singBoxPath, singBoxConfig, xrayPath, xrayConfig)
+        lastConnection = (singBoxPath, singBoxConfig, xrayPath, xrayConfig, bypassDomains)
 
         let tmp = FileManager.default.temporaryDirectory.path
         let hasXray = !xrayConfig.isEmpty && !xrayPath.isEmpty
@@ -193,6 +195,22 @@ final class ProcessManager {
             """)
 
         return cmds.joined(separator: "\n")
+    }
+
+    func reconnect(bypassDomains: [String]) {
+        guard isRunning, let params = lastConnection else { return }
+        logs.append("[Routing changed — reconnecting...]")
+        helperProcess?.terminate()
+        helperProcess = nil
+        stopLogTail()
+        isRunning = false
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [self] in
+            connect(singBoxPath: params.singBoxPath, singBoxConfig: params.singBoxConfig,
+                    xrayPath: params.xrayPath, xrayConfig: params.xrayConfig,
+                    bypassDomains: bypassDomains)
+            onReconnect?()
+        }
     }
 
     func disconnect() {

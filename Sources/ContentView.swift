@@ -70,6 +70,14 @@ struct ContentView: View {
         .onChange(of: setup.xrayPath) { _, newPath in
             if let newPath, !newPath.isEmpty { xrayPath = newPath }
         }
+        .onChange(of: bypassDomainsRaw) {
+            guard pm.isRunning else { return }
+            pm.reconnect(bypassDomains: bypassEnabled ? bypassDomains : [])
+        }
+        .onChange(of: bypassEnabled) {
+            guard pm.isRunning else { return }
+            pm.reconnect(bypassDomains: bypassEnabled ? bypassDomains : [])
+        }
     }
 
     // MARK: - Dashboard
@@ -343,9 +351,9 @@ struct ContentView: View {
             if pm.isRunning {
                 Divider()
                 HStack {
-                    Image(systemName: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                    Text("Reconnect to apply routing changes")
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .foregroundStyle(.green)
+                    Text("Routing changes apply automatically")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(6)
@@ -466,6 +474,21 @@ struct ContentView: View {
                 Divider()
                 configEditor("Xray Config", text: $xrayConfig)
             }
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("Quit WarpVeil") {
+                    if pm.isRunning { pm.disconnect() }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        NSApplication.shared.terminate(nil)
+                    }
+                }
+                .controlSize(.small)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
         }
     }
 

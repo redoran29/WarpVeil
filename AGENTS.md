@@ -81,6 +81,11 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - sing-box and xray have different JSON config formats — BypassService handles both separately
 - Config detection (`isSingBoxConfig`) checks for `"type"` vs `"protocol"` keys in outbounds to distinguish formats
 
+## Communication
+
+- Always respond in Russian, but keep internal reasoning in English
+- Code, comments, commit messages, and variable names stay in English
+
 ## Git Workflow
 
 - Single `main` branch
