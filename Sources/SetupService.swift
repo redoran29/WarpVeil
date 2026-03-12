@@ -26,7 +26,7 @@ enum DependencyStatus: Equatable {
 }
 
 @Observable
-final class SetupService {
+final class SetupService: @unchecked Sendable {
     var statuses: [Dependency: DependencyStatus] = [:]
     var logs: [String] = []
     var isInstalling = false
