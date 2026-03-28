@@ -26,7 +26,8 @@ enum DependencyStatus: Equatable {
 }
 
 @Observable
-final class SetupService: @unchecked Sendable {
+@MainActor
+final class SetupService {
     var statuses: [Dependency: DependencyStatus] = [:]
     var logs: [String] = []
     var isInstalling = false
@@ -57,36 +58,18 @@ final class SetupService: @unchecked Sendable {
             statuses[dep] = .checking
         }
 
-        Task.detached { [self] in
-            let brew = Self.findBrew()
-            await MainActor.run {
-                if let path = brew {
-                    self.brewPath = path
-                    self.statuses[.homebrew] = .installed(path)
-                } else {
-                    self.statuses[.homebrew] = .missing
-                }
-            }
+        Task {
+            let brew = await Task.detached { Self.findBrew() }.value
+            brewPath = brew
+            statuses[.homebrew] = brew.map { .installed($0) } ?? .missing
 
-            let sb = ProcessManager.findBinary("sing-box")
-            await MainActor.run {
-                if let path = sb {
-                    self.singBoxPath = path
-                    self.statuses[.singBox] = .installed(path)
-                } else {
-                    self.statuses[.singBox] = .missing
-                }
-            }
+            let sb = await Task.detached { ProcessManager.findBinary("sing-box") }.value
+            singBoxPath = sb
+            statuses[.singBox] = sb.map { .installed($0) } ?? .missing
 
-            let xr = ProcessManager.findBinary("xray")
-            await MainActor.run {
-                if let path = xr {
-                    self.xrayPath = path
-                    self.statuses[.xray] = .installed(path)
-                } else {
-                    self.statuses[.xray] = .missing
-                }
-            }
+            let xr = await Task.detached { ProcessManager.findBinary("xray") }.value
+            xrayPath = xr
+            statuses[.xray] = xr.map { .installed($0) } ?? .missing
         }
     }
 
@@ -102,50 +85,41 @@ final class SetupService: @unchecked Sendable {
         isInstalling = true
         logs.removeAll()
 
-        Task.detached { [self] in
+        Task {
             // Step 1: Homebrew
-            let brewMissing: Bool = await MainActor.run {
-                if case .missing = self.statuses[.homebrew] { return true }
-                if case .failed = self.statuses[.homebrew] { return true }
+            let brewMissing: Bool = {
+                if case .missing = statuses[.homebrew] { return true }
+                if case .failed = statuses[.homebrew] { return true }
                 return false
-            }
+            }()
             if brewMissing {
-                await self.installHomebrew()
+                await installHomebrew()
             }
 
-            let brewOK: Bool = await MainActor.run {
-                if case .installed = self.statuses[.homebrew] { return true }
+            let brewOK: Bool = {
+                if case .installed = statuses[.homebrew] { return true }
                 return false
-            }
+            }()
             guard brewOK else {
-                await MainActor.run {
-                    self.appendLog("[Error] Cannot proceed without Homebrew")
-                    self.isInstalling = false
-                }
+                appendLog("[Error] Cannot proceed without Homebrew")
+                isInstalling = false
                 return
             }
 
             // Step 2: Packages
             for dep in [Dependency.singBox, Dependency.xray] {
-                let needsInstall: Bool = await MainActor.run {
-                    let s = self.statuses[dep] ?? .unknown
-                    if case .installed = s { return false }
-                    return true
-                }
-                if needsInstall {
-                    await self.installFormula(dep)
-                }
+                let s = statuses[dep] ?? .unknown
+                if case .installed = s { continue }
+                await installFormula(dep)
             }
 
-            await MainActor.run { self.isInstalling = false }
+            isInstalling = false
         }
     }
 
     private func installHomebrew() async {
-        await MainActor.run {
-            statuses[.homebrew] = .installing
-            appendLog("[Homebrew] Installing...")
-        }
+        statuses[.homebrew] = .installing
+        appendLog("[Homebrew] Installing...")
 
         let success = await runAndStream(
             "/usr/bin/osascript",
@@ -155,49 +129,43 @@ final class SetupService: @unchecked Sendable {
         )
 
         let path = Self.findBrew()
-        await MainActor.run {
-            if success, let path {
-                brewPath = path
-                statuses[.homebrew] = .installed(path)
-                appendLog("[Homebrew] Installed at \(path)")
-            } else {
-                statuses[.homebrew] = .failed("Installation failed")
-                appendLog("[Homebrew] Installation failed. Install manually: https://brew.sh")
-            }
+        if success, let path {
+            brewPath = path
+            statuses[.homebrew] = .installed(path)
+            appendLog("[Homebrew] Installed at \(path)")
+        } else {
+            statuses[.homebrew] = .failed("Installation failed")
+            appendLog("[Homebrew] Installation failed. Install manually: https://brew.sh")
         }
     }
 
     private func installFormula(_ dep: Dependency) async {
         guard let formula = dep.formulaName else { return }
-        let brew = await MainActor.run { brewPath ?? "/opt/homebrew/bin/brew" }
+        let brew = brewPath ?? "/opt/homebrew/bin/brew"
 
-        await MainActor.run {
-            statuses[dep] = .installing
-            appendLog("[\(dep.rawValue)] Installing via Homebrew...")
-        }
+        statuses[dep] = .installing
+        appendLog("[\(dep.rawValue)] Installing via Homebrew...")
 
         let success = await runAndStream(brew, arguments: ["install", formula])
-        let resolved = ProcessManager.findBinary(formula)
+        let resolved = await Task.detached { ProcessManager.findBinary(formula) }.value
 
-        await MainActor.run {
-            if success, let path = resolved {
-                statuses[dep] = .installed(path)
-                appendLog("[\(dep.rawValue)] Installed at \(path)")
-                switch dep {
-                case .singBox: singBoxPath = path
-                case .xray:    xrayPath = path
-                default: break
-                }
-            } else {
-                statuses[dep] = .failed("Installation failed")
-                appendLog("[\(dep.rawValue)] Installation failed")
+        if success, let path = resolved {
+            statuses[dep] = .installed(path)
+            appendLog("[\(dep.rawValue)] Installed at \(path)")
+            switch dep {
+            case .singBox: singBoxPath = path
+            case .xray:    xrayPath = path
+            default: break
             }
+        } else {
+            statuses[dep] = .failed("Installation failed")
+            appendLog("[\(dep.rawValue)] Installation failed")
         }
     }
 
     // MARK: - Process runner with real-time log streaming
 
-    private func runAndStream(_ path: String, arguments: [String]) async -> Bool {
+    private nonisolated func runAndStream(_ path: String, arguments: [String]) async -> Bool {
         await withCheckedContinuation { continuation in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: path)
@@ -215,7 +183,7 @@ final class SetupService: @unchecked Sendable {
                 let data = handle.availableData
                 guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
                 let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     self?.logs.append(contentsOf: lines)
                     if let count = self?.logs.count, count > 2000 {
                         self?.logs.removeFirst(count - 2000)
@@ -231,7 +199,7 @@ final class SetupService: @unchecked Sendable {
             do {
                 try process.run()
             } catch {
-                DispatchQueue.main.async { [weak self] in
+                Task { @MainActor [weak self] in
                     self?.appendLog("[Error] \(error.localizedDescription)")
                 }
                 pipe.fileHandleForReading.readabilityHandler = nil
