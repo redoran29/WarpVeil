@@ -120,6 +120,7 @@ final class ProcessManager {
         helperProcess?.terminate()
         helperProcess = nil
         stopLogTail()
+        killVPNProcesses()
         isRunning = false
 
         reconnectTask = Task {
@@ -253,6 +254,7 @@ final class ProcessManager {
         helperProcess?.terminate()
         helperProcess = nil
         stopLogTail()
+        killVPNProcesses()
         isRunning = false
 
         reconnectTask = Task {
@@ -273,7 +275,11 @@ final class ProcessManager {
         helperProcess?.terminate()
         helperProcess = nil
         stopLogTail()
+        killVPNProcesses()
+        isRunning = false
+    }
 
+    private func killVPNProcesses() {
         if isPasswordless {
             let script = "#!/bin/bash\npkill -f 'sing-box run' 2>/dev/null\npkill -f 'xray run' 2>/dev/null\n"
             FileManager.default.createFile(atPath: stopScript, contents: script.data(using: .utf8), attributes: [.posixPermissions: 0o700])
@@ -297,7 +303,6 @@ final class ProcessManager {
                 logs.append("[Error: failed to run disconnect: \(error.localizedDescription)]")
             }
         }
-        isRunning = false
     }
 
     func clearLogs() {
