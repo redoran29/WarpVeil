@@ -5,7 +5,6 @@ import Darwin
 final class NetworkMonitor {
     var uploadSpeed: String = ""
     var downloadSpeed: String = ""
-    var isActive = false
 
     private var timer: Timer?
     private var lastIn: UInt64 = 0
@@ -23,7 +22,6 @@ final class NetworkMonitor {
         timer = nil
         uploadSpeed = ""
         downloadSpeed = ""
-        isActive = false
     }
 
     private func tick() {
@@ -34,7 +32,6 @@ final class NetworkMonitor {
         lastOut = totalOut
 
         DispatchQueue.main.async { [self] in
-            isActive = dIn > 1024 || dOut > 1024
             downloadSpeed = Self.format(dIn)
             uploadSpeed = Self.format(dOut)
         }

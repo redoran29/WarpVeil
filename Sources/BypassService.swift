@@ -83,18 +83,6 @@ enum BypassService {
         return serializeJSON(root) ?? json
     }
 
-    // MARK: - Detect config type
-
-    static func isSingBoxConfig(_ json: String) -> Bool {
-        guard let root = parseJSON(json) else { return false }
-        // sing-box uses "inbounds"/"outbounds" with "type" key; xray uses "protocol"
-        if let outbounds = root["outbounds"] as? [[String: Any]],
-           let first = outbounds.first {
-            return first["type"] != nil
-        }
-        return root["route"] != nil
-    }
-
     // MARK: - JSON helpers
 
     private static func parseJSON(_ string: String) -> [String: Any]? {
