@@ -14,6 +14,11 @@
 		AA0000000000000000000005 /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000005 /* LocationService.swift */; };
 		AA0000000000000000000006 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000006 /* NetworkMonitor.swift */; };
 		AA0000000000000000000007 /* BypassService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000007 /* BypassService.swift */; };
+		EAC186EC2F77D5B200FFDF4D /* StatusIndicator 2.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAC186EB2F77D5B200FFDF4D /* StatusIndicator 2.swift */; };
+		EAC186ED2F77D5B200FFDF4D /* DashboardView 2.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAC186E72F77D5B200FFDF4D /* DashboardView 2.swift */; };
+		EAC186EE2F77D5B200FFDF4D /* SetupView 2.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAC186EA2F77D5B200FFDF4D /* SetupView 2.swift */; };
+		EAC186EF2F77D5B200FFDF4D /* SettingsView 2.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAC186E92F77D5B200FFDF4D /* SettingsView 2.swift */; };
+		EAC186F02F77D5B200FFDF4D /* RoutingView 2.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAC186E82F77D5B200FFDF4D /* RoutingView 2.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,6 +32,11 @@
 		BB0000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		BB0000000000000000000009 /* WarpVeil.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WarpVeil.entitlements; sourceTree = "<group>"; };
 		DD0000000000000000000001 /* WarpVeil.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WarpVeil.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		EAC186E72F77D5B200FFDF4D /* DashboardView 2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DashboardView 2.swift"; sourceTree = "<group>"; };
+		EAC186E82F77D5B200FFDF4D /* RoutingView 2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RoutingView 2.swift"; sourceTree = "<group>"; };
+		EAC186E92F77D5B200FFDF4D /* SettingsView 2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsView 2.swift"; sourceTree = "<group>"; };
+		EAC186EA2F77D5B200FFDF4D /* SetupView 2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SetupView 2.swift"; sourceTree = "<group>"; };
+		EAC186EB2F77D5B200FFDF4D /* StatusIndicator 2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StatusIndicator 2.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -40,7 +50,7 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		EE0000000000000000000001 /* = root = */ = {
+		EE0000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
 				BB0000000000000000000008 /* Info.plist */,
@@ -56,6 +66,11 @@
 				BB0000000000000000000001 /* WarpVeilApp.swift */,
 				BB0000000000000000000002 /* ContentView.swift */,
 				BB0000000000000000000003 /* ProcessManager.swift */,
+				EAC186E72F77D5B200FFDF4D /* DashboardView 2.swift */,
+				EAC186E82F77D5B200FFDF4D /* RoutingView 2.swift */,
+				EAC186E92F77D5B200FFDF4D /* SettingsView 2.swift */,
+				EAC186EA2F77D5B200FFDF4D /* SetupView 2.swift */,
+				EAC186EB2F77D5B200FFDF4D /* StatusIndicator 2.swift */,
 				BB0000000000000000000004 /* SetupService.swift */,
 				BB0000000000000000000005 /* LocationService.swift */,
 				BB0000000000000000000006 /* NetworkMonitor.swift */,
@@ -129,6 +144,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EAC186EC2F77D5B200FFDF4D /* StatusIndicator 2.swift in Sources */,
+				EAC186ED2F77D5B200FFDF4D /* DashboardView 2.swift in Sources */,
+				EAC186EE2F77D5B200FFDF4D /* SetupView 2.swift in Sources */,
+				EAC186EF2F77D5B200FFDF4D /* SettingsView 2.swift in Sources */,
+				EAC186F02F77D5B200FFDF4D /* RoutingView 2.swift in Sources */,
 				AA0000000000000000000001 /* WarpVeilApp.swift in Sources */,
 				AA0000000000000000000002 /* ContentView.swift in Sources */,
 				AA0000000000000000000003 /* ProcessManager.swift in Sources */,
@@ -322,7 +342,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
 	};
 	rootObject = FF0000000000000000000002 /* Project object */;
 }
