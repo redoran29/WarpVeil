@@ -14,9 +14,9 @@ struct WarpVeilApp: App {
         } label: {
             Image(systemName: pm.isRunning ? "checkmark.shield.fill" : "shield.slash")
                 .symbolEffect(.bounce, value: pm.isRunning)
-            if pm.isRunning && !net.downloadSpeed.isEmpty {
-                Text("\(loc.flag) ↓\(net.downloadSpeed) ↑\(net.uploadSpeed)")
-                    .font(.system(size: 12, design: .monospaced))
+            if pm.isRunning {
+                Text("\(loc.flag) ↓↑")
+                    .foregroundStyle(net.hasTraffic ? .primary : .secondary)
             } else if !loc.flag.isEmpty {
                 Text(loc.flag)
             }
