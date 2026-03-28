@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 
 @Observable
+@MainActor
 final class ProcessManager {
     var logs: [String] = []
     var isRunning = false
@@ -55,8 +56,9 @@ final class ProcessManager {
             do shell script "visudo -cf '\(tmpFile)' && install -m 0440 -o root -g wheel '\(tmpFile)' '\(Self.sudoersFile)' && rm -f '\(tmpFile)'" with administrator privileges
             """]
         process.terminationHandler = { [weak self] p in
-            DispatchQueue.main.async {
-                if p.terminationStatus == 0 {
+            let status = p.terminationStatus
+            Task { @MainActor in
+                if status == 0 {
                     self?.isPasswordless = true
                     self?.logs.append("[Passwordless mode enabled]")
                 } else {
@@ -78,8 +80,9 @@ final class ProcessManager {
             do shell script "rm -f '\(Self.sudoersFile)'" with administrator privileges
             """]
         process.terminationHandler = { [weak self] p in
-            DispatchQueue.main.async {
-                if p.terminationStatus == 0 {
+            let status = p.terminationStatus
+            Task { @MainActor in
+                if status == 0 {
                     self?.isPasswordless = false
                     self?.logs.append("[Passwordless mode disabled]")
                 }
@@ -180,10 +183,12 @@ final class ProcessManager {
         }
 
         process.terminationHandler = { [weak self] p in
-            DispatchQueue.main.async {
-                self?.isRunning = false
-                self?.stopLogTail()
-                self?.logs.append("[Disconnected (exit \(p.terminationStatus))]")
+            let status = p.terminationStatus
+            Task { @MainActor in
+                guard let self, self.isRunning else { return }
+                self.isRunning = false
+                self.stopLogTail()
+                self.logs.append("[Disconnected (exit \(status))]")
             }
         }
 
@@ -301,7 +306,7 @@ final class ProcessManager {
             let data = handle.readDataToEndOfFile()
             guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
             let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 self?.logs.append(contentsOf: lines)
                 if let count = self?.logs.count, count > 1000 {
                     self?.logs.removeFirst(count - 1000)
@@ -321,7 +326,7 @@ final class ProcessManager {
 
     // MARK: - Binary auto-detection
 
-    static func findBinary(_ name: String) -> String? {
+    nonisolated static func findBinary(_ name: String) -> String? {
         // Check well-known paths first (reliable in .app context)
         let candidates = [
             "/opt/homebrew/bin/\(name)",
@@ -341,7 +346,7 @@ final class ProcessManager {
         return nil
     }
 
-    private static func shellCommand(_ cmd: String) -> String? {
+    private nonisolated static func shellCommand(_ cmd: String) -> String? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
         p.arguments = ["-lc", cmd]
@@ -355,7 +360,7 @@ final class ProcessManager {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func shellEscape(_ path: String) -> String {
+    private nonisolated static func shellEscape(_ path: String) -> String {
         "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
