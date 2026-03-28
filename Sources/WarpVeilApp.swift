@@ -15,6 +15,7 @@ struct WarpVeilApp: App {
             Image(systemName: pm.isRunning ? "shield.checkered" : "shield.slash")
             if pm.isRunning && !net.downloadSpeed.isEmpty {
                 Text("\(loc.flag) ↓\(net.downloadSpeed) ↑\(net.uploadSpeed)")
+                    .monospacedDigit()
             } else if !loc.flag.isEmpty {
                 Text(loc.flag)
             }
