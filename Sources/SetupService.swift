@@ -73,7 +73,7 @@ final class SetupService {
         }
     }
 
-    private static func findBrew() -> String? {
+    private nonisolated static func findBrew() -> String? {
         ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
             .first { FileManager.default.isExecutableFile(atPath: $0) }
     }
