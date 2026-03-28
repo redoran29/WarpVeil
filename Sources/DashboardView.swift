@@ -9,8 +9,6 @@ struct DashboardView: View {
     var onConnect: () -> Void
     var onDisconnect: () -> Void
 
-    @State private var logExpanded = true
-
     var body: some View {
         VStack(spacing: 0) {
             if !setup.allInstalled {
@@ -145,54 +143,23 @@ struct DashboardView: View {
     // MARK: - Log
 
     private var logSection: some View {
-        VStack(spacing: 0) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { logExpanded.toggle() }
-            } label: {
-                HStack {
-                    Image(systemName: logExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 12)
-                    Text("Log")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                    Text("(\(pm.logs.count))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    if logExpanded {
-                        Button("Clear") { pm.clearLogs() }
-                            .controlSize(.mini)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(pm.logs.reversed().enumerated()), id: \.offset) { i, line in
+                        Text(line)
+                            .font(.system(size: 10, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 0.5)
+                            .id(i)
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .padding(6)
             }
-            .buttonStyle(.plain)
-
-            if logExpanded {
-                Divider()
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(pm.logs.reversed().enumerated()), id: \.offset) { i, line in
-                                Text(line)
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.vertical, 0.5)
-                                    .id(i)
-                            }
-                        }
-                        .padding(6)
-                    }
-                    .background(Color(nsColor: .textBackgroundColor))
-                    .frame(maxHeight: 200)
-                    .onChange(of: pm.logs.count) {
-                        proxy.scrollTo(0, anchor: .top)
-                    }
-                }
+            .background(Color(nsColor: .textBackgroundColor))
+            .onChange(of: pm.logs.count) {
+                proxy.scrollTo(0, anchor: .top)
             }
         }
     }
