@@ -102,11 +102,21 @@ final class ProcessManager {
         bypassDomains: [String] = []
     ) {
         guard !isRunning else { return }
-        lastConnection = (singBoxPath, singBoxConfig, xrayPath, xrayConfig, bypassDomains)
 
         let tmp = FileManager.default.temporaryDirectory.path
         let hasXray = !xrayConfig.isEmpty && !xrayPath.isEmpty
         let hasSingBox = !singBoxConfig.isEmpty && !singBoxPath.isEmpty
+
+        if hasXray && !FileManager.default.isExecutableFile(atPath: xrayPath) {
+            logs.append("[Error: xray binary not found at \(xrayPath)]")
+            return
+        }
+        if hasSingBox && !FileManager.default.isExecutableFile(atPath: singBoxPath) {
+            logs.append("[Error: sing-box binary not found at \(singBoxPath)]")
+            return
+        }
+
+        lastConnection = (singBoxPath, singBoxConfig, xrayPath, xrayConfig, bypassDomains)
 
         if hasXray {
             let finalConfig = BypassService.injectXray(xrayConfig, domains: bypassDomains)
@@ -168,14 +178,14 @@ final class ProcessManager {
         tmp: String, hasXray: Bool, hasSingBox: Bool,
         xrayPath: String, singBoxPath: String
     ) -> String {
-        var cmds = ["#!/bin/bash", "cd /tmp", "exec > '\(logFile)' 2>&1"]
+        var cmds = ["#!/bin/bash", "cd /tmp", "exec > \(Self.shellEscape(logFile)) 2>&1"]
 
         // Kill stale processes from previous session (e.g. after sleep/wake)
         cmds.append("pkill -f 'sing-box run' 2>/dev/null; pkill -f 'xray run' 2>/dev/null; sleep 1")
 
         if hasXray {
             cmds.append("echo '[xray] starting...'")
-            cmds.append("'\(xrayPath)' run -config '\(tmp)/xray-config.json' &")
+            cmds.append("\(Self.shellEscape(xrayPath)) run -config \(Self.shellEscape("\(tmp)/xray-config.json")) &")
             cmds.append("XRAY_PID=$!")
             cmds.append("echo '[xray] started pid='$XRAY_PID")
             if hasSingBox { cmds.append("sleep 1") }
@@ -183,7 +193,7 @@ final class ProcessManager {
 
         if hasSingBox {
             cmds.append("echo '[sing-box] starting...'")
-            cmds.append("'\(singBoxPath)' run -c '\(tmp)/singbox-config.json' &")
+            cmds.append("\(Self.shellEscape(singBoxPath)) run -c \(Self.shellEscape("\(tmp)/singbox-config.json")) &")
             cmds.append("SINGBOX_PID=$!")
             cmds.append("echo '[sing-box] started pid='$SINGBOX_PID")
         }
@@ -312,5 +322,9 @@ final class ProcessManager {
         guard p.terminationStatus == 0 else { return nil }
         return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func shellEscape(_ path: String) -> String {
+        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
