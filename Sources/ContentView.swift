@@ -24,6 +24,7 @@ struct ContentView: View {
     @AppStorage("bypassDomains") private var bypassDomainsRaw = ""
     @AppStorage("bypassEnabled") private var bypassEnabled = true
     @State private var newDomain = ""
+    @State private var cachedBypassLines: [String] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -79,6 +80,17 @@ struct ContentView: View {
             connectedAt = Date()
             startLocationTimer()
         }
+        .onDisappear {
+            locationTask?.cancel()
+            locationTimer?.invalidate()
+            locationTimer = nil
+        }
+        .onChange(of: pm.logs.count) {
+            if tab == .routing { updateBypassLogLines() }
+        }
+        .onChange(of: tab) {
+            if tab == .routing { updateBypassLogLines() }
+        }
     }
 
     // MARK: - Dashboard
@@ -128,8 +140,10 @@ struct ContentView: View {
                         .foregroundStyle(.orange)
                     Spacer()
                     if let connectedAt {
-                        Label(uptimeString(from: connectedAt), systemImage: "clock")
-                            .foregroundStyle(.secondary)
+                        TimelineView(.periodic(from: .now, by: 1)) { _ in
+                            Label(uptimeString(from: connectedAt), systemImage: "clock")
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .font(.system(size: 11, design: .monospaced))
@@ -367,7 +381,7 @@ struct ContentView: View {
                 HStack {
                     Text("Bypass Log").font(.caption).fontWeight(.medium)
                     Spacer()
-                    Text("\(bypassLogLines.count) entries")
+                    Text("\(cachedBypassLines.count) entries")
                         .font(.system(size: 10)).foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 8)
@@ -376,7 +390,7 @@ struct ContentView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            if bypassLogLines.isEmpty {
+                            if cachedBypassLines.isEmpty {
                                 Text(pm.isRunning
                                      ? "Waiting for bypass traffic..."
                                      : "Connect VPN to see bypass log")
@@ -384,7 +398,7 @@ struct ContentView: View {
                                     .foregroundStyle(.secondary)
                                     .padding(6)
                             } else {
-                                ForEach(Array(bypassLogLines.enumerated()), id: \.offset) { i, line in
+                                ForEach(Array(cachedBypassLines.enumerated()), id: \.offset) { i, line in
                                     Text(line)
                                         .font(.system(size: 11, design: .monospaced))
                                         .foregroundStyle(.green)
@@ -398,7 +412,7 @@ struct ContentView: View {
                         .padding(6)
                     }
                     .background(Color(nsColor: .textBackgroundColor))
-                    .onChange(of: bypassLogLines.count) {
+                    .onChange(of: cachedBypassLines.count) {
                         proxy.scrollTo(0, anchor: .top)
                     }
                 }
@@ -406,10 +420,13 @@ struct ContentView: View {
         }
     }
 
-    private var bypassLogLines: [String] {
+    private func updateBypassLogLines() {
         let domains = bypassDomains
-        guard !domains.isEmpty else { return [] }
-        return pm.logs.filter { line in
+        guard !domains.isEmpty else {
+            cachedBypassLines = []
+            return
+        }
+        cachedBypassLines = pm.logs.filter { line in
             let low = line.lowercased()
             if low.hasPrefix("[bypass]") { return true }
             return domains.contains(where: { low.contains($0) })
