@@ -503,6 +503,7 @@ struct ContentView: View {
                         NSApplication.shared.terminate(nil)
                     }
                 }
+                .keyboardShortcut("q")
                 .controlSize(.small)
             }
             .padding(.horizontal, 10)
