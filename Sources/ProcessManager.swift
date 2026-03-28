@@ -42,7 +42,12 @@ final class ProcessManager {
 
             """
         let tmpFile = "/private/tmp/warpveil-sudoers"
-        try? content.write(toFile: tmpFile, atomically: true, encoding: .utf8)
+        do {
+            try content.write(toFile: tmpFile, atomically: true, encoding: .utf8)
+        } catch {
+            logs.append("[Error: failed to write sudoers file: \(error.localizedDescription)]")
+            return
+        }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
@@ -59,7 +64,11 @@ final class ProcessManager {
                 }
             }
         }
-        try? process.run()
+        do {
+            try process.run()
+        } catch {
+            logs.append("[Error: \(error.localizedDescription)]")
+        }
     }
 
     func removePasswordless() {
@@ -76,7 +85,11 @@ final class ProcessManager {
                 }
             }
         }
-        try? process.run()
+        do {
+            try process.run()
+        } catch {
+            logs.append("[Error: \(error.localizedDescription)]")
+        }
     }
 
     init() {
@@ -245,14 +258,22 @@ final class ProcessManager {
             let kill = Process()
             kill.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
             kill.arguments = ["/bin/bash", stopScript]
-            try? kill.run()
+            do {
+                try kill.run()
+            } catch {
+                logs.append("[Error: failed to run stop script: \(error.localizedDescription)]")
+            }
         } else {
             let kill = Process()
             kill.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
             kill.arguments = ["-e", """
                 do shell script "pkill -f 'sing-box run'; pkill -f 'xray run'" with administrator privileges
                 """]
-            try? kill.run()
+            do {
+                try kill.run()
+            } catch {
+                logs.append("[Error: failed to run disconnect: \(error.localizedDescription)]")
+            }
         }
         isRunning = false
     }
