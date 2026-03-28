@@ -28,7 +28,8 @@ final class ProcessManager {
                                   xrayPath: String, xrayConfig: String,
                                   bypassDomains: [String])?
     private var wakeObserver: Any?
-    var onReconnect: (() -> Void)?
+    private var reconnectTask: Task<Void, Never>?
+    var reconnectCount = 0
 
     // MARK: - Passwordless mode
 
@@ -101,23 +102,38 @@ final class ProcessManager {
         ) { [weak self] _ in
             self?.handleWake()
         }
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            if self?.isRunning == true {
+                self?.disconnect()
+            }
+        }
+    }
+
+    deinit {
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
+        reconnectTask?.cancel()
     }
 
     private func handleWake() {
         guard let params = lastConnection, isRunning else { return }
         logs.append("[System woke up — reconnecting...]")
-        // Soft disconnect: just clean up local state, no osascript pkill.
-        // The connect script will kill stale processes itself (one password prompt).
+        reconnectTask?.cancel()
         helperProcess?.terminate()
         helperProcess = nil
         stopLogTail()
         isRunning = false
-        // Wait for network to come back before reconnecting.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [self] in
+
+        reconnectTask = Task {
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
             connect(singBoxPath: params.singBoxPath, singBoxConfig: params.singBoxConfig,
                     xrayPath: params.xrayPath, xrayConfig: params.xrayConfig,
                     bypassDomains: params.bypassDomains)
-            onReconnect?()
+            reconnectCount += 1
         }
     }
 
@@ -238,24 +254,30 @@ final class ProcessManager {
     func reconnect(bypassDomains: [String]) {
         guard isRunning, let params = lastConnection else { return }
         logs.append("[Routing changed — reconnecting...]")
+        reconnectTask?.cancel()
         helperProcess?.terminate()
         helperProcess = nil
         stopLogTail()
         isRunning = false
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [self] in
+        reconnectTask = Task {
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
             connect(singBoxPath: params.singBoxPath, singBoxConfig: params.singBoxConfig,
                     xrayPath: params.xrayPath, xrayConfig: params.xrayConfig,
                     bypassDomains: bypassDomains)
-            onReconnect?()
+            reconnectCount += 1
         }
     }
 
     func disconnect() {
         guard isRunning else { return }
+        reconnectTask?.cancel()
+        reconnectTask = nil
         logs.append("[Disconnecting...]")
         helperProcess?.terminate()
         helperProcess = nil
+        stopLogTail()
 
         if isPasswordless {
             let script = "#!/bin/bash\npkill -f 'sing-box run' 2>/dev/null\npkill -f 'xray run' 2>/dev/null\n"

@@ -15,6 +15,7 @@ struct ContentView: View {
 
     @State private var tab: Tab = .dashboard
     @State private var locationTimer: Timer?
+    @State private var locationTask: Task<Void, Never>?
     @State private var connectedAt: Date?
     @AppStorage("xrayConfig") private var xrayConfig = ""
     @AppStorage("singBoxConfig") private var singBoxConfig = ""
@@ -59,10 +60,6 @@ struct ContentView: View {
             if xrayPath.isEmpty || !FileManager.default.isExecutableFile(atPath: xrayPath) {
                 xrayPath = ProcessManager.findBinary("xray") ?? ""
             }
-            pm.onReconnect = { [self] in
-                connectedAt = Date()
-                startLocationTimer()
-            }
         }
         .onChange(of: setup.singBoxPath) { _, newPath in
             if let newPath, !newPath.isEmpty { singBoxPath = newPath }
@@ -77,6 +74,10 @@ struct ContentView: View {
         .onChange(of: bypassEnabled) {
             guard pm.isRunning else { return }
             pm.reconnect(bypassDomains: bypassEnabled ? bypassDomains : [])
+        }
+        .onChange(of: pm.reconnectCount) {
+            connectedAt = Date()
+            startLocationTimer()
         }
     }
 
@@ -521,12 +522,13 @@ struct ContentView: View {
     private func doDisconnect() {
         pm.disconnect()
         connectedAt = nil
+        locationTask?.cancel()
         locationTimer?.invalidate()
         locationTimer = nil
-        // Refresh location with retry at 3, 5, 10 seconds (same as connect)
-        Task {
+        locationTask = Task {
             for delay in [3, 5, 10] {
                 try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
                 let oldIP = loc.ip
                 await loc.detect()
                 if loc.ip != oldIP { break }
@@ -543,14 +545,15 @@ struct ContentView: View {
     }
 
     private func startLocationTimer() {
+        locationTask?.cancel()
         locationTimer?.invalidate()
-        // Retry a few times — TUN needs time to start routing
-        Task {
+        locationTask = Task {
             for delay in [3, 5, 10] {
                 try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
                 let oldIP = loc.ip
                 await loc.detect()
-                if loc.ip != oldIP { break } // IP changed, tunnel is working
+                if loc.ip != oldIP { break }
             }
         }
         locationTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
