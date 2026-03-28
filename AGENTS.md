@@ -67,11 +67,11 @@ Write the simplest code that works. Prioritize readability over cleverness.
 
 ## Temporary Files at Runtime
 
-- `/private/tmp/warpveil.log` — VPN process log (tailed in real-time)
-- `/private/tmp/warpveil-run.sh` — generated connect script
-- `/private/tmp/warpveil-stop.sh` — generated stop script
-- `/tmp/xray-config.json` — injected xray config
-- `/tmp/singbox-config.json` — injected sing-box config
+- `$TMPDIR/warpveil.log` — VPN process log (tailed in real-time)
+- `$TMPDIR/warpveil-run-<pid>.sh` — generated connect script (PID-scoped)
+- `$TMPDIR/warpveil-stop-<pid>.sh` — generated stop script (PID-scoped)
+- `$TMPDIR/warpveil-xray-<pid>.json` — injected xray config (PID-scoped)
+- `$TMPDIR/warpveil-singbox-<pid>.json` — injected sing-box config (PID-scoped)
 
 ## Gotchas
 

@@ -10,8 +10,18 @@ final class ProcessManager {
     private var logSource: DispatchSourceFileSystemObject?
     private var logHandle: FileHandle?
     private let logFile = FileManager.default.temporaryDirectory.path + "/warpveil.log"
-    private static let runScript = "/private/tmp/warpveil-run.sh"
-    private static let stopScript = "/private/tmp/warpveil-stop.sh"
+    private var runScript: String {
+        FileManager.default.temporaryDirectory.path + "/warpveil-run-\(ProcessInfo.processInfo.processIdentifier).sh"
+    }
+    private var stopScript: String {
+        FileManager.default.temporaryDirectory.path + "/warpveil-stop-\(ProcessInfo.processInfo.processIdentifier).sh"
+    }
+    private var xrayConfigFile: String {
+        FileManager.default.temporaryDirectory.path + "/warpveil-xray-\(ProcessInfo.processInfo.processIdentifier).json"
+    }
+    private var singboxConfigFile: String {
+        FileManager.default.temporaryDirectory.path + "/warpveil-singbox-\(ProcessInfo.processInfo.processIdentifier).json"
+    }
     private static let sudoersFile = "/etc/sudoers.d/warpveil"
     private var lastConnection: (singBoxPath: String, singBoxConfig: String,
                                   xrayPath: String, xrayConfig: String,
@@ -25,9 +35,10 @@ final class ProcessManager {
 
     func installPasswordless() {
         let user = NSUserName()
+        let tmpDir = FileManager.default.temporaryDirectory.path
         let content = """
-            \(user) ALL=(ALL) NOPASSWD: /bin/bash \(Self.runScript)
-            \(user) ALL=(ALL) NOPASSWD: /bin/bash \(Self.stopScript)
+            \(user) ALL=(ALL) NOPASSWD: /bin/bash \(tmpDir)/warpveil-run-*.sh
+            \(user) ALL=(ALL) NOPASSWD: /bin/bash \(tmpDir)/warpveil-stop-*.sh
 
             """
         let tmpFile = "/private/tmp/warpveil-sudoers"
@@ -103,7 +114,6 @@ final class ProcessManager {
     ) {
         guard !isRunning else { return }
 
-        let tmp = FileManager.default.temporaryDirectory.path
         let hasXray = !xrayConfig.isEmpty && !xrayPath.isEmpty
         let hasSingBox = !singBoxConfig.isEmpty && !singBoxPath.isEmpty
 
@@ -120,11 +130,11 @@ final class ProcessManager {
 
         if hasXray {
             let finalConfig = BypassService.injectXray(xrayConfig, domains: bypassDomains)
-            try? finalConfig.write(toFile: "\(tmp)/xray-config.json", atomically: true, encoding: .utf8)
+            FileManager.default.createFile(atPath: xrayConfigFile, contents: finalConfig.data(using: .utf8), attributes: [.posixPermissions: 0o600])
         }
         if hasSingBox {
             let finalConfig = BypassService.injectSingBox(singBoxConfig, domains: bypassDomains)
-            try? finalConfig.write(toFile: "\(tmp)/singbox-config.json", atomically: true, encoding: .utf8)
+            FileManager.default.createFile(atPath: singboxConfigFile, contents: finalConfig.data(using: .utf8), attributes: [.posixPermissions: 0o600])
         }
 
         if !bypassDomains.isEmpty {
@@ -139,20 +149,20 @@ final class ProcessManager {
         logs.append(isPasswordless ? "[Connecting...]" : "[Connecting (password prompt)...]")
 
         FileManager.default.createFile(atPath: logFile, contents: nil)
-        let script = buildScript(tmp: tmp, hasXray: hasXray, hasSingBox: hasSingBox,
+        let script = buildScript(hasXray: hasXray, hasSingBox: hasSingBox,
                                  xrayPath: xrayPath, singBoxPath: singBoxPath)
-        try? script.write(toFile: Self.runScript, atomically: true, encoding: .utf8)
+        FileManager.default.createFile(atPath: runScript, contents: script.data(using: .utf8), attributes: [.posixPermissions: 0o700])
 
         startLogTail()
 
         let process = Process()
         if isPasswordless {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-            process.arguments = ["/bin/bash", Self.runScript]
+            process.arguments = ["/bin/bash", runScript]
         } else {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
             process.arguments = ["-e", """
-                do shell script "bash '\(Self.runScript)'" with administrator privileges
+                do shell script "bash '\(runScript)'" with administrator privileges
                 """]
         }
 
@@ -175,7 +185,7 @@ final class ProcessManager {
     }
 
     private func buildScript(
-        tmp: String, hasXray: Bool, hasSingBox: Bool,
+        hasXray: Bool, hasSingBox: Bool,
         xrayPath: String, singBoxPath: String
     ) -> String {
         var cmds = ["#!/bin/bash", "cd /tmp", "exec > \(Self.shellEscape(logFile)) 2>&1"]
@@ -185,7 +195,7 @@ final class ProcessManager {
 
         if hasXray {
             cmds.append("echo '[xray] starting...'")
-            cmds.append("\(Self.shellEscape(xrayPath)) run -config \(Self.shellEscape("\(tmp)/xray-config.json")) &")
+            cmds.append("\(Self.shellEscape(xrayPath)) run -config \(Self.shellEscape(xrayConfigFile)) &")
             cmds.append("XRAY_PID=$!")
             cmds.append("echo '[xray] started pid='$XRAY_PID")
             if hasSingBox { cmds.append("sleep 1") }
@@ -193,7 +203,7 @@ final class ProcessManager {
 
         if hasSingBox {
             cmds.append("echo '[sing-box] starting...'")
-            cmds.append("\(Self.shellEscape(singBoxPath)) run -c \(Self.shellEscape("\(tmp)/singbox-config.json")) &")
+            cmds.append("\(Self.shellEscape(singBoxPath)) run -c \(Self.shellEscape(singboxConfigFile)) &")
             cmds.append("SINGBOX_PID=$!")
             cmds.append("echo '[sing-box] started pid='$SINGBOX_PID")
         }
@@ -231,10 +241,10 @@ final class ProcessManager {
 
         if isPasswordless {
             let script = "#!/bin/bash\npkill -f 'sing-box run' 2>/dev/null\npkill -f 'xray run' 2>/dev/null\n"
-            try? script.write(toFile: Self.stopScript, atomically: true, encoding: .utf8)
+            FileManager.default.createFile(atPath: stopScript, contents: script.data(using: .utf8), attributes: [.posixPermissions: 0o700])
             let kill = Process()
             kill.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-            kill.arguments = ["/bin/bash", Self.stopScript]
+            kill.arguments = ["/bin/bash", stopScript]
             try? kill.run()
         } else {
             let kill = Process()
