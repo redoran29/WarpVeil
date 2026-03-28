@@ -15,8 +15,8 @@ struct WarpVeilApp: App {
             Image(systemName: pm.isRunning ? "checkmark.shield.fill" : "shield.slash")
                 .symbolEffect(.bounce, value: pm.isRunning)
             if pm.isRunning {
-                Text("\(loc.flag) ↓↑")
-                    .foregroundStyle(net.hasTraffic ? .primary : .secondary)
+                Text(loc.flag)
+                Image(systemName: net.hasTraffic ? "arrow.down.arrow.up.circle.fill" : "arrow.down.arrow.up.circle")
             } else if !loc.flag.isEmpty {
                 Text(loc.flag)
             }
