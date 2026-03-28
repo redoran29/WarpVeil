@@ -16,7 +16,7 @@ struct WarpVeilApp: App {
                 .symbolEffect(.bounce, value: pm.isRunning)
             if pm.isRunning && !net.downloadSpeed.isEmpty {
                 Text("\(loc.flag) ↓\(net.downloadSpeed) ↑\(net.uploadSpeed)")
-                    .monospacedDigit()
+                    .font(.system(size: 12, design: .monospaced))
             } else if !loc.flag.isEmpty {
                 Text(loc.flag)
             }
