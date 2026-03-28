@@ -100,22 +100,17 @@ final class ProcessManager {
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.handleWake()
+            Task { @MainActor in self?.handleWake() }
         }
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            if self?.isRunning == true {
-                self?.disconnect()
+            Task { @MainActor in
+                if self?.isRunning == true {
+                    self?.disconnect()
+                }
             }
         }
-    }
-
-    deinit {
-        if let wakeObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
-        }
-        reconnectTask?.cancel()
     }
 
     private func handleWake() {
