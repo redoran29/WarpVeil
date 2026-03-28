@@ -46,14 +46,7 @@ final class NetworkMonitor {
     }
 
     private static func format(_ bytes: UInt64) -> String {
-        switch bytes {
-        case 0..<1024:
-            return "0 KB/s"
-        case 1024..<1_048_576:
-            return "\(bytes / 1024) KB/s"
-        default:
-            return String(format: "%.1f MB/s", Double(bytes) / 1_048_576)
-        }
+        String(format: "%05.2f MB/s", Double(bytes) / 1_048_576)
     }
 
     private static func readBytes() -> (UInt64, UInt64) {
