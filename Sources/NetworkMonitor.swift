@@ -5,6 +5,8 @@ import Darwin
 final class NetworkMonitor {
     var uploadSpeed: String = ""
     var downloadSpeed: String = ""
+    var downloadHistory: [Double] = Array(repeating: 0, count: 60)
+    var uploadHistory: [Double] = Array(repeating: 0, count: 60)
 
     private var timer: Timer?
     private var lastIn: UInt64 = 0
@@ -22,6 +24,8 @@ final class NetworkMonitor {
         timer = nil
         uploadSpeed = ""
         downloadSpeed = ""
+        downloadHistory = Array(repeating: 0, count: 60)
+        uploadHistory = Array(repeating: 0, count: 60)
     }
 
     private func tick() {
@@ -34,6 +38,10 @@ final class NetworkMonitor {
         DispatchQueue.main.async { [self] in
             downloadSpeed = Self.format(dIn)
             uploadSpeed = Self.format(dOut)
+            downloadHistory.append(Double(dIn))
+            downloadHistory.removeFirst()
+            uploadHistory.append(Double(dOut))
+            uploadHistory.removeFirst()
         }
     }
 

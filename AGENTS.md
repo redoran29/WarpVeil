@@ -9,13 +9,18 @@ Built with Swift 5.10, SwiftUI, targets macOS 14+. Runs entirely in the menu bar
 
 ```
 Sources/
-├── WarpVeilApp.swift      # @main entry point, MenuBarExtra, service initialization
-├── ContentView.swift      # Main UI — 4 tabs: Dashboard, Routing, Setup, Settings
-├── ProcessManager.swift   # VPN process lifecycle, sudo/passwordless, log tailing, sleep/wake
-├── SetupService.swift     # Dependency detection & installation (Homebrew, sing-box, xray)
-├── LocationService.swift  # Public IP & geolocation via ip-api.com
-├── NetworkMonitor.swift   # Real-time upload/download speed via getifaddrs()
-└── BypassService.swift    # JSON config injection for domain bypass routing
+├── WarpVeilApp.swift        # @main entry point, MenuBarExtra, service initialization
+├── ContentView.swift        # Root container — segmented picker, tab routing, connect/disconnect
+├── DashboardView.swift      # Hero status block, stats row, sparkline, collapsible log
+├── RoutingView.swift        # Bypass toggle, domain list, bypass log
+├── SetupView.swift          # Dependency detection UI, installation controls
+├── SettingsView.swift       # Binary paths, passwordless, config editor with engine picker, quit
+├── StatusIndicator.swift    # Reusable pulse animation indicator
+├── ProcessManager.swift     # VPN process lifecycle, sudo/passwordless, log tailing, sleep/wake
+├── SetupService.swift       # Dependency detection & installation (Homebrew, sing-box, xray)
+├── LocationService.swift    # Public IP & geolocation via ip-api.com
+├── NetworkMonitor.swift     # Real-time upload/download speed + 60s history ring buffer
+└── BypassService.swift      # JSON config injection for domain bypass routing
 ```
 
 All services use `@Observable`. State is passed down from `WarpVeilApp` via `@State`.

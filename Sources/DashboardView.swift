@@ -26,6 +26,11 @@ struct DashboardView: View {
                 statsRow
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
+
+                SparklineView(downloadData: net.downloadHistory, uploadData: net.uploadHistory)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 6)
+
                 Divider()
             }
 
@@ -130,6 +135,8 @@ struct DashboardView: View {
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(color)
+                .contentTransition(.numericText())
+                .animation(.snappy, value: value)
             Text(label)
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
@@ -200,5 +207,40 @@ struct DashboardView: View {
         let m = (s % 3600) / 60
         let sec = s % 60
         return String(format: "%02d:%02d:%02d", h, m, sec)
+    }
+}
+
+// MARK: - Sparkline
+
+private struct SparklineView: View {
+    let downloadData: [Double]
+    let uploadData: [Double]
+
+    var body: some View {
+        Canvas { context, size in
+            drawLine(context: context, size: size, data: downloadData, color: .blue)
+            drawLine(context: context, size: size, data: uploadData, color: .orange.opacity(0.6))
+        }
+        .frame(height: 40)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(nsColor: .textBackgroundColor))
+        )
+    }
+
+    private func drawLine(context: GraphicsContext, size: CGSize, data: [Double], color: Color) {
+        let maxVal = max(data.max() ?? 1, 1)
+        let stepX = size.width / CGFloat(data.count - 1)
+
+        var path = Path()
+        for (i, val) in data.enumerated() {
+            let x = CGFloat(i) * stepX
+            let y = size.height - (CGFloat(val / maxVal) * size.height * 0.9)
+            if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
+            else { path.addLine(to: CGPoint(x: x, y: y)) }
+        }
+
+        context.stroke(path, with: .color(color), lineWidth: 1.5)
     }
 }
