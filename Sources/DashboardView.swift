@@ -30,8 +30,6 @@ struct DashboardView: View {
                 SparklineView(downloadData: net.downloadHistory, uploadData: net.uploadHistory)
                     .padding(.horizontal, 12)
                     .padding(.bottom, 6)
-
-                Divider()
             }
 
             logSection

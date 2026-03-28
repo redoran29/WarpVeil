@@ -330,8 +330,8 @@ final class ProcessManager {
             let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
             Task { @MainActor in
                 self?.logs.append(contentsOf: lines)
-                if let count = self?.logs.count, count > 1000 {
-                    self?.logs.removeFirst(count - 1000)
+                if let count = self?.logs.count, count > 500 {
+                    self?.logs.removeFirst(count - 500)
                 }
             }
         }
