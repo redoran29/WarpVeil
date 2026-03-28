@@ -105,7 +105,7 @@ enum BypassService {
     }
 
     private static func serializeJSON(_ dict: [String: Any]) -> String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]),
+        guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted]),
               let str = String(data: data, encoding: .utf8)
         else { return nil }
         return str
