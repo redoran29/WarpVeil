@@ -9,7 +9,7 @@ struct DashboardView: View {
     var onConnect: () -> Void
     var onDisconnect: () -> Void
 
-    @State private var logExpanded = false
+    @State private var logExpanded = true
 
     var body: some View {
         VStack(spacing: 0) {
