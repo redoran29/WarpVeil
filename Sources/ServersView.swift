@@ -222,22 +222,43 @@ struct ServersView: View {
     // MARK: - Log
 
     private var logSection: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(pm.logs.suffix(30).reversed().enumerated()), id: \.offset) { i, line in
-                        Text(line)
-                            .font(.system(size: 10, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 0.5)
-                            .id(i)
-                    }
+        VStack(spacing: 0) {
+            HStack {
+                Text("Log")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    let text = pm.logs.joined(separator: "\n")
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 9))
                 }
-                .padding(6)
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Copy all logs")
             }
-            .frame(height: 80)
-            .background(Color(nsColor: .textBackgroundColor))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(pm.logs.reversed().enumerated()), id: \.offset) { i, line in
+                            Text(line)
+                                .font(.system(size: 10, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 0.5)
+                                .id(i)
+                        }
+                    }
+                    .padding(6)
+                }
+                .background(Color(nsColor: .textBackgroundColor))
+            }
         }
     }
 
