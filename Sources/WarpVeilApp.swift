@@ -6,11 +6,12 @@ struct WarpVeilApp: App {
     @State private var loc = LocationService()
     @State private var net = NetworkMonitor()
     @State private var setup = SetupService()
+    @State private var subs = SubscriptionService()
 
     var body: some Scene {
         MenuBarExtra {
-            ContentView(pm: pm, loc: loc, net: net, setup: setup)
-                .frame(width: 420, height: 500)
+            ContentView(pm: pm, loc: loc, net: net, setup: setup, subs: subs)
+                .frame(width: 600, height: 500)
         } label: {
             Image(systemName: pm.isRunning ? "checkmark.shield.fill" : "shield.slash")
                 .symbolEffect(.bounce, value: pm.isRunning)
