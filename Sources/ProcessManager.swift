@@ -168,7 +168,8 @@ final class ProcessManager {
 
         // For xray: generate a sing-box TUN wrapper that routes through xray's SOCKS proxy
         if engine == .xray {
-            let tunWrapper = Self.buildTunWrapperConfig(bypassDomains: bypassDomains)
+            let serverIP = Self.extractServerIP(from: config)
+            let tunWrapper = Self.buildTunWrapperConfig(serverIP: serverIP, bypassDomains: bypassDomains)
             FileManager.default.createFile(atPath: singboxConfigFile, contents: tunWrapper.data(using: .utf8),
                                             attributes: [.posixPermissions: 0o600])
         }
@@ -258,11 +259,42 @@ final class ProcessManager {
         return cmds.joined(separator: "\n")
     }
 
-    private nonisolated static func buildTunWrapperConfig(bypassDomains: [String]) -> String {
+    private nonisolated static func extractServerIP(from config: String) -> String? {
+        guard let data = config.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let outbounds = root["outbounds"] as? [[String: Any]]
+        else { return nil }
+
+        for ob in outbounds {
+            // xray format: settings.vnext[0].address
+            if let settings = ob["settings"] as? [String: Any],
+               let vnext = settings["vnext"] as? [[String: Any]],
+               let first = vnext.first,
+               let addr = first["address"] as? String {
+                return addr
+            }
+            // sing-box format: server
+            if let server = ob["server"] as? String {
+                return server
+            }
+        }
+        return nil
+    }
+
+    private nonisolated static func buildTunWrapperConfig(serverIP: String?, bypassDomains: [String]) -> String {
         var rules: [[String: Any]] = [
             ["action": "hijack-dns", "protocol": "dns"] as [String: Any],
             ["action": "sniff"] as [String: Any]
         ]
+
+        // CRITICAL: route VPN server IP directly to avoid routing loop
+        if let ip = serverIP {
+            rules.insert([
+                "action": "route",
+                "outbound": "direct",
+                "ip_cidr": ["\(ip)/32"]
+            ] as [String: Any], at: 0)
+        }
 
         if !bypassDomains.isEmpty {
             rules.insert([
