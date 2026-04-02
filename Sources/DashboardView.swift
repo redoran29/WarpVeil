@@ -177,7 +177,7 @@ struct DashboardView: View {
 
 // MARK: - Sparkline
 
-private struct SparklineView: View {
+private struct DashboardSparklineView: View {
     let downloadData: [Double]
     let uploadData: [Double]
 

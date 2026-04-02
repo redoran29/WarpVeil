@@ -1,9 +1,7 @@
 import SwiftUI
 
 enum Tab: String, CaseIterable {
-    case dashboard = "Dashboard"
-    case routing = "Routing"
-    case setup = "Setup"
+    case servers = "Servers"
     case settings = "Settings"
 }
 
@@ -12,13 +10,13 @@ struct ContentView: View {
     var loc: LocationService
     var net: NetworkMonitor
     var setup: SetupService
+    var subs: SubscriptionService
 
-    @State private var tab: Tab = .dashboard
+    @State private var tab: Tab = .servers
     @State private var connectedAt: Date?
     @State private var locationTimer: Timer?
     @State private var locationTask: Task<Void, Never>?
-    @AppStorage("xrayConfig") private var xrayConfig = ""
-    @AppStorage("singBoxConfig") private var singBoxConfig = ""
+    @AppStorage("selectedServerID") private var selectedServerID = ""
     @AppStorage("xrayPath") private var xrayPath = ""
     @AppStorage("singBoxPath") private var singBoxPath = ""
     @AppStorage("bypassEnabled") private var bypassEnabled = true
@@ -28,9 +26,18 @@ struct ContentView: View {
         bypassDomainsRaw.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 
+    private var selectedServer: Server? {
+        subs.subscriptions.flatMap(\.servers).first { $0.id.uuidString == selectedServerID }
+    }
+
+    private var selectedSubscription: Subscription? {
+        subs.subscriptions.first { sub in
+            sub.servers.contains { $0.id.uuidString == selectedServerID }
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Segmented tab picker
             Picker("", selection: $tab) {
                 ForEach(Tab.allCases, id: \.self) { t in
                     Text(t.rawValue).tag(t)
@@ -42,22 +49,17 @@ struct ContentView: View {
 
             Divider()
 
-            // Tab content
             Group {
                 switch tab {
-                case .dashboard:
-                    DashboardView(
-                        pm: pm, loc: loc, net: net, setup: setup,
+                case .servers:
+                    ServersView(
+                        pm: pm, loc: loc, net: net, setup: setup, subs: subs,
                         connectedAt: $connectedAt,
                         onConnect: doConnect,
                         onDisconnect: doDisconnect
                     )
-                case .routing:
-                    RoutingView(pm: pm)
-                case .setup:
-                    SetupView(setup: setup)
                 case .settings:
-                    SettingsView(pm: pm)
+                    SettingsView(pm: pm, setup: setup)
                 }
             }
             .transition(.opacity)
@@ -73,6 +75,7 @@ struct ContentView: View {
             if xrayPath.isEmpty || !FileManager.default.isExecutableFile(atPath: xrayPath) {
                 xrayPath = ProcessManager.findBinary("xray") ?? ""
             }
+            await subs.refreshAll()
         }
         .onChange(of: setup.singBoxPath) { _, newPath in
             if let newPath, !newPath.isEmpty { singBoxPath = newPath }
@@ -94,9 +97,22 @@ struct ContentView: View {
     // MARK: - Actions
 
     private func doConnect() {
+        guard let server = selectedServer,
+              let sub = selectedSubscription else {
+            pm.logs.append("[Error: no server selected]")
+            return
+        }
+
+        let binaryPath: String
+        switch sub.engine {
+        case .singBox: binaryPath = singBoxPath
+        case .xray: binaryPath = xrayPath
+        }
+
         pm.connect(
-            singBoxPath: singBoxPath, singBoxConfig: singBoxConfig,
-            xrayPath: xrayPath, xrayConfig: xrayConfig,
+            config: server.config,
+            engine: sub.engine,
+            binaryPath: binaryPath,
             bypassDomains: bypassEnabled ? bypassDomains : []
         )
         connectedAt = Date()
