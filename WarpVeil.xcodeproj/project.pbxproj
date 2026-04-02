@@ -20,6 +20,7 @@
 		AA000000000000000000000B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000013 /* SettingsView.swift */; };
 		AA000000000000000000000C /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000014 /* SetupView.swift */; };
 		AA000000000000000000000D /* StatusIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000015 /* StatusIndicator.swift */; };
+		AA000000000000000000000E /* SubscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000016 /* SubscriptionService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,6 +40,7 @@
 		BB0000000000000000000013 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		BB0000000000000000000014 /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
 		BB0000000000000000000015 /* StatusIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusIndicator.swift; sourceTree = "<group>"; };
+		BB0000000000000000000016 /* SubscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -78,6 +80,7 @@
 				BB0000000000000000000005 /* LocationService.swift */,
 				BB0000000000000000000006 /* NetworkMonitor.swift */,
 				BB0000000000000000000007 /* BypassService.swift */,
+				BB0000000000000000000016 /* SubscriptionService.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -160,6 +163,7 @@
 				AA0000000000000000000005 /* LocationService.swift in Sources */,
 				AA0000000000000000000006 /* NetworkMonitor.swift in Sources */,
 				AA0000000000000000000007 /* BypassService.swift in Sources */,
+				AA000000000000000000000E /* SubscriptionService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
