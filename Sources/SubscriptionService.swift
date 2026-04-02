@@ -2,7 +2,7 @@ import Foundation
 
 @Observable
 @MainActor
-final class SubscriptionService {
+final class SubscriptionService: NSObject, URLSessionDelegate {
     var subscriptions: [Subscription] = []
 
     private let configDir: URL = {
@@ -16,9 +16,34 @@ final class SubscriptionService {
         configDir.appendingPathComponent("subscriptions.json")
     }
 
-    init() {
+    private var _session: URLSession?
+    private var session: URLSession {
+        if let s = _session { return s }
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 15
+        let s = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        _session = s
+        return s
+    }
+
+    override init() {
+        super.init()
         load()
     }
+
+    // Allow self-signed / invalid certs (common for 3x-ui panels)
+    nonisolated func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+           let trust = challenge.protectionSpace.serverTrust {
+            return (.useCredential, URLCredential(trust: trust))
+        }
+        return (.performDefaultHandling, nil)
+    }
+
+    // MARK: - CRUD
 
     func load() {
         guard let data = try? Data(contentsOf: filePath),
@@ -52,7 +77,7 @@ final class SubscriptionService {
 
     func addFromURL(_ urlString: String) async {
         let name = URLComponents(string: urlString)?.host ?? "Subscription"
-        var sub = Subscription(name: name, url: urlString, engine: .singBox)
+        let sub = Subscription(name: name, url: urlString, engine: .singBox)
         subscriptions.append(sub)
         save()
         await refreshSubscription(sub.id)
@@ -63,22 +88,25 @@ final class SubscriptionService {
               !subscriptions[idx].isManual
         else { return }
 
-        // Try sing-box format first, then xray
+        let urlString = subscriptions[idx].url
+
+        // Strategy 1: fetch raw URL → decode base64 → parse vless:// URIs
+        if let servers = await fetchAndParseURIs(urlString), !servers.isEmpty {
+            subscriptions[idx].engine = .singBox
+            subscriptions[idx].servers = servers
+            subscriptions[idx].lastUpdated = Date()
+            save()
+            return
+        }
+
+        // Strategy 2: try ?format=singbox, then ?format=xray
         for engine in [Engine.singBox, .xray] {
-            guard let url = buildURL(for: subscriptions[idx], engine: engine) else { continue }
-            do {
-                let (data, _) = try await URLSession.shared.data(from: url)
-                guard let json = String(data: data, encoding: .utf8) else { continue }
-                let servers = parseConfig(json, engine: engine)
-                if !servers.isEmpty {
-                    subscriptions[idx].engine = engine
-                    subscriptions[idx].servers = servers
-                    subscriptions[idx].lastUpdated = Date()
-                    save()
-                    return
-                }
-            } catch {
-                continue
+            if let servers = await fetchFormattedConfig(urlString, engine: engine), !servers.isEmpty {
+                subscriptions[idx].engine = engine
+                subscriptions[idx].servers = servers
+                subscriptions[idx].lastUpdated = Date()
+                save()
+                return
             }
         }
     }
@@ -89,24 +117,312 @@ final class SubscriptionService {
         }
     }
 
-    private func buildURL(for sub: Subscription, engine: Engine) -> URL? {
-        guard var components = URLComponents(string: sub.url) else { return nil }
+    // MARK: - Fetch helpers
+
+    private func fetchData(from urlString: String) async -> Data? {
+        // Try both http and https variants
+        let urlsToTry: [String]
+        if urlString.hasPrefix("http://") {
+            let httpsVariant = "https://" + urlString.dropFirst("http://".count)
+            urlsToTry = [urlString, httpsVariant]
+        } else if urlString.hasPrefix("https://") {
+            let httpVariant = "http://" + urlString.dropFirst("https://".count)
+            urlsToTry = [urlString, httpVariant]
+        } else {
+            urlsToTry = ["https://" + urlString, "http://" + urlString]
+        }
+
+        for urlStr in urlsToTry {
+            guard let url = URL(string: urlStr) else { continue }
+            do {
+                let (data, response) = try await session.data(from: url)
+                if let http = response as? HTTPURLResponse, http.statusCode == 200, !data.isEmpty {
+                    return data
+                }
+            } catch {
+                continue
+            }
+        }
+        return nil
+    }
+
+    private func fetchAndParseURIs(_ urlString: String) async -> [Server]? {
+        guard let data = await fetchData(from: urlString),
+              let text = String(data: data, encoding: .utf8)
+        else { return nil }
+
+        // Try base64 decode first
+        let decoded: String
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let decodedData = Data(base64Encoded: trimmed),
+           let decodedStr = String(data: decodedData, encoding: .utf8) {
+            decoded = decodedStr
+        } else {
+            // Maybe it's already plain text with URIs
+            decoded = text
+        }
+
+        let lines = decoded.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+
+        var servers: [Server] = []
+        for line in lines {
+            if let server = parseVlessURI(line) {
+                servers.append(server)
+            } else if let server = parseVmessURI(line) {
+                servers.append(server)
+            }
+            // Can add trojan://, ss:// etc. later
+        }
+        return servers.isEmpty ? nil : servers
+    }
+
+    private func fetchFormattedConfig(_ urlString: String, engine: Engine) async -> [Server]? {
+        guard var components = URLComponents(string: urlString) else { return nil }
         var items = components.queryItems ?? []
         let format = engine == .singBox ? "singbox" : "xray"
         items.removeAll { $0.name == "format" }
         items.append(URLQueryItem(name: "format", value: format))
         components.queryItems = items
-        return components.url
+        guard let urlStr = components.string else { return nil }
+
+        guard let data = await fetchData(from: urlStr),
+              let json = String(data: data, encoding: .utf8)
+        else { return nil }
+
+        let servers = engine == .singBox ? parseSingBox(json) : parseXray(json)
+        return servers.isEmpty ? nil : servers
     }
 
-    private func parseConfig(_ json: String, engine: Engine) -> [Server] {
-        switch engine {
-        case .singBox: return parseSingBox(json)
-        case .xray: return parseXray(json)
+    // MARK: - vless:// URI parser
+
+    private func parseVlessURI(_ uri: String) -> Server? {
+        guard uri.hasPrefix("vless://") else { return nil }
+
+        // vless://uuid@host:port?params#name
+        let withoutScheme = String(uri.dropFirst("vless://".count))
+
+        let name: String
+        let mainPart: String
+        if let hashIdx = withoutScheme.lastIndex(of: "#") {
+            name = String(withoutScheme[withoutScheme.index(after: hashIdx)...])
+                .removingPercentEncoding ?? String(withoutScheme[withoutScheme.index(after: hashIdx)...])
+            mainPart = String(withoutScheme[..<hashIdx])
+        } else {
+            name = "vless"
+            mainPart = withoutScheme
         }
+
+        guard let atIdx = mainPart.firstIndex(of: "@") else { return nil }
+        let uuid = String(mainPart[..<atIdx])
+        let hostAndParams = String(mainPart[mainPart.index(after: atIdx)...])
+
+        let hostPort: String
+        let queryString: String
+        if let qIdx = hostAndParams.firstIndex(of: "?") {
+            hostPort = String(hostAndParams[..<qIdx])
+            queryString = String(hostAndParams[hostAndParams.index(after: qIdx)...])
+        } else {
+            hostPort = hostAndParams
+            queryString = ""
+        }
+
+        let parts = hostPort.split(separator: ":", maxSplits: 1)
+        guard parts.count == 2, let port = Int(parts[1]) else { return nil }
+        let host = String(parts[0])
+
+        var params: [String: String] = [:]
+        for pair in queryString.split(separator: "&") {
+            let kv = pair.split(separator: "=", maxSplits: 1)
+            if kv.count == 2 {
+                params[String(kv[0])] = String(kv[1]).removingPercentEncoding ?? String(kv[1])
+            }
+        }
+
+        let config = buildSingBoxConfig(
+            protocol: "vless",
+            uuid: uuid,
+            host: host,
+            port: port,
+            params: params,
+            tag: name
+        )
+
+        return Server(name: name, protocolType: "vless", address: "\(host):\(port)", config: config)
     }
 
-    // MARK: - sing-box parsing
+    // MARK: - vmess:// URI parser
+
+    private func parseVmessURI(_ uri: String) -> Server? {
+        guard uri.hasPrefix("vmess://") else { return nil }
+        let encoded = String(uri.dropFirst("vmess://".count))
+        guard let data = Data(base64Encoded: encoded),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+
+        let host = obj["add"] as? String ?? "?"
+        let port = (obj["port"] as? Int) ?? Int(obj["port"] as? String ?? "") ?? 443
+        let id = obj["id"] as? String ?? ""
+        let name = obj["ps"] as? String ?? "vmess"
+        let net = obj["net"] as? String ?? "tcp"
+        let tls = obj["tls"] as? String ?? ""
+        let sni = obj["sni"] as? String ?? ""
+
+        var outbound: [String: Any] = [
+            "type": "vmess",
+            "tag": name,
+            "server": host,
+            "server_port": port,
+            "uuid": id,
+            "security": "auto",
+            "alter_id": 0
+        ]
+
+        if net == "ws" {
+            let wsPath = obj["path"] as? String ?? "/"
+            let wsHost = obj["host"] as? String ?? ""
+            outbound["transport"] = [
+                "type": "ws",
+                "path": wsPath,
+                "headers": ["Host": wsHost]
+            ] as [String: Any]
+        }
+
+        if tls == "tls" {
+            outbound["tls"] = [
+                "enabled": true,
+                "server_name": sni.isEmpty ? host : sni
+            ] as [String: Any]
+        }
+
+        let config = buildSingBoxConfigFromOutbound(outbound)
+        return Server(name: name, protocolType: "vmess", address: "\(host):\(port)", config: config)
+    }
+
+    // MARK: - sing-box config builder from URI params
+
+    private func buildSingBoxConfig(protocol proto: String, uuid: String, host: String, port: Int, params: [String: String], tag: String) -> String {
+        var outbound: [String: Any] = [
+            "type": proto,
+            "tag": tag,
+            "server": host,
+            "server_port": port,
+            "uuid": uuid
+        ]
+
+        // Flow (for VLESS XTLS)
+        if let flow = params["flow"], !flow.isEmpty {
+            outbound["flow"] = flow
+        }
+
+        // Transport
+        let transportType = params["type"] ?? "tcp"
+        switch transportType {
+        case "ws":
+            var transport: [String: Any] = ["type": "ws"]
+            if let path = params["path"] { transport["path"] = path }
+            if let wsHost = params["host"], !wsHost.isEmpty {
+                transport["headers"] = ["Host": wsHost]
+            }
+            outbound["transport"] = transport
+        case "grpc":
+            var transport: [String: Any] = ["type": "grpc"]
+            if let sn = params["serviceName"] { transport["service_name"] = sn }
+            outbound["transport"] = transport
+        case "xhttp", "splithttp":
+            var transport: [String: Any] = ["type": "xhttp"]
+            if let path = params["path"] { transport["path"] = path }
+            if let xHost = params["host"], !xHost.isEmpty {
+                transport["host"] = xHost
+            }
+            if let mode = params["mode"], !mode.isEmpty {
+                transport["mode"] = mode
+            }
+            outbound["transport"] = transport
+        case "httpupgrade":
+            var transport: [String: Any] = ["type": "httpupgrade"]
+            if let path = params["path"] { transport["path"] = path }
+            if let hHost = params["host"], !hHost.isEmpty {
+                transport["host"] = hHost
+            }
+            outbound["transport"] = transport
+        default:
+            break // tcp — no transport block needed
+        }
+
+        // TLS / Reality
+        let security = params["security"] ?? ""
+        switch security {
+        case "tls":
+            var tls: [String: Any] = ["enabled": true]
+            if let sni = params["sni"], !sni.isEmpty { tls["server_name"] = sni }
+            if let fp = params["fp"], !fp.isEmpty { tls["utls"] = ["fingerprint": fp] }
+            if let alpn = params["alpn"], !alpn.isEmpty {
+                tls["alpn"] = alpn.components(separatedBy: ",")
+            }
+            outbound["tls"] = tls
+        case "reality":
+            var tls: [String: Any] = [
+                "enabled": true,
+                "reality": ["enabled": true] as [String: Any]
+            ]
+            if let sni = params["sni"], !sni.isEmpty { tls["server_name"] = sni }
+            if let fp = params["fp"], !fp.isEmpty { tls["utls"] = ["fingerprint": fp] }
+
+            var reality: [String: Any] = ["enabled": true]
+            if let pbk = params["pbk"] { reality["public_key"] = pbk }
+            if let sid = params["sid"] { reality["short_id"] = sid }
+            tls["reality"] = reality
+
+            outbound["tls"] = tls
+        default:
+            break
+        }
+
+        return buildSingBoxConfigFromOutbound(outbound)
+    }
+
+    private func buildSingBoxConfigFromOutbound(_ outbound: [String: Any]) -> String {
+        let config: [String: Any] = [
+            "log": ["level": "info"],
+            "inbounds": [
+                [
+                    "type": "tun",
+                    "tag": "tun-in",
+                    "inet4_address": "172.19.0.1/30",
+                    "auto_route": true,
+                    "strict_route": true,
+                    "sniff": true,
+                    "sniff_override_destination": false
+                ] as [String: Any]
+            ],
+            "outbounds": [
+                outbound,
+                ["type": "direct", "tag": "direct"] as [String: Any],
+                ["type": "block", "tag": "block"] as [String: Any],
+                ["type": "dns", "tag": "dns-out"] as [String: Any]
+            ],
+            "route": [
+                "auto_detect_interface": true,
+                "final": outbound["tag"] as? String ?? "proxy",
+                "rules": [
+                    ["protocol": "dns", "outbound": "dns-out"] as [String: Any]
+                ]
+            ] as [String: Any],
+            "dns": [
+                "servers": [
+                    ["tag": "remote", "address": "https://1.1.1.1/dns-query"] as [String: Any],
+                    ["tag": "local", "address": "223.5.5.5", "detour": "direct"] as [String: Any]
+                ],
+                "rules": [] as [[String: Any]],
+                "strategy": "prefer_ipv4"
+            ] as [String: Any]
+        ]
+        return serializeJSON(config) ?? "{}"
+    }
+
+    // MARK: - sing-box JSON parsing (for ?format=singbox)
 
     private static let vpnTypesSingBox: Set<String> = [
         "vless", "vmess", "trojan", "shadowsocks", "shadowtls",
@@ -147,7 +463,7 @@ final class SubscriptionService {
         return servers
     }
 
-    // MARK: - xray parsing
+    // MARK: - xray JSON parsing (for ?format=xray)
 
     private static let vpnTypesXray: Set<String> = [
         "vless", "vmess", "trojan", "shadowsocks"
@@ -205,7 +521,6 @@ final class SubscriptionService {
     func addManualConfig(name: String, json: String) {
         var sub = Subscription(name: name, isManual: true, engine: .singBox)
 
-        // Auto-detect engine
         let singBoxServers = parseSingBox(json)
         let xrayServers = parseXray(json)
         if !singBoxServers.isEmpty {
@@ -226,7 +541,7 @@ final class SubscriptionService {
     // MARK: - Helpers
 
     private func serializeJSON(_ dict: [String: Any]) -> String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted]),
+        guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]),
               let str = String(data: data, encoding: .utf8)
         else { return nil }
         return str
