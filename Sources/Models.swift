@@ -11,13 +11,15 @@ struct Server: Codable, Identifiable {
     var protocolType: String
     var address: String
     var config: String
+    var engine: Engine?
 
-    init(name: String, protocolType: String, address: String, config: String) {
+    init(name: String, protocolType: String, address: String, config: String, engine: Engine? = nil) {
         self.id = UUID()
         self.name = name
         self.protocolType = protocolType
         self.address = address
         self.config = config
+        self.engine = engine
     }
 }
 
