@@ -257,16 +257,20 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             }
         }
 
-        let config = buildSingBoxConfig(
-            protocol: "vless",
-            uuid: uuid,
-            host: host,
-            port: port,
-            params: params,
-            tag: name
-        )
+        let transportType = params["type"] ?? "tcp"
+        let needsXray = transportType == "xhttp" || transportType == "splithttp"
 
-        return Server(name: name, protocolType: "vless", address: "\(host):\(port)", config: config)
+        let config: String
+        let engine: Engine
+        if needsXray {
+            config = buildXrayConfig(protocol: "vless", uuid: uuid, host: host, port: port, params: params, tag: name)
+            engine = .xray
+        } else {
+            config = buildSingBoxConfig(protocol: "vless", uuid: uuid, host: host, port: port, params: params, tag: name)
+            engine = .singBox
+        }
+
+        return Server(name: name, protocolType: "vless", address: "\(host):\(port)", config: config, engine: engine)
     }
 
     // MARK: - vmess:// URI parser
@@ -440,6 +444,115 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
                 "independent_cache": true
             ] as [String: Any]
         ]
+        return serializeJSON(config) ?? "{}"
+    }
+
+    // MARK: - Xray config builder from URI params
+
+    private func buildXrayConfig(protocol proto: String, uuid: String, host: String, port: Int, params: [String: String], tag: String) -> String {
+        let transportType = params["type"] ?? "tcp"
+
+        var vnext: [String: Any] = [
+            "address": host,
+            "port": port,
+            "users": [
+                [
+                    "id": uuid,
+                    "encryption": params["encryption"] ?? "none",
+                    "flow": params["flow"] ?? ""
+                ] as [String: Any]
+            ]
+        ]
+
+        var outbound: [String: Any] = [
+            "protocol": proto,
+            "tag": tag,
+            "settings": ["vnext": [vnext]],
+            "mux": ["enabled": false]
+        ]
+
+        // Stream settings
+        var streamSettings: [String: Any] = [
+            "network": transportType
+        ]
+
+        // Transport settings
+        switch transportType {
+        case "xhttp", "splithttp":
+            var xhttpSettings: [String: Any] = [:]
+            if let path = params["path"] { xhttpSettings["path"] = path }
+            if let xHost = params["host"], !xHost.isEmpty { xhttpSettings["host"] = xHost }
+            if let mode = params["mode"], !mode.isEmpty { xhttpSettings["mode"] = mode }
+            streamSettings["xhttpSettings"] = xhttpSettings
+        case "ws":
+            var wsSettings: [String: Any] = [:]
+            if let path = params["path"] { wsSettings["path"] = path }
+            if let wsHost = params["host"], !wsHost.isEmpty {
+                wsSettings["headers"] = ["Host": wsHost]
+            }
+            streamSettings["wsSettings"] = wsSettings
+        case "grpc":
+            var grpcSettings: [String: Any] = [:]
+            if let sn = params["serviceName"] { grpcSettings["serviceName"] = sn }
+            streamSettings["grpcSettings"] = grpcSettings
+        default:
+            break
+        }
+
+        // Security
+        let security = params["security"] ?? "none"
+        streamSettings["security"] = security
+
+        switch security {
+        case "tls":
+            var tlsSettings: [String: Any] = [:]
+            if let sni = params["sni"], !sni.isEmpty { tlsSettings["serverName"] = sni }
+            if let fp = params["fp"], !fp.isEmpty { tlsSettings["fingerprint"] = fp }
+            if let alpn = params["alpn"], !alpn.isEmpty {
+                tlsSettings["alpn"] = alpn.components(separatedBy: ",")
+            }
+            streamSettings["tlsSettings"] = tlsSettings
+        case "reality":
+            var realitySettings: [String: Any] = [:]
+            if let sni = params["sni"], !sni.isEmpty { realitySettings["serverName"] = sni }
+            if let fp = params["fp"], !fp.isEmpty { realitySettings["fingerprint"] = fp }
+            if let pbk = params["pbk"] { realitySettings["publicKey"] = pbk }
+            if let sid = params["sid"] { realitySettings["shortId"] = sid }
+            if let spx = params["spx"] { realitySettings["spiderX"] = spx }
+            streamSettings["realitySettings"] = realitySettings
+        default:
+            break
+        }
+
+        outbound["streamSettings"] = streamSettings
+
+        let config: [String: Any] = [
+            "log": ["loglevel": "info"],
+            "inbounds": [
+                [
+                    "tag": "socks-in",
+                    "port": 10808,
+                    "listen": "127.0.0.1",
+                    "protocol": "socks",
+                    "settings": ["udp": true]
+                ] as [String: Any],
+                [
+                    "tag": "http-in",
+                    "port": 10809,
+                    "listen": "127.0.0.1",
+                    "protocol": "http"
+                ] as [String: Any]
+            ],
+            "outbounds": [
+                outbound,
+                ["protocol": "freedom", "tag": "direct"] as [String: Any]
+            ],
+            "routing": [
+                "domainStrategy": "AsIs",
+                "rules": [] as [[String: Any]]
+            ] as [String: Any]
+        ]
+
         return serializeJSON(config) ?? "{}"
     }
 

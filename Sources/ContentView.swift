@@ -103,15 +103,16 @@ struct ContentView: View {
             return
         }
 
+        let engine = server.engine ?? sub.engine
         let binaryPath: String
-        switch sub.engine {
+        switch engine {
         case .singBox: binaryPath = singBoxPath
         case .xray: binaryPath = xrayPath
         }
 
         pm.connect(
             config: server.config,
-            engine: sub.engine,
+            engine: engine,
             binaryPath: binaryPath,
             bypassDomains: bypassEnabled ? bypassDomains : []
         )
