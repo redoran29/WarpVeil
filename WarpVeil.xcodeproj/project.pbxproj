@@ -15,8 +15,6 @@
 		AA0000000000000000000006 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000006 /* NetworkMonitor.swift */; };
 		AA0000000000000000000007 /* BypassService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000007 /* BypassService.swift */; };
 		AA0000000000000000000008 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000010 /* Models.swift */; };
-		AA0000000000000000000009 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000011 /* DashboardView.swift */; };
-		AA000000000000000000000A /* RoutingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000012 /* RoutingView.swift */; };
 		AA000000000000000000000B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000013 /* SettingsView.swift */; };
 		AA000000000000000000000C /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000014 /* SetupView.swift */; };
 		AA000000000000000000000D /* StatusIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000015 /* StatusIndicator.swift */; };
@@ -36,8 +34,6 @@
 		BB0000000000000000000009 /* WarpVeil.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WarpVeil.entitlements; sourceTree = "<group>"; };
 		DD0000000000000000000001 /* WarpVeil.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WarpVeil.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB0000000000000000000010 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
-		BB0000000000000000000011 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
-		BB0000000000000000000012 /* RoutingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutingView.swift; sourceTree = "<group>"; };
 		BB0000000000000000000013 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		BB0000000000000000000014 /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
 		BB0000000000000000000015 /* StatusIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusIndicator.swift; sourceTree = "<group>"; };
@@ -73,8 +69,6 @@
 				BB0000000000000000000002 /* ContentView.swift */,
 				BB0000000000000000000003 /* ProcessManager.swift */,
 				BB0000000000000000000010 /* Models.swift */,
-				BB0000000000000000000011 /* DashboardView.swift */,
-				BB0000000000000000000012 /* RoutingView.swift */,
 				BB0000000000000000000013 /* SettingsView.swift */,
 				BB0000000000000000000014 /* SetupView.swift */,
 				BB0000000000000000000015 /* StatusIndicator.swift */,
@@ -154,8 +148,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA0000000000000000000008 /* Models.swift in Sources */,
-				AA0000000000000000000009 /* DashboardView.swift in Sources */,
-				AA000000000000000000000A /* RoutingView.swift in Sources */,
 				AA000000000000000000000B /* SettingsView.swift in Sources */,
 				AA000000000000000000000C /* SetupView.swift in Sources */,
 				AA000000000000000000000D /* StatusIndicator.swift in Sources */,
