@@ -296,14 +296,13 @@ final class ProcessManager {
             ],
             "route": [
                 "auto_detect_interface": true,
-                "default_mark": 233,
                 "final": "xray-proxy",
                 "rules": rules
             ] as [String: Any],
             "dns": [
                 "servers": [
-                    ["tag": "remote", "address": "1.1.1.1", "address_resolver": "local", "detour": "xray-proxy"] as [String: Any],
-                    ["tag": "local", "address": "8.8.8.8", "detour": "direct"] as [String: Any]
+                    ["tag": "remote", "address": "tls://1.1.1.1", "detour": "xray-proxy"] as [String: Any],
+                    ["tag": "local", "address": "tls://8.8.8.8", "detour": "direct"] as [String: Any]
                 ],
                 "rules": [
                     ["outbound": "any", "server": "local"] as [String: Any]
