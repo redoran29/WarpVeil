@@ -348,7 +348,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             if let sn = params["serviceName"] { transport["service_name"] = sn }
             outbound["transport"] = transport
         case "xhttp", "splithttp":
-            var transport: [String: Any] = ["type": "xhttp"]
+            var transport: [String: Any] = ["type": "splithttp"]
             if let path = params["path"] { transport["path"] = path }
             if let xHost = params["host"], !xHost.isEmpty {
                 transport["host"] = xHost
@@ -430,8 +430,8 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             ] as [String: Any],
             "dns": [
                 "servers": [
-                    ["tag": "remote", "address": "https://1.1.1.1/dns-query", "detour": tag] as [String: Any],
-                    ["tag": "local", "address": "https://223.5.5.5/dns-query", "detour": "direct"] as [String: Any]
+                    ["tag": "remote", "address": "1.1.1.1", "address_resolver": "local", "detour": tag] as [String: Any],
+                    ["tag": "local", "address": "8.8.8.8", "detour": "direct"] as [String: Any]
                 ],
                 "rules": [
                     ["outbound": "any", "server": "local"] as [String: Any]
