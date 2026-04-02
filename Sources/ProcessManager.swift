@@ -25,7 +25,8 @@ final class ProcessManager {
     }
     private static let sudoersFile = "/etc/sudoers.d/warpveil"
     private var lastConnection: (config: String, engine: Engine,
-                                  binaryPath: String, bypassDomains: [String])?
+                                  binaryPath: String, singBoxPath: String,
+                                  bypassDomains: [String])?
     private var wakeObserver: Any?
     private var reconnectTask: Task<Void, Never>?
     var reconnectCount = 0
@@ -126,7 +127,8 @@ final class ProcessManager {
             try? await Task.sleep(for: .seconds(5))
             guard !Task.isCancelled else { return }
             connect(config: params.config, engine: params.engine,
-                    binaryPath: params.binaryPath, bypassDomains: params.bypassDomains)
+                    binaryPath: params.binaryPath, singBoxPath: params.singBoxPath,
+                    bypassDomains: params.bypassDomains)
             reconnectCount += 1
         }
     }
@@ -135,7 +137,8 @@ final class ProcessManager {
 
     func connect(
         config: String, engine: Engine,
-        binaryPath: String, bypassDomains: [String] = []
+        binaryPath: String, singBoxPath: String = "",
+        bypassDomains: [String] = []
     ) {
         guard !isRunning else { return }
         guard !config.isEmpty else {
@@ -147,7 +150,7 @@ final class ProcessManager {
             return
         }
 
-        lastConnection = (config, engine, binaryPath, bypassDomains)
+        lastConnection = (config, engine, binaryPath, singBoxPath, bypassDomains)
 
         let finalConfig: String
         let configFile: String
@@ -163,6 +166,13 @@ final class ProcessManager {
         FileManager.default.createFile(atPath: configFile, contents: finalConfig.data(using: .utf8),
                                         attributes: [.posixPermissions: 0o600])
 
+        // For xray: generate a sing-box TUN wrapper that routes through xray's SOCKS proxy
+        if engine == .xray {
+            let tunWrapper = Self.buildTunWrapperConfig(bypassDomains: bypassDomains)
+            FileManager.default.createFile(atPath: singboxConfigFile, contents: tunWrapper.data(using: .utf8),
+                                            attributes: [.posixPermissions: 0o600])
+        }
+
         if !bypassDomains.isEmpty {
             logs.append("[Bypass] \(bypassDomains.count) domain(s) will route direct")
         }
@@ -170,7 +180,7 @@ final class ProcessManager {
         logs.append(isPasswordless ? "[Connecting...]" : "[Connecting (password prompt)...]")
 
         FileManager.default.createFile(atPath: logFile, contents: nil)
-        let script = buildScript(engine: engine, binaryPath: binaryPath, configFile: configFile)
+        let script = buildScript(engine: engine, binaryPath: binaryPath, singBoxPath: singBoxPath, configFile: configFile)
         FileManager.default.createFile(atPath: runScript, contents: script.data(using: .utf8),
                                         attributes: [.posixPermissions: 0o700])
 
@@ -207,24 +217,106 @@ final class ProcessManager {
         }
     }
 
-    private func buildScript(engine: Engine, binaryPath: String, configFile: String) -> String {
+    private func buildScript(engine: Engine, binaryPath: String, singBoxPath: String, configFile: String) -> String {
         var cmds = ["#!/bin/bash", "cd /tmp", "exec > \(Self.shellEscape(logFile)) 2>&1"]
         cmds.append("pkill -f 'sing-box run' 2>/dev/null; pkill -f 'xray run' 2>/dev/null; sleep 1")
 
-        let label = engine == .singBox ? "sing-box" : "xray"
-        let configFlag = engine == .singBox ? "-c" : "-config"
-        cmds.append("echo '[\(label)] starting...'")
-        cmds.append("\(Self.shellEscape(binaryPath)) run \(configFlag) \(Self.shellEscape(configFile)) &")
-        cmds.append("VPN_PID=$!")
-        cmds.append("echo '[\(label)] started pid='$VPN_PID")
+        if engine == .xray {
+            // Start xray first (SOCKS proxy), then sing-box TUN wrapper
+            cmds.append("echo '[xray] starting...'")
+            cmds.append("\(Self.shellEscape(binaryPath)) run -config \(Self.shellEscape(configFile)) &")
+            cmds.append("XRAY_PID=$!")
+            cmds.append("echo '[xray] started pid='$XRAY_PID")
+            cmds.append("sleep 1")
 
-        cmds.append("""
-            cleanup() { echo '[stopping...]'; kill $VPN_PID 2>/dev/null; wait; echo '[stopped]'; exit 0; }
-            trap cleanup TERM INT
-            wait
-            """)
+            let sbPath = singBoxPath.isEmpty ? binaryPath : singBoxPath
+            if let foundSB = Self.findBinary("sing-box") ?? (FileManager.default.isExecutableFile(atPath: sbPath) ? sbPath : nil) {
+                cmds.append("echo '[sing-box] starting TUN wrapper...'")
+                cmds.append("\(Self.shellEscape(foundSB)) run -c \(Self.shellEscape(singboxConfigFile)) &")
+                cmds.append("SINGBOX_PID=$!")
+                cmds.append("echo '[sing-box] started pid='$SINGBOX_PID")
+            }
+
+            cmds.append("""
+                cleanup() { echo '[stopping...]'; kill $XRAY_PID $SINGBOX_PID 2>/dev/null; wait; echo '[stopped]'; exit 0; }
+                trap cleanup TERM INT
+                wait
+                """)
+        } else {
+            cmds.append("echo '[sing-box] starting...'")
+            cmds.append("\(Self.shellEscape(binaryPath)) run -c \(Self.shellEscape(configFile)) &")
+            cmds.append("VPN_PID=$!")
+            cmds.append("echo '[sing-box] started pid='$VPN_PID")
+
+            cmds.append("""
+                cleanup() { echo '[stopping...]'; kill $VPN_PID 2>/dev/null; wait; echo '[stopped]'; exit 0; }
+                trap cleanup TERM INT
+                wait
+                """)
+        }
 
         return cmds.joined(separator: "\n")
+    }
+
+    private nonisolated static func buildTunWrapperConfig(bypassDomains: [String]) -> String {
+        var rules: [[String: Any]] = [
+            ["action": "hijack-dns", "protocol": "dns"] as [String: Any],
+            ["action": "sniff"] as [String: Any]
+        ]
+
+        if !bypassDomains.isEmpty {
+            rules.insert([
+                "action": "route",
+                "outbound": "direct",
+                "domain_suffix": bypassDomains
+            ] as [String: Any], at: 0)
+        }
+
+        let config: [String: Any] = [
+            "log": ["level": "info"],
+            "inbounds": [
+                [
+                    "type": "tun",
+                    "tag": "tun-in",
+                    "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+                    "auto_route": true,
+                    "strict_route": true,
+                    "sniff": true,
+                    "sniff_override_destination": false
+                ] as [String: Any]
+            ],
+            "outbounds": [
+                [
+                    "type": "socks",
+                    "tag": "xray-proxy",
+                    "server": "127.0.0.1",
+                    "server_port": 10808
+                ] as [String: Any],
+                ["type": "direct", "tag": "direct"] as [String: Any]
+            ],
+            "route": [
+                "auto_detect_interface": true,
+                "default_mark": 233,
+                "final": "xray-proxy",
+                "rules": rules
+            ] as [String: Any],
+            "dns": [
+                "servers": [
+                    ["tag": "remote", "address": "1.1.1.1", "address_resolver": "local", "detour": "xray-proxy"] as [String: Any],
+                    ["tag": "local", "address": "8.8.8.8", "detour": "direct"] as [String: Any]
+                ],
+                "rules": [
+                    ["outbound": "any", "server": "local"] as [String: Any]
+                ],
+                "strategy": "prefer_ipv4",
+                "independent_cache": true
+            ] as [String: Any]
+        ]
+
+        guard let data = try? JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys]),
+              let str = String(data: data, encoding: .utf8)
+        else { return "{}" }
+        return str
     }
 
     func reconnect(bypassDomains: [String]) {
@@ -241,7 +333,8 @@ final class ProcessManager {
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
             connect(config: params.config, engine: params.engine,
-                    binaryPath: params.binaryPath, bypassDomains: bypassDomains)
+                    binaryPath: params.binaryPath, singBoxPath: params.singBoxPath,
+                    bypassDomains: bypassDomains)
             reconnectCount += 1
         }
     }

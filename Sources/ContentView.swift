@@ -114,6 +114,7 @@ struct ContentView: View {
             config: server.config,
             engine: engine,
             binaryPath: binaryPath,
+            singBoxPath: singBoxPath,
             bypassDomains: bypassEnabled ? bypassDomains : []
         )
         connectedAt = Date()
