@@ -76,8 +76,25 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
     // MARK: - Fetch & Parse
 
     func addFromURL(_ urlString: String) async {
-        let name = URLComponents(string: urlString)?.host ?? "Subscription"
-        let sub = Subscription(name: name, url: urlString, engine: .singBox)
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Direct vless:// or vmess:// URI — add as single server immediately
+        if trimmed.hasPrefix("vless://") || trimmed.hasPrefix("vmess://") {
+            var server: Server?
+            if trimmed.hasPrefix("vless://") { server = parseVlessURI(trimmed) }
+            else { server = parseVmessURI(trimmed) }
+            guard let server else { return }
+            var sub = Subscription(name: server.name, isManual: true, engine: .singBox)
+            sub.servers = [server]
+            sub.lastUpdated = Date()
+            subscriptions.append(sub)
+            save()
+            return
+        }
+
+        // Subscription URL
+        let name = URLComponents(string: trimmed)?.host ?? "Subscription"
+        let sub = Subscription(name: name, url: trimmed, engine: .singBox)
         subscriptions.append(sub)
         save()
         await refreshSubscription(sub.id)
