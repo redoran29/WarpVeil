@@ -50,21 +50,36 @@ final class SubscriptionService {
 
     // MARK: - Fetch & Parse
 
+    func addFromURL(_ urlString: String) async {
+        let name = URLComponents(string: urlString)?.host ?? "Subscription"
+        var sub = Subscription(name: name, url: urlString, engine: .singBox)
+        subscriptions.append(sub)
+        save()
+        await refreshSubscription(sub.id)
+    }
+
     func refreshSubscription(_ id: UUID) async {
         guard let idx = subscriptions.firstIndex(where: { $0.id == id }),
-              !subscriptions[idx].isManual,
-              let url = buildURL(for: subscriptions[idx])
+              !subscriptions[idx].isManual
         else { return }
 
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            guard let json = String(data: data, encoding: .utf8) else { return }
-            let servers = parseConfig(json, engine: subscriptions[idx].engine)
-            subscriptions[idx].servers = servers
-            subscriptions[idx].lastUpdated = Date()
-            save()
-        } catch {
-            // Network error — keep existing servers
+        // Try sing-box format first, then xray
+        for engine in [Engine.singBox, .xray] {
+            guard let url = buildURL(for: subscriptions[idx], engine: engine) else { continue }
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                guard let json = String(data: data, encoding: .utf8) else { continue }
+                let servers = parseConfig(json, engine: engine)
+                if !servers.isEmpty {
+                    subscriptions[idx].engine = engine
+                    subscriptions[idx].servers = servers
+                    subscriptions[idx].lastUpdated = Date()
+                    save()
+                    return
+                }
+            } catch {
+                continue
+            }
         }
     }
 
@@ -74,10 +89,10 @@ final class SubscriptionService {
         }
     }
 
-    private func buildURL(for sub: Subscription) -> URL? {
+    private func buildURL(for sub: Subscription, engine: Engine) -> URL? {
         guard var components = URLComponents(string: sub.url) else { return nil }
         var items = components.queryItems ?? []
-        let format = sub.engine == .singBox ? "singbox" : "xray"
+        let format = engine == .singBox ? "singbox" : "xray"
         items.removeAll { $0.name == "format" }
         items.append(URLQueryItem(name: "format", value: format))
         components.queryItems = items
@@ -187,12 +202,22 @@ final class SubscriptionService {
 
     // MARK: - Manual config
 
-    func addManualConfig(name: String, json: String, engine: Engine) {
-        var sub = Subscription(name: name, isManual: true, engine: engine)
-        sub.servers = parseConfig(json, engine: engine)
-        if sub.servers.isEmpty {
+    func addManualConfig(name: String, json: String) {
+        var sub = Subscription(name: name, isManual: true, engine: .singBox)
+
+        // Auto-detect engine
+        let singBoxServers = parseSingBox(json)
+        let xrayServers = parseXray(json)
+        if !singBoxServers.isEmpty {
+            sub.engine = .singBox
+            sub.servers = singBoxServers
+        } else if !xrayServers.isEmpty {
+            sub.engine = .xray
+            sub.servers = xrayServers
+        } else {
             sub.servers = [Server(name: name, protocolType: "custom", address: "—", config: json)]
         }
+
         sub.lastUpdated = Date()
         subscriptions.append(sub)
         save()
