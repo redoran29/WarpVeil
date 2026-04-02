@@ -11,8 +11,7 @@ Built with Swift 5.10, SwiftUI, targets macOS 14+. Runs entirely in the menu bar
 Sources/
 ├── WarpVeilApp.swift        # @main entry point, MenuBarExtra, service initialization
 ├── ContentView.swift        # Root container — segmented picker, tab routing, connect/disconnect
-├── DashboardView.swift      # Hero status block, stats row, sparkline, collapsible log
-├── RoutingView.swift        # Bypass toggle, domain list, bypass log
+├── ServersView.swift        # Two-column server list with subscription management
 ├── SetupView.swift          # Dependency detection UI, installation controls
 ├── SettingsView.swift       # Binary paths, passwordless, config editor with engine picker, quit
 ├── StatusIndicator.swift    # Reusable pulse animation indicator
@@ -65,7 +64,7 @@ Write the simplest code that works. Prioritize readability over cleverness.
 
 - **No sandbox**: the app runs sing-box/xray as child processes with sudo, which requires full system access
 - **LSUIElement = true**: menu bar only, no Dock icon, no main window
-- **HTTP exception for ip-api.com**: geolocation API only serves HTTP, configured in Info.plist
+- **NSAllowsArbitraryLoads**: subscription URLs may be HTTP; configured in Info.plist
 - **Passwordless mode**: optional sudoers file at `/etc/sudoers.d/warpveil` to avoid password prompts
 - **JSON manipulation via JSONSerialization**: bypass config injection needs flexible JSON handling, not Codable
 - **Binary detection checks multiple paths**: Homebrew paths differ between Intel (`/usr/local/bin/`) and Apple Silicon (`/opt/homebrew/bin/`)
