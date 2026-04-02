@@ -425,7 +425,6 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             ],
             "route": [
                 "auto_detect_interface": true,
-                "default_mark": 233,
                 "final": tag,
                 "rules": [
                     ["action": "hijack-dns", "protocol": "dns"] as [String: Any],
@@ -434,8 +433,8 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             ] as [String: Any],
             "dns": [
                 "servers": [
-                    ["tag": "remote", "address": "1.1.1.1", "address_resolver": "local", "detour": tag] as [String: Any],
-                    ["tag": "local", "address": "8.8.8.8", "detour": "direct"] as [String: Any]
+                    ["tag": "remote", "address": "tls://1.1.1.1", "detour": tag] as [String: Any],
+                    ["tag": "local", "address": "tls://8.8.8.8", "detour": "direct"] as [String: Any]
                 ],
                 "rules": [
                     ["outbound": "any", "server": "local"] as [String: Any]
