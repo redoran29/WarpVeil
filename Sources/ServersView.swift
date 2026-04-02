@@ -79,8 +79,11 @@ struct ServersView: View {
                 }
             }
         }
-        .sheet(isPresented: $showAddSheet) {
-            AddSubscriptionSheet(subs: subs)
+        .overlay(alignment: .top) {
+            if showAddSheet {
+                AddSubscriptionInline(subs: subs, isPresented: $showAddSheet)
+                    .padding(.top, 40)
+            }
         }
     }
 
@@ -367,81 +370,86 @@ private struct ServerRow: View {
     }
 }
 
-// MARK: - Add Subscription Sheet
+// MARK: - Add Subscription Inline
 
-private struct AddSubscriptionSheet: View {
+private struct AddSubscriptionInline: View {
     var subs: SubscriptionService
-    @Environment(\.dismiss) private var dismiss
+    @Binding var isPresented: Bool
 
-    @State private var name = ""
-    @State private var url = ""
-    @State private var engine: Engine = .singBox
     @State private var isManual = false
+    @State private var url = ""
+    @State private var manualName = ""
     @State private var manualJSON = ""
     @State private var isLoading = false
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text("Add Subscription")
-                .font(.headline)
-
-            Picker("Type", selection: $isManual) {
-                Text("URL").tag(false)
-                Text("Manual JSON").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 200)
-
-            TextField("Name", text: $name)
-                .textFieldStyle(.roundedBorder)
-
-            Picker("Engine", selection: $engine) {
-                ForEach(Engine.allCases, id: \.self) { e in
-                    Text(e.rawValue).tag(e)
+        VStack(spacing: 10) {
+            HStack {
+                Text("Add Subscription")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Button { isPresented = false } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9))
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            }
+
+            Picker("", selection: $isManual) {
+                Text("URL").tag(false)
+                Text("Manual").tag(true)
             }
             .pickerStyle(.segmented)
-            .frame(width: 200)
+            .controlSize(.small)
 
             if isManual {
-                TextEditor(text: $manualJSON)
-                    .font(.system(size: 11, design: .monospaced))
-                    .frame(height: 150)
-                    .border(Color.secondary.opacity(0.3))
-            } else {
-                TextField("https://example.com/sub/token", text: $url)
+                TextField("Name", text: $manualName)
                     .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 11))
+                TextEditor(text: $manualJSON)
+                    .font(.system(size: 10, design: .monospaced))
+                    .frame(height: 100)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
+            } else {
+                TextField("http://example.com/sub/token", text: $url)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 11))
+                    .onSubmit { addSubscription() }
             }
 
             HStack {
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+                if isLoading {
+                    ProgressView()
+                        .scaleEffect(0.5)
+                    Text("Fetching...")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button("Add") { addSubscription() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(name.isEmpty || (isManual ? manualJSON.isEmpty : url.isEmpty))
-            }
-
-            if isLoading {
-                ProgressView("Fetching servers...")
+                    .controlSize(.small)
+                    .disabled(isManual ? (manualName.isEmpty || manualJSON.isEmpty) : url.isEmpty)
+                    .disabled(isLoading)
             }
         }
-        .padding(20)
-        .frame(width: 400)
+        .padding(10)
+        .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+        .padding(.horizontal, 8)
     }
 
     private func addSubscription() {
         if isManual {
-            subs.addManualConfig(name: name, json: manualJSON, engine: engine)
-            dismiss()
+            subs.addManualConfig(name: manualName, json: manualJSON)
+            isPresented = false
         } else {
             isLoading = true
-            let sub = Subscription(name: name, url: url, engine: engine)
-            subs.addSubscription(sub)
             Task {
-                await subs.refreshSubscription(sub.id)
+                await subs.addFromURL(url)
                 isLoading = false
-                dismiss()
+                isPresented = false
             }
         }
     }
