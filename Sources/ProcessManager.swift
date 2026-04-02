@@ -24,9 +24,8 @@ final class ProcessManager {
         FileManager.default.temporaryDirectory.path + "/warpveil-singbox-\(ProcessInfo.processInfo.processIdentifier).json"
     }
     private static let sudoersFile = "/etc/sudoers.d/warpveil"
-    private var lastConnection: (singBoxPath: String, singBoxConfig: String,
-                                  xrayPath: String, xrayConfig: String,
-                                  bypassDomains: [String])?
+    private var lastConnection: (config: String, engine: Engine,
+                                  binaryPath: String, bypassDomains: [String])?
     private var wakeObserver: Any?
     private var reconnectTask: Task<Void, Never>?
     var reconnectCount = 0
@@ -126,9 +125,8 @@ final class ProcessManager {
         reconnectTask = Task {
             try? await Task.sleep(for: .seconds(5))
             guard !Task.isCancelled else { return }
-            connect(singBoxPath: params.singBoxPath, singBoxConfig: params.singBoxConfig,
-                    xrayPath: params.xrayPath, xrayConfig: params.xrayConfig,
-                    bypassDomains: params.bypassDomains)
+            connect(config: params.config, engine: params.engine,
+                    binaryPath: params.binaryPath, bypassDomains: params.bypassDomains)
             reconnectCount += 1
         }
     }
@@ -136,50 +134,45 @@ final class ProcessManager {
     // MARK: - Connect / Disconnect
 
     func connect(
-        singBoxPath: String, singBoxConfig: String,
-        xrayPath: String, xrayConfig: String,
-        bypassDomains: [String] = []
+        config: String, engine: Engine,
+        binaryPath: String, bypassDomains: [String] = []
     ) {
         guard !isRunning else { return }
-
-        let hasXray = !xrayConfig.isEmpty && !xrayPath.isEmpty
-        let hasSingBox = !singBoxConfig.isEmpty && !singBoxPath.isEmpty
-
-        if hasXray && !FileManager.default.isExecutableFile(atPath: xrayPath) {
-            logs.append("[Error: xray binary not found at \(xrayPath)]")
+        guard !config.isEmpty else {
+            logs.append("[Error: no config provided]")
             return
         }
-        if hasSingBox && !FileManager.default.isExecutableFile(atPath: singBoxPath) {
-            logs.append("[Error: sing-box binary not found at \(singBoxPath)]")
+        guard FileManager.default.isExecutableFile(atPath: binaryPath) else {
+            logs.append("[Error: binary not found at \(binaryPath)]")
             return
         }
 
-        lastConnection = (singBoxPath, singBoxConfig, xrayPath, xrayConfig, bypassDomains)
+        lastConnection = (config, engine, binaryPath, bypassDomains)
 
-        if hasXray {
-            let finalConfig = BypassService.injectXray(xrayConfig, domains: bypassDomains)
-            FileManager.default.createFile(atPath: xrayConfigFile, contents: finalConfig.data(using: .utf8), attributes: [.posixPermissions: 0o600])
+        let finalConfig: String
+        let configFile: String
+        switch engine {
+        case .singBox:
+            finalConfig = BypassService.injectSingBox(config, domains: bypassDomains)
+            configFile = singboxConfigFile
+        case .xray:
+            finalConfig = BypassService.injectXray(config, domains: bypassDomains)
+            configFile = xrayConfigFile
         }
-        if hasSingBox {
-            let finalConfig = BypassService.injectSingBox(singBoxConfig, domains: bypassDomains)
-            FileManager.default.createFile(atPath: singboxConfigFile, contents: finalConfig.data(using: .utf8), attributes: [.posixPermissions: 0o600])
-        }
+
+        FileManager.default.createFile(atPath: configFile, contents: finalConfig.data(using: .utf8),
+                                        attributes: [.posixPermissions: 0o600])
 
         if !bypassDomains.isEmpty {
-            logs.append("[Bypass] \(bypassDomains.count) domain(s) will route direct: \(bypassDomains.joined(separator: ", "))")
-        }
-
-        guard hasXray || hasSingBox else {
-            logs.append("[Error: no config provided. Go to Settings tab.]")
-            return
+            logs.append("[Bypass] \(bypassDomains.count) domain(s) will route direct")
         }
 
         logs.append(isPasswordless ? "[Connecting...]" : "[Connecting (password prompt)...]")
 
         FileManager.default.createFile(atPath: logFile, contents: nil)
-        let script = buildScript(hasXray: hasXray, hasSingBox: hasSingBox,
-                                 xrayPath: xrayPath, singBoxPath: singBoxPath)
-        FileManager.default.createFile(atPath: runScript, contents: script.data(using: .utf8), attributes: [.posixPermissions: 0o700])
+        let script = buildScript(engine: engine, binaryPath: binaryPath, configFile: configFile)
+        FileManager.default.createFile(atPath: runScript, contents: script.data(using: .utf8),
+                                        attributes: [.posixPermissions: 0o700])
 
         startLogTail()
 
@@ -214,32 +207,19 @@ final class ProcessManager {
         }
     }
 
-    private func buildScript(
-        hasXray: Bool, hasSingBox: Bool,
-        xrayPath: String, singBoxPath: String
-    ) -> String {
+    private func buildScript(engine: Engine, binaryPath: String, configFile: String) -> String {
         var cmds = ["#!/bin/bash", "cd /tmp", "exec > \(Self.shellEscape(logFile)) 2>&1"]
-
-        // Kill stale processes from previous session (e.g. after sleep/wake)
         cmds.append("pkill -f 'sing-box run' 2>/dev/null; pkill -f 'xray run' 2>/dev/null; sleep 1")
 
-        if hasXray {
-            cmds.append("echo '[xray] starting...'")
-            cmds.append("\(Self.shellEscape(xrayPath)) run -config \(Self.shellEscape(xrayConfigFile)) &")
-            cmds.append("XRAY_PID=$!")
-            cmds.append("echo '[xray] started pid='$XRAY_PID")
-            if hasSingBox { cmds.append("sleep 1") }
-        }
-
-        if hasSingBox {
-            cmds.append("echo '[sing-box] starting...'")
-            cmds.append("\(Self.shellEscape(singBoxPath)) run -c \(Self.shellEscape(singboxConfigFile)) &")
-            cmds.append("SINGBOX_PID=$!")
-            cmds.append("echo '[sing-box] started pid='$SINGBOX_PID")
-        }
+        let label = engine == .singBox ? "sing-box" : "xray"
+        let configFlag = engine == .singBox ? "-c" : "-config"
+        cmds.append("echo '[\(label)] starting...'")
+        cmds.append("\(Self.shellEscape(binaryPath)) run \(configFlag) \(Self.shellEscape(configFile)) &")
+        cmds.append("VPN_PID=$!")
+        cmds.append("echo '[\(label)] started pid='$VPN_PID")
 
         cmds.append("""
-            cleanup() { echo '[stopping...]'; kill $XRAY_PID $SINGBOX_PID 2>/dev/null; wait; echo '[stopped]'; exit 0; }
+            cleanup() { echo '[stopping...]'; kill $VPN_PID 2>/dev/null; wait; echo '[stopped]'; exit 0; }
             trap cleanup TERM INT
             wait
             """)
@@ -260,9 +240,8 @@ final class ProcessManager {
         reconnectTask = Task {
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
-            connect(singBoxPath: params.singBoxPath, singBoxConfig: params.singBoxConfig,
-                    xrayPath: params.xrayPath, xrayConfig: params.xrayConfig,
-                    bypassDomains: bypassDomains)
+            connect(config: params.config, engine: params.engine,
+                    binaryPath: params.binaryPath, bypassDomains: bypassDomains)
             reconnectCount += 1
         }
     }
