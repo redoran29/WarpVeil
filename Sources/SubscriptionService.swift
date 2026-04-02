@@ -401,13 +401,14 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
     }
 
     private func buildSingBoxConfigFromOutbound(_ outbound: [String: Any]) -> String {
+        let tag = outbound["tag"] as? String ?? "proxy"
         let config: [String: Any] = [
             "log": ["level": "info"],
             "inbounds": [
                 [
                     "type": "tun",
                     "tag": "tun-in",
-                    "inet4_address": "172.19.0.1/30",
+                    "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
                     "auto_route": true,
                     "strict_route": true,
                     "sniff": true,
@@ -416,24 +417,27 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             ],
             "outbounds": [
                 outbound,
-                ["type": "direct", "tag": "direct"] as [String: Any],
-                ["type": "block", "tag": "block"] as [String: Any],
-                ["type": "dns", "tag": "dns-out"] as [String: Any]
+                ["type": "direct", "tag": "direct"] as [String: Any]
             ],
             "route": [
                 "auto_detect_interface": true,
-                "final": outbound["tag"] as? String ?? "proxy",
+                "default_mark": 233,
+                "final": tag,
                 "rules": [
-                    ["protocol": "dns", "outbound": "dns-out"] as [String: Any]
+                    ["action": "hijack-dns", "protocol": "dns"] as [String: Any],
+                    ["action": "sniff"] as [String: Any]
                 ]
             ] as [String: Any],
             "dns": [
                 "servers": [
-                    ["tag": "remote", "address": "https://1.1.1.1/dns-query"] as [String: Any],
-                    ["tag": "local", "address": "223.5.5.5", "detour": "direct"] as [String: Any]
+                    ["tag": "remote", "address": "https://1.1.1.1/dns-query", "detour": tag] as [String: Any],
+                    ["tag": "local", "address": "https://223.5.5.5/dns-query", "detour": "direct"] as [String: Any]
                 ],
-                "rules": [] as [[String: Any]],
-                "strategy": "prefer_ipv4"
+                "rules": [
+                    ["outbound": "any", "server": "local"] as [String: Any]
+                ],
+                "strategy": "prefer_ipv4",
+                "independent_cache": true
             ] as [String: Any]
         ]
         return serializeJSON(config) ?? "{}"
