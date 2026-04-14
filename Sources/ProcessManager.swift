@@ -10,6 +10,7 @@ final class ProcessManager {
     private var helperProcess: Process?
     private var logSource: DispatchSourceFileSystemObject?
     private var logHandle: FileHandle?
+    private var logDebounceTimer: Timer?
     private let logFile = FileManager.default.temporaryDirectory.path + "/warpveil.log"
     private var runScript: String {
         FileManager.default.temporaryDirectory.path + "/warpveil-run-\(ProcessInfo.processInfo.processIdentifier).sh"
@@ -421,28 +422,24 @@ final class ProcessManager {
         handle.seekToEndOfFile()
         logHandle = handle
 
-        let fd = handle.fileDescriptor
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .extend],
-            queue: .global(qos: .userInitiated)
-        )
-        source.setEventHandler { [weak self] in
+        // Poll log file every 0.25s instead of DispatchSource (which fires per-write, hundreds/sec)
+        logDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             let data = handle.readDataToEndOfFile()
             guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
             let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
-            Task { @MainActor in
-                self?.logs.append(contentsOf: lines)
-                if let count = self?.logs.count, count > 500 {
-                    self?.logs.removeFirst(count - 500)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                logs.append(contentsOf: lines)
+                if logs.count > 600 {
+                    logs = Array(logs.suffix(500))
                 }
             }
         }
-        source.resume()
-        logSource = source
     }
 
     private func stopLogTail() {
+        logDebounceTimer?.invalidate()
+        logDebounceTimer = nil
         logSource?.cancel()
         logSource = nil
         logHandle?.closeFile()

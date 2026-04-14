@@ -5,6 +5,8 @@ import Darwin
 final class NetworkMonitor {
     var uploadSpeed: String = ""
     var downloadSpeed: String = ""
+    var downloadBPS: Double = 0
+    var uploadBPS: Double = 0
     var hasTraffic = false
     var downloadHistory: [Double] = Array(repeating: 0, count: 60)
     var uploadHistory: [Double] = Array(repeating: 0, count: 60)
@@ -12,9 +14,15 @@ final class NetworkMonitor {
     private var timer: Timer?
     private var lastIn: UInt64 = 0
     private var lastOut: UInt64 = 0
+    private var historyIndex = 0
+
+    deinit {
+        timer?.invalidate()
+    }
 
     func start() {
         (lastIn, lastOut) = Self.readBytes()
+        historyIndex = 0
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             self?.tick()
         }
@@ -25,9 +33,12 @@ final class NetworkMonitor {
         timer = nil
         uploadSpeed = ""
         downloadSpeed = ""
+        downloadBPS = 0
+        uploadBPS = 0
         hasTraffic = false
         downloadHistory = Array(repeating: 0, count: 60)
         uploadHistory = Array(repeating: 0, count: 60)
+        historyIndex = 0
     }
 
     private func tick() {
@@ -37,19 +48,30 @@ final class NetworkMonitor {
         lastIn = totalIn
         lastOut = totalOut
 
-        DispatchQueue.main.async { [self] in
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
             downloadSpeed = Self.format(dIn)
             uploadSpeed = Self.format(dOut)
+            downloadBPS = Double(dIn)
+            uploadBPS = Double(dOut)
             hasTraffic = dIn > 1024 || dOut > 1024
-            downloadHistory.append(Double(dIn))
-            downloadHistory.removeFirst()
-            uploadHistory.append(Double(dOut))
-            uploadHistory.removeFirst()
+            downloadHistory[historyIndex] = Double(dIn)
+            uploadHistory[historyIndex] = Double(dOut)
+            historyIndex = (historyIndex + 1) % 60
         }
     }
 
     private static func format(_ bytes: UInt64) -> String {
         String(format: "%05.2f MB/s", Double(bytes) / 1_048_576)
+    }
+
+    static func formatSplit(_ bps: Double) -> (String, String) {
+        if bps >= 1_048_576 {
+            return (String(format: "%.1f", bps / 1_048_576), "MB/s")
+        } else if bps >= 1024 {
+            return (String(format: "%.0f", bps / 1024), "KB/s")
+        }
+        return ("0", "KB/s")
     }
 
     private static func readBytes() -> (UInt64, UInt64) {
@@ -63,7 +85,6 @@ final class NetworkMonitor {
         var cursor: UnsafeMutablePointer<ifaddrs>? = first
         while let ifa = cursor {
             let addr = ifa.pointee
-            // AF_LINK = link-layer, has byte counters
             if addr.ifa_addr?.pointee.sa_family == UInt8(AF_LINK) {
                 if let data = addr.ifa_data {
                     let d = data.assumingMemoryBound(to: if_data.self).pointee
