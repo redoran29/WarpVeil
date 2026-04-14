@@ -4,6 +4,8 @@
 *.xcodeproj/xcuserdata/
 xcuserdata/
 DerivedData/
+build/
+AppIcon.iconset/
 *.o
 *.dSYM/
 cache.db
