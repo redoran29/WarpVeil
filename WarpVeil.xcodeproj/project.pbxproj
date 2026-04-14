@@ -20,6 +20,7 @@
 		AA000000000000000000000D /* StatusIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000015 /* StatusIndicator.swift */; };
 		AA000000000000000000000E /* SubscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000016 /* SubscriptionService.swift */; };
 		AA000000000000000000000F /* ServersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000017 /* ServersView.swift */; };
+		AA0000000000000000000020 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000020 /* AppIcon.icns */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,6 +40,7 @@
 		BB0000000000000000000015 /* StatusIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusIndicator.swift; sourceTree = "<group>"; };
 		BB0000000000000000000016 /* SubscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionService.swift; sourceTree = "<group>"; };
 		BB0000000000000000000017 /* ServersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServersView.swift; sourceTree = "<group>"; };
+		BB0000000000000000000020 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -55,6 +57,7 @@
 		EE0000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
+				BB0000000000000000000020 /* AppIcon.icns */,
 				BB0000000000000000000008 /* Info.plist */,
 				BB0000000000000000000009 /* WarpVeil.entitlements */,
 				EE0000000000000000000002 /* Sources */,
@@ -92,6 +95,17 @@
 		};
 /* End PBXGroup section */
 
+/* Begin PBXResourcesBuildPhase section */
+		CC0000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA0000000000000000000020 /* AppIcon.icns in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXNativeTarget section */
 		FF0000000000000000000001 /* WarpVeil */ = {
 			isa = PBXNativeTarget;
@@ -99,6 +113,7 @@
 			buildPhases = (
 				CC0000000000000000000001 /* Sources */,
 				CC0000000000000000000002 /* Frameworks */,
+				CC0000000000000000000003 /* Resources */,
 			);
 			buildRules = (
 			);

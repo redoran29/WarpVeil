@@ -1,8 +1,8 @@
 import SwiftUI
 
 enum Tab: String, CaseIterable {
-    case servers = "Servers"
-    case settings = "Settings"
+    case servers = "Серверы"
+    case settings = "Настройки"
 }
 
 struct ContentView: View {
@@ -21,6 +21,7 @@ struct ContentView: View {
     @AppStorage("singBoxPath") private var singBoxPath = ""
     @AppStorage("bypassEnabled") private var bypassEnabled = true
     @AppStorage("bypassDomains") private var bypassDomainsRaw = ""
+    @AppStorage("autoConnect") private var autoConnect = false
 
     private var bypassDomains: [String] {
         bypassDomainsRaw.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
@@ -38,14 +39,7 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("", selection: $tab) {
-                ForEach(Tab.allCases, id: \.self) { t in
-                    Text(t.rawValue).tag(t)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            tabBar
 
             Divider()
 
@@ -65,7 +59,7 @@ struct ContentView: View {
             .transition(.opacity)
             .animation(.easeInOut(duration: 0.15), value: tab)
         }
-        .background(.ultraThinMaterial)
+        .background(Color(nsColor: .windowBackgroundColor))
         .task {
             await loc.detect()
             setup.checkAll()
@@ -76,6 +70,10 @@ struct ContentView: View {
                 xrayPath = ProcessManager.findBinary("xray") ?? ""
             }
             await subs.refreshAll()
+
+            if autoConnect, !pm.isRunning, selectedServer != nil {
+                doConnect()
+            }
         }
         .onChange(of: setup.singBoxPath) { _, newPath in
             if let newPath, !newPath.isEmpty { singBoxPath = newPath }
@@ -92,6 +90,28 @@ struct ContentView: View {
             locationTimer?.invalidate()
             locationTimer = nil
         }
+    }
+
+    // MARK: - Tab Bar
+
+    private var tabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(Tab.allCases, id: \.self) { t in
+                VStack(spacing: 0) {
+                    Text(t.rawValue)
+                        .font(.system(size: 14, weight: tab == t ? .semibold : .regular))
+                        .foregroundStyle(tab == t ? .primary : .secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    Rectangle()
+                        .fill(tab == t ? Color.indigo : .clear)
+                        .frame(height: 2)
+                }
+                .contentShape(Rectangle())
+                .background(tab == t ? Color.secondary.opacity(0.08) : .clear)
+                .onTapGesture { tab = t }
+            }
+        }
+        .frame(height: 40)
     }
 
     // MARK: - Actions
