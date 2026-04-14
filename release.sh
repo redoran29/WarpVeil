@@ -7,42 +7,39 @@ cd "$(dirname "$0")"
 PROJECT="WarpVeil.xcodeproj"
 SCHEME="WarpVeil"
 APP_NAME="WarpVeil"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build"
 
 # --- Get version from Info.plist ---
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Info.plist)
-BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" Info.plist)
 TAG="v${VERSION}"
 
 echo "=== ${APP_NAME} Release ==="
-echo "Version: ${VERSION} (build ${BUILD})"
+echo "Version: ${VERSION}"
 echo "Tag: ${TAG}"
 echo ""
 
-# --- Check for uncommitted changes ---
-if ! git diff --quiet HEAD 2>/dev/null; then
-    echo "⚠️  Есть незакоммиченные изменения!"
-    read -p "Продолжить? (y/n) " -n 1 -r
-    echo
-    [[ $REPLY =~ ^[Yy]$ ]] || exit 1
-fi
-
-# --- Check if tag already exists ---
+# --- Check: are there new commits since this tag? ---
 if git rev-parse "$TAG" >/dev/null 2>&1; then
-    echo "⚠️  Тег $TAG уже существует!"
-    read -p "Удалить и пересоздать? (y/n) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        git tag -d "$TAG"
-        gh release delete "$TAG" --yes 2>/dev/null || true
-        git push origin ":refs/tags/$TAG" 2>/dev/null || true
-    else
-        exit 1
+    TAG_COMMIT=$(git rev-list -n 1 "$TAG")
+    HEAD_COMMIT=$(git rev-parse HEAD)
+
+    if [ "$TAG_COMMIT" = "$HEAD_COMMIT" ] && git diff --quiet HEAD 2>/dev/null; then
+        echo "✅ Нет изменений с последнего релиза ${TAG} — пропуск"
+        exit 0
     fi
+
+    echo "📝 Найдены новые изменения — обновляю релиз ${TAG}..."
+
+    # Delete old tag & release
+    git tag -d "$TAG" 2>/dev/null || true
+    git push origin ":refs/tags/$TAG" 2>/dev/null || true
+    gh release delete "$TAG" --yes 2>/dev/null || true
+else
+    echo "🆕 Первый релиз ${TAG}"
 fi
 
-# --- Clean & build Release ---
+# --- Build Release ---
 echo "🔨 Сборка Release..."
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
@@ -53,34 +50,43 @@ xcodebuild -project "$PROJECT" \
     -derivedDataPath "$BUILD_DIR/derived" \
     build \
     CONFIGURATION_BUILD_DIR="$BUILD_DIR" \
-    2>&1 | tail -5
+    2>&1 | tail -3
 
 if [ ! -d "$BUILD_DIR/${APP_NAME}.app" ]; then
-    echo "❌ Сборка не удалась — .app не найден"
+    echo "❌ Сборка не удалась"
     exit 1
 fi
 
 echo "✅ Сборка успешна"
 
 # --- Package ---
-echo "📦 Упаковка..."
 ZIP_NAME="${APP_NAME}-${VERSION}-macOS.zip"
 cd "$BUILD_DIR"
 ditto -c -k --sequesterRsrc --keepParent "${APP_NAME}.app" "$ZIP_NAME"
 ZIP_SIZE=$(du -h "$ZIP_NAME" | cut -f1)
-cd ..
+cd "$SCRIPT_DIR"
 
-echo "✅ ${ZIP_NAME} (${ZIP_SIZE})"
+echo "📦 ${ZIP_NAME} (${ZIP_SIZE})"
 
-# --- Generate release notes from git log ---
-LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-if [ -n "$LAST_TAG" ]; then
-    CHANGES=$(git log "${LAST_TAG}..HEAD" --pretty=format:"- %s" --no-merges 2>/dev/null || echo "- Initial release")
+# --- Release notes from git log ---
+LAST_TAGS=$(git tag --sort=-version:refname | head -5)
+PREV_TAG=""
+for t in $LAST_TAGS; do
+    if [ "$t" != "$TAG" ]; then
+        PREV_TAG="$t"
+        break
+    fi
+done
+
+if [ -n "$PREV_TAG" ]; then
+    CHANGES=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s" --no-merges 2>/dev/null)
 else
-    CHANGES=$(git log --pretty=format:"- %s" --no-merges -20 2>/dev/null || echo "- Initial release")
+    CHANGES=$(git log --pretty=format:"- %s" --no-merges -20 2>/dev/null)
 fi
 
-NOTES="## WarpVeil ${VERSION}
+[ -z "$CHANGES" ] && CHANGES="- Обновление"
+
+NOTES="## ${APP_NAME} ${VERSION}
 
 ### Изменения
 ${CHANGES}
@@ -88,24 +94,13 @@ ${CHANGES}
 ### Установка
 1. Скачать \`${ZIP_NAME}\`
 2. Распаковать
-3. Перетащить WarpVeil.app в /Applications
+3. Перетащить ${APP_NAME}.app в /Applications
 4. Запустить — иконка появится в menu bar
 
 > Требуется macOS 14+"
 
-echo ""
-echo "--- Release Notes ---"
-echo "$NOTES"
-echo "---------------------"
-echo ""
-
-# --- Confirm ---
-read -p "🚀 Создать релиз ${TAG} на GitHub? (y/n) " -n 1 -r
-echo
-[[ $REPLY =~ ^[Yy]$ ]] || { echo "Отменено."; exit 0; }
-
 # --- Create tag & release ---
-echo "🏷  Создание тега ${TAG}..."
+echo "🏷  Тег ${TAG}..."
 git tag -a "$TAG" -m "Release ${VERSION}"
 git push origin "$TAG"
 
@@ -116,9 +111,9 @@ gh release create "$TAG" \
     --notes "$NOTES"
 
 RELEASE_URL=$(gh release view "$TAG" --json url -q .url)
-echo ""
-echo "🎉 Релиз создан: ${RELEASE_URL}"
 
 # --- Cleanup ---
 rm -rf "$BUILD_DIR"
-echo "🧹 Очищено"
+
+echo ""
+echo "🎉 ${RELEASE_URL}"
