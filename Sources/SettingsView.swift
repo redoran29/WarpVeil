@@ -38,19 +38,19 @@ struct SettingsView: View {
 
     private var connectionSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("ПОДКЛЮЧЕНИЕ")
+            sectionHeader("CONNECTION")
 
             settingsToggle(
-                title: "Автоподключение",
-                subtitle: "При запуске приложения",
+                title: "Auto-connect",
+                subtitle: "Connect on app launch",
                 isOn: $autoConnect
             )
 
             settingsDivider
 
             settingsToggle(
-                title: "Без пароля",
-                subtitle: "Passwordless mode",
+                title: "Passwordless",
+                subtitle: "Skip password prompts via sudoers",
                 isOn: Binding(
                     get: { pm.isPasswordless },
                     set: { newValue in
@@ -64,7 +64,7 @@ struct SettingsView: View {
 
             settingsToggle(
                 title: "Kill Switch",
-                subtitle: "Блокировать трафик при разрыве",
+                subtitle: "Block traffic when VPN drops",
                 isOn: $killSwitch
             )
         }
@@ -74,10 +74,10 @@ struct SettingsView: View {
 
     private var bypassSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("ОБХОД ДОМЕНА")
+            sectionHeader("DOMAIN BYPASS")
 
             settingsToggle(
-                title: "Включить обход",
+                title: "Enable bypass",
                 subtitle: nil,
                 isOn: $bypassEnabled
             )
@@ -109,7 +109,7 @@ struct SettingsView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                 } else {
-                    Button("+ Добавить домен") {
+                    Button("+ Add domain") {
                         showNewDomainField = true
                     }
                     .font(.system(size: 13, weight: .medium))
@@ -126,7 +126,7 @@ struct SettingsView: View {
 
     private var componentsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("КОМПОНЕНТЫ")
+            sectionHeader("COMPONENTS")
 
             ForEach(Dependency.allCases) { dep in
                 HStack(spacing: 10) {
@@ -143,7 +143,7 @@ struct SettingsView: View {
             }
 
             HStack {
-                Button("Проверить") { setup.checkAll() }
+                Button("Check") { setup.checkAll() }
                     .font(.system(size: 12))
                     .disabled(setup.isInstalling)
 
@@ -153,12 +153,12 @@ struct SettingsView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.green)
-                        Text("Установлено")
+                        Text("Installed")
                             .foregroundStyle(.secondary)
                     }
                     .font(.system(size: 11))
                 } else {
-                    Button("Установить") { setup.installAll() }
+                    Button("Install") { setup.installAll() }
                         .font(.system(size: 12))
                         .disabled(setup.isInstalling || !setup.hasMissing)
                 }
@@ -258,16 +258,16 @@ struct SettingsView: View {
     private func depStatusLabel(_ status: DependencyStatus) -> some View {
         switch status {
         case .unknown:
-            Text("Не проверено").font(.system(size: 10)).foregroundStyle(.secondary)
+            Text("Not checked").font(.system(size: 10)).foregroundStyle(.secondary)
         case .checking:
-            Text("Проверка...").font(.system(size: 10)).foregroundStyle(.secondary)
+            Text("Checking...").font(.system(size: 10)).foregroundStyle(.secondary)
         case .installed(let path):
             Text(path).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
                 .lineLimit(1).truncationMode(.middle)
         case .missing:
-            Text("Не найдено").font(.system(size: 10)).foregroundStyle(.red)
+            Text("Not found").font(.system(size: 10)).foregroundStyle(.red)
         case .installing:
-            Text("Установка...").font(.system(size: 10)).foregroundStyle(.blue)
+            Text("Installing...").font(.system(size: 10)).foregroundStyle(.blue)
         case .failed(let msg):
             Text(msg).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(1)
         }

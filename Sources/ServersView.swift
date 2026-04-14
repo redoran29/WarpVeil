@@ -110,7 +110,7 @@ struct ServersView: View {
 
     private var statusSection: some View {
         VStack(spacing: 4) {
-            Text(pm.isRunning ? "Подключено" : "Отключено")
+            Text(pm.isRunning ? "Connected" : "Disconnected")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(pm.isRunning ? .green : .secondary)
 
@@ -128,8 +128,8 @@ struct ServersView: View {
 
     private var statsSection: some View {
         HStack(spacing: 12) {
-            statBox(label: "ЗАГРУЗКА", icon: "arrow.down", bps: net.downloadBPS)
-            statBox(label: "ОТДАЧА", icon: "arrow.up", bps: net.uploadBPS)
+            statBox(label: "DOWNLOAD", icon: "arrow.down", bps: net.downloadBPS)
+            statBox(label: "UPLOAD", icon: "arrow.up", bps: net.uploadBPS)
         }
     }
 
@@ -171,12 +171,12 @@ struct ServersView: View {
     private var serverListSection: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("СЕРВЕРЫ")
+                Text("SERVERS")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .tracking(1)
                 Spacer()
-                Button("+ Добавить") { showAddSheet = true }
+                Button("+ Add") { showAddSheet = true }
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.indigo)
                     .buttonStyle(.plain)
@@ -189,10 +189,10 @@ struct ServersView: View {
                     Image(systemName: "server.rack")
                         .font(.system(size: 28))
                         .foregroundStyle(.quaternary)
-                    Text("Нет серверов")
+                    Text("No servers")
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
-                    Button("Добавить подписку") { showAddSheet = true }
+                    Button("Add subscription") { showAddSheet = true }
                         .font(.system(size: 12))
                         .foregroundStyle(.indigo)
                         .buttonStyle(.plain)
@@ -212,11 +212,11 @@ struct ServersView: View {
                         .contextMenu {
                             if let sub = subscriptionFor(server) {
                                 if !sub.isManual {
-                                    Button("Обновить подписку") {
+                                    Button("Refresh subscription") {
                                         Task { await subs.refreshSubscription(sub.id) }
                                     }
                                 }
-                                Button("Удалить подписку", role: .destructive) {
+                                Button("Delete subscription", role: .destructive) {
                                     subs.removeSubscription(sub.id)
                                 }
                             }
@@ -235,7 +235,7 @@ struct ServersView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
                 .font(.system(size: 12))
-            Text("Зависимости не установлены — см. Настройки")
+            Text("Dependencies missing — check Settings")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }
@@ -262,7 +262,7 @@ struct ServersView: View {
                 showLog = true
             } label: {
                 HStack(spacing: 3) {
-                    Text("Показать лог")
+                    Text("Show log")
                     Image(systemName: "arrow.up.right")
                         .font(.system(size: 9, weight: .medium))
                 }
@@ -280,7 +280,7 @@ struct ServersView: View {
     private var logOverlay: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Лог")
+                Text("Log")
                     .font(.system(size: 14, weight: .semibold))
                 Spacer()
                 Button {
@@ -293,7 +293,7 @@ struct ServersView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("Копировать")
+                .help("Copy")
 
                 Button {
                     pm.clearLogs()
@@ -303,7 +303,7 @@ struct ServersView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("Очистить")
+                .help("Clear")
 
                 Button { showLog = false } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -535,7 +535,7 @@ private struct AddSubscriptionSheet: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack {
-                Text("Добавить подписку")
+                Text("Add Subscription")
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
                 Button { isPresented = false } label: {
@@ -554,7 +554,7 @@ private struct AddSubscriptionSheet: View {
             .controlSize(.small)
 
             if isManual {
-                TextField("Название", text: $manualName)
+                TextField("Name", text: $manualName)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12))
                 TextEditor(text: $manualJSON)
@@ -573,12 +573,12 @@ private struct AddSubscriptionSheet: View {
                 if isLoading {
                     ProgressView()
                         .scaleEffect(0.5)
-                    Text("Загрузка...")
+                    Text("Loading...")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Добавить") { addSubscription() }
+                Button("Add") { addSubscription() }
                     .controlSize(.small)
                     .disabled(isManual ? (manualName.isEmpty || manualJSON.isEmpty) : url.isEmpty)
                     .disabled(isLoading)
