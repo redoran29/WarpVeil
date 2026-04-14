@@ -63,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showContextMenu(_ sender: NSStatusBarButton) {
         let menu = NSMenu()
-        let quit = NSMenuItem(title: "Закрыть WarpVeil", action: #selector(quitApp), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit WarpVeil", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
         statusItem.menu = menu

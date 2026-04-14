@@ -1,8 +1,8 @@
 import SwiftUI
 
 enum Tab: String, CaseIterable {
-    case servers = "Серверы"
-    case settings = "Настройки"
+    case servers = "Servers"
+    case settings = "Settings"
 }
 
 struct ContentView: View {
