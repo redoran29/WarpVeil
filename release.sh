@@ -7,7 +7,8 @@ cd "$(dirname "$0")"
 PROJECT="WarpVeil.xcodeproj"
 SCHEME="WarpVeil"
 APP_NAME="WarpVeil"
-BUILD_DIR="build"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BUILD_DIR="${SCRIPT_DIR}/build"
 
 # --- Get version from Info.plist ---
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Info.plist)
@@ -50,7 +51,7 @@ xcodebuild -project "$PROJECT" \
     -scheme "$SCHEME" \
     -configuration Release \
     -derivedDataPath "$BUILD_DIR/derived" \
-    clean build \
+    build \
     CONFIGURATION_BUILD_DIR="$BUILD_DIR" \
     2>&1 | tail -5
 
