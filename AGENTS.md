@@ -70,7 +70,7 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - **Passwordless mode**: writes a fixed-path runner to `/usr/local/libexec/warpveil/{run.sh,stop.sh}` (root:wheel 0755) and a sudoers entry at `/etc/sudoers.d/warpveil` that whitelists ONLY those exact paths — no wildcards. Migration from older wildcard sudoers is automatic on toggle off+on.
 - **PID files**: each engine writes its PID to `/tmp/warpveil-{singbox,xray}.pid` so stop targets only our processes (no `pkill -f` collateral damage)
 - **JSON manipulation via JSONSerialization**: bypass config injection needs flexible JSON handling, not Codable
-- **Bundled binaries first**: `ProcessManager.findBinary` checks `Bundle.main.resourcePath` before any system path; bundled engines always win over Homebrew/system installs
+- **Bundled binaries only**: `ProcessManager.findBinary` resolves `sing-box`/`xray` from `Bundle.main.resourcePath` and nothing else; system installs (Homebrew, MacPorts, `$PATH`) are ignored
 - **Binary upgrades require an app update**: there is no in-app updater for `sing-box`/`xray`; bump the pinned tags in `fetch-binaries.sh` and ship a new release
 
 ## Temporary Files at Runtime
