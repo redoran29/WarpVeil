@@ -626,44 +626,9 @@ final class ProcessManager {
     // MARK: - Binary auto-detection
 
     nonisolated static func findBinary(_ name: String) -> String? {
-        // Check bundled binaries first (inside .app/Contents/Resources/)
-        if let bundled = Bundle.main.resourcePath {
-            let path = (bundled as NSString).appendingPathComponent(name)
-            if FileManager.default.isExecutableFile(atPath: path) {
-                return path
-            }
-        }
-        // Fallback: well-known system paths (Homebrew, MacPorts, etc.)
-        let candidates = [
-            "/opt/homebrew/bin/\(name)",
-            "/usr/local/bin/\(name)",
-            "/opt/local/bin/\(name)",
-            "\(NSHomeDirectory())/.local/bin/\(name)",
-            "\(NSHomeDirectory())/go/bin/\(name)",
-        ]
-        if let found = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
-            return found
-        }
-        // Fallback: shell which (may not work in .app bundle)
-        if let path = shellCommand("which \(name)"),
-           FileManager.default.isExecutableFile(atPath: path) {
-            return path
-        }
-        return nil
-    }
-
-    private nonisolated static func shellCommand(_ cmd: String) -> String? {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        p.arguments = ["-lc", cmd]
-        let pipe = Pipe()
-        p.standardOutput = pipe
-        p.standardError = FileHandle.nullDevice
-        try? p.run()
-        p.waitUntilExit()
-        guard p.terminationStatus == 0 else { return nil }
-        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let bundled = Bundle.main.resourcePath else { return nil }
+        let path = (bundled as NSString).appendingPathComponent(name)
+        return FileManager.default.isExecutableFile(atPath: path) ? path : nil
     }
 
     private nonisolated static func shellEscape(_ path: String) -> String {
