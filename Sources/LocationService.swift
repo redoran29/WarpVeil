@@ -8,11 +8,21 @@ final class LocationService {
     var isLoading = false
 
     private struct IPInfo: Codable {
-        let query: String
+        let ip: String
         let country: String
         let countryCode: String
         let city: String
-        let isp: String
+        let connection: Connection?
+
+        struct Connection: Codable {
+            let isp: String?
+            let org: String?
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case ip, country, city, connection
+            case countryCode = "country_code"
+        }
     }
 
     func detect() async {
@@ -20,13 +30,16 @@ final class LocationService {
         isLoading = true
         defer { isLoading = false }
 
-        guard let url = URL(string: "http://ip-api.com/json/") else { return }
+        guard let url = URL(string: "https://ipwho.is/") else { return }
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             let info = try JSONDecoder().decode(IPInfo.self, from: data)
-            ip = info.query
+            ip = info.ip
             flag = Self.flag(from: info.countryCode)
-            location = "\(flag) \(info.city), \(info.country) — \(info.isp)"
+            let isp = info.connection?.isp ?? info.connection?.org ?? ""
+            location = isp.isEmpty
+                ? "\(flag) \(info.city), \(info.country)"
+                : "\(flag) \(info.city), \(info.country) — \(isp)"
         } catch {
             ip = "Error"
             flag = ""

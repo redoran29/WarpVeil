@@ -20,26 +20,21 @@ enum BypassService {
         var route = root["route"] as? [String: Any] ?? [:]
         var rules = route["rules"] as? [[String: Any]] ?? []
         let bypassRule: [String: Any] = [
-            "domain_suffix": domains,
-            "outbound": "direct"
+            "action": "route",
+            "outbound": "direct",
+            "domain_suffix": domains
         ]
         rules.insert(bypassRule, at: 0)
         route["rules"] = rules
         root["route"] = route
 
-        // 3. Enable sniffing on inbounds so sing-box can see domain names
-        if var inbounds = root["inbounds"] as? [[String: Any]] {
-            for i in inbounds.indices {
-                inbounds[i]["sniff"] = true
-                inbounds[i]["sniff_override_destination"] = false
-            }
-            root["inbounds"] = inbounds
+        // 3. Ensure sniff is in route rules (sing-box 1.13 removed legacy inbound sniff fields)
+        let hasSniffAction = rules.contains { ($0["action"] as? String) == "sniff" }
+        if !hasSniffAction {
+            rules.append(["action": "sniff"])
+            route["rules"] = rules
+            root["route"] = route
         }
-
-        // 4. Set log level to "debug" so routing decisions are visible
-        var log = root["log"] as? [String: Any] ?? [:]
-        log["level"] = "debug"
-        root["log"] = log
 
         return serializeJSON(root) ?? json
     }

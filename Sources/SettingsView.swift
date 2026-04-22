@@ -5,7 +5,6 @@ struct SettingsView: View {
     var setup: SetupService
 
     @AppStorage("autoConnect") private var autoConnect = false
-    @AppStorage("killSwitch") private var killSwitch = false
     @AppStorage("bypassDomains") private var bypassDomainsRaw = ""
     @AppStorage("bypassEnabled") private var bypassEnabled = true
     @State private var newDomain = ""
@@ -50,7 +49,7 @@ struct SettingsView: View {
 
             settingsToggle(
                 title: "Passwordless",
-                subtitle: "Skip password prompts via sudoers",
+                subtitle: pm.isPasswordlessBusy ? "Waiting for admin prompt..." : "Skip password prompts via sudoers",
                 isOn: Binding(
                     get: { pm.isPasswordless },
                     set: { newValue in
@@ -59,14 +58,7 @@ struct SettingsView: View {
                     }
                 )
             )
-
-            settingsDivider
-
-            settingsToggle(
-                title: "Kill Switch",
-                subtitle: "Block traffic when VPN drops",
-                isOn: $killSwitch
-            )
+            .disabled(pm.isPasswordlessBusy)
         }
     }
 
@@ -134,37 +126,20 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(dep.rawValue)
                             .font(.system(size: 13, weight: .medium))
-                        depStatusLabel(setup.statuses[dep] ?? .unknown)
+                        if let version = setup.versions[dep] {
+                            Text(version)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        } else {
+                            depStatusLabel(setup.statuses[dep] ?? .unknown)
+                        }
                     }
                     Spacer()
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
             }
-
-            HStack {
-                Button("Check") { setup.checkAll() }
-                    .font(.system(size: 12))
-                    .disabled(setup.isInstalling)
-
-                Spacer()
-
-                if setup.allInstalled {
-                    HStack(spacing: 4) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                        Text("Installed")
-                            .foregroundStyle(.secondary)
-                    }
-                    .font(.system(size: 11))
-                } else {
-                    Button("Install") { setup.installAll() }
-                        .font(.system(size: 12))
-                        .disabled(setup.isInstalling || !setup.hasMissing)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
         }
     }
 
@@ -247,10 +222,6 @@ struct SettingsView: View {
             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         case .missing:
             Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
-        case .installing:
-            ProgressView().scaleEffect(0.5)
-        case .failed:
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
         }
     }
 
@@ -262,14 +233,11 @@ struct SettingsView: View {
         case .checking:
             Text("Checking...").font(.system(size: 10)).foregroundStyle(.secondary)
         case .installed(let path):
-            Text(path).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+            let label = path.hasPrefix(Bundle.main.resourcePath ?? "") ? "Bundled" : path
+            Text(label).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
                 .lineLimit(1).truncationMode(.middle)
         case .missing:
             Text("Not found").font(.system(size: 10)).foregroundStyle(.red)
-        case .installing:
-            Text("Installing...").font(.system(size: 10)).foregroundStyle(.blue)
-        case .failed(let msg):
-            Text(msg).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(1)
         }
     }
 }

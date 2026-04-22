@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import Network
 
 @Observable
 @MainActor
@@ -11,20 +12,122 @@ final class ProcessManager {
     private var logSource: DispatchSourceFileSystemObject?
     private var logHandle: FileHandle?
     private var logDebounceTimer: Timer?
-    private let logFile = FileManager.default.temporaryDirectory.path + "/warpveil.log"
-    private var runScript: String {
-        FileManager.default.temporaryDirectory.path + "/warpveil-run-\(ProcessInfo.processInfo.processIdentifier).sh"
-    }
-    private var stopScript: String {
-        FileManager.default.temporaryDirectory.path + "/warpveil-stop-\(ProcessInfo.processInfo.processIdentifier).sh"
-    }
+    private let logFile = FileManager.default.temporaryDirectory.path + "/warpveil-\(ProcessManager.versionTag).log"
     private var xrayConfigFile: String {
         FileManager.default.temporaryDirectory.path + "/warpveil-xray-\(ProcessInfo.processInfo.processIdentifier).json"
     }
     private var singboxConfigFile: String {
         FileManager.default.temporaryDirectory.path + "/warpveil-singbox-\(ProcessInfo.processInfo.processIdentifier).json"
     }
-    private static let sudoersFile = "/etc/sudoers.d/warpveil"
+
+    // Version-isolated paths — two different app versions coexist without stepping on each other.
+    // `.` → `-` because sudo silently ignores /etc/sudoers.d/ files whose names contain a dot.
+    private static let versionTag: String = {
+        let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        return v.replacingOccurrences(of: ".", with: "-")
+    }()
+
+    // Stable, root-owned scripts — no wildcards in sudoers
+    private static let libexecDir = "/usr/local/libexec/warpveil-\(versionTag)"
+    private static let runScriptPath = "/usr/local/libexec/warpveil-\(versionTag)/run.sh"
+    private static let stopScriptPath = "/usr/local/libexec/warpveil-\(versionTag)/stop.sh"
+    private static let sudoersFile = "/etc/sudoers.d/warpveil-\(versionTag)"
+
+    // PID files so stop.sh can kill exact processes without pkill -f
+    private static let singboxPidFile = "/tmp/warpveil-\(versionTag)-singbox.pid"
+    private static let xrayPidFile = "/tmp/warpveil-\(versionTag)-xray.pid"
+
+    // run.sh: validates argv, launches VPN processes, writes PID files
+    // argv: run.sh <singbox_path> <singbox_config> [<xray_path> <xray_config>]
+    private static let runShContent: String = """
+        #!/bin/bash
+        set -euo pipefail
+
+        validate_arg() {
+            local p="$1"
+            [[ "$p" == /* ]] || { echo "[error] not absolute: $p"; exit 1; }
+            [[ -e "$p" ]] || { echo "[error] not found: $p"; exit 1; }
+            [[ -f "$p" ]] || { echo "[error] not a regular file: $p"; exit 1; }
+            [[ ! -L "$p" ]] || { echo "[error] symlink not allowed: $p"; exit 1; }
+        }
+
+        if [[ $# -ne 2 && $# -ne 4 ]]; then
+            echo "[error] usage: run.sh <singbox> <singbox_cfg> [<xray> <xray_cfg>]"
+            exit 1
+        fi
+
+        SINGBOX="$1"; SINGBOX_CFG="$2"
+        validate_arg "$SINGBOX"
+        validate_arg "$SINGBOX_CFG"
+
+        pkill -f 'sing-box run' 2>/dev/null || true
+        pkill -f 'xray run' 2>/dev/null || true
+        sleep 1
+
+        if [[ $# -eq 4 ]]; then
+            XRAY="$3"; XRAY_CFG="$4"
+            validate_arg "$XRAY"
+            validate_arg "$XRAY_CFG"
+
+            echo '[xray] starting...'
+            "$XRAY" run -config "$XRAY_CFG" &
+            XRAY_PID=$!
+            echo $XRAY_PID > \(xrayPidFile)
+            echo "[xray] started pid=$XRAY_PID"
+            sleep 1
+
+            echo '[sing-box] starting TUN wrapper...'
+            "$SINGBOX" run -c "$SINGBOX_CFG" &
+            SINGBOX_PID=$!
+            echo $SINGBOX_PID > \(singboxPidFile)
+            echo "[sing-box] started pid=$SINGBOX_PID"
+
+            cleanup() {
+                echo '[stopping...]'
+                kill $XRAY_PID $SINGBOX_PID 2>/dev/null || true
+                rm -f \(xrayPidFile) \(singboxPidFile)
+                wait
+                echo '[stopped]'
+                exit 0
+            }
+            trap cleanup TERM INT
+            wait
+        else
+            echo '[sing-box] starting...'
+            "$SINGBOX" run -c "$SINGBOX_CFG" &
+            VPN_PID=$!
+            echo $VPN_PID > \(singboxPidFile)
+            echo "[sing-box] started pid=$VPN_PID"
+
+            cleanup() {
+                echo '[stopping...]'
+                kill $VPN_PID 2>/dev/null || true
+                rm -f \(singboxPidFile)
+                wait
+                echo '[stopped]'
+                exit 0
+            }
+            trap cleanup TERM INT
+            wait
+        fi
+        """
+
+    // stop.sh: reads PID files and kills only our processes
+    private static let stopShContent: String = """
+        #!/bin/bash
+        kill_pid_file() {
+            local f="$1"
+            [[ -f "$f" ]] || return 0
+            local pid
+            pid=$(cat "$f" 2>/dev/null)
+            [[ "$pid" =~ ^[0-9]+$ ]] || { rm -f "$f"; return 0; }
+            kill "$pid" 2>/dev/null || true
+            rm -f "$f"
+        }
+        kill_pid_file \(singboxPidFile)
+        kill_pid_file \(xrayPidFile)
+        """
+
     private var lastConnection: (config: String, engine: Engine,
                                   binaryPath: String, singBoxPath: String,
                                   bypassDomains: [String])?
@@ -35,69 +138,116 @@ final class ProcessManager {
     // MARK: - Passwordless mode
 
     var isPasswordless = FileManager.default.fileExists(atPath: sudoersFile)
+    var isPasswordlessBusy = false
 
     func installPasswordless() {
+        guard !isPasswordlessBusy else { return }
+        isPasswordlessBusy = true
+        // Optimistic: flip the toggle visually right away so the click feels responsive.
+        // terminationHandler reconciles with the real filesystem state.
+        isPasswordless = true
+
         let user = NSUserName()
-        let tmpDir = FileManager.default.temporaryDirectory.path
-        let content = """
-            \(user) ALL=(ALL) NOPASSWD: /bin/bash \(tmpDir)/warpveil-run-*.sh
-            \(user) ALL=(ALL) NOPASSWD: /bin/bash \(tmpDir)/warpveil-stop-*.sh
+        // Exact paths, no wildcards — this is the fix for the LPE
+        let sudoersContent = """
+            \(user) ALL=(root) NOPASSWD: \(Self.runScriptPath)
+            \(user) ALL=(root) NOPASSWD: \(Self.stopScriptPath)
 
             """
-        let tmpFile = "/private/tmp/warpveil-sudoers"
+        // Version-tagged temp paths so concurrent installs of different app versions don't collide.
+        let tmpSudoers = "/private/tmp/warpveil-\(Self.versionTag)-sudoers"
+        let tmpRun = "/private/tmp/warpveil-\(Self.versionTag)-run.sh"
+        let tmpStop = "/private/tmp/warpveil-\(Self.versionTag)-stop.sh"
         do {
-            try content.write(toFile: tmpFile, atomically: true, encoding: .utf8)
+            try sudoersContent.write(toFile: tmpSudoers, atomically: true, encoding: .utf8)
         } catch {
-            logs.append("[Error: failed to write sudoers file: \(error.localizedDescription)]")
+            logs.append("[Error: failed to write sudoers temp file: \(error.localizedDescription)]")
+            passwordlessOperationFinished()
             return
         }
 
+        do {
+            try Self.runShContent.write(toFile: tmpRun, atomically: true, encoding: .utf8)
+            try Self.stopShContent.write(toFile: tmpStop, atomically: true, encoding: .utf8)
+        } catch {
+            logs.append("[Error: failed to write helper scripts: \(error.localizedDescription)]")
+            passwordlessOperationFinished()
+            return
+        }
+
+        // Single osascript call: purge v1.0 leftovers, create libexec dir, install scripts, install sudoers.
+        // tmpSudoers and helper script paths are hardcoded or system constants — no user input interpolated.
+        let shellCmd = """
+            rm -f /etc/sudoers.d/warpveil /etc/sudoers.d/warpveil-1-0 && \
+            rm -rf /usr/local/libexec/warpveil /usr/local/libexec/warpveil-1-0 && \
+            mkdir -p '\(Self.libexecDir)' && \
+            install -m 0755 -o root -g wheel '\(Self.shellEscape(tmpRun))' '\(Self.runScriptPath)' && \
+            install -m 0755 -o root -g wheel '\(Self.shellEscape(tmpStop))' '\(Self.stopScriptPath)' && \
+            rm -f '\(Self.shellEscape(tmpRun))' '\(Self.shellEscape(tmpStop))' && \
+            visudo -cf '\(Self.shellEscape(tmpSudoers))' && \
+            install -m 0440 -o root -g wheel '\(Self.shellEscape(tmpSudoers))' '\(Self.sudoersFile)' && \
+            rm -f '\(Self.shellEscape(tmpSudoers))'
+            """
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", """
-            do shell script "visudo -cf '\(tmpFile)' && install -m 0440 -o root -g wheel '\(tmpFile)' '\(Self.sudoersFile)' && rm -f '\(tmpFile)'" with administrator privileges
-            """]
+        process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(shellCmd)) with administrator privileges"]
         process.terminationHandler = { [weak self] p in
             let status = p.terminationStatus
             Task { @MainActor in
+                guard let self else { return }
                 if status == 0 {
-                    self?.isPasswordless = true
-                    self?.logs.append("[Passwordless mode enabled]")
+                    self.logs.append("[Passwordless mode enabled]")
                 } else {
-                    self?.logs.append("[Failed to enable passwordless mode]")
+                    self.logs.append("[Failed to enable passwordless mode]")
                 }
+                self.passwordlessOperationFinished()
             }
         }
         do {
             try process.run()
         } catch {
             logs.append("[Error: \(error.localizedDescription)]")
+            passwordlessOperationFinished()
         }
     }
 
     func removePasswordless() {
+        guard !isPasswordlessBusy else { return }
+        isPasswordlessBusy = true
+        isPasswordless = false
+
+        let shellCmd = "rm -f '\(Self.sudoersFile)' '\(Self.runScriptPath)' '\(Self.stopScriptPath)'"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", """
-            do shell script "rm -f '\(Self.sudoersFile)'" with administrator privileges
-            """]
+        process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(shellCmd)) with administrator privileges"]
         process.terminationHandler = { [weak self] p in
             let status = p.terminationStatus
             Task { @MainActor in
+                guard let self else { return }
                 if status == 0 {
-                    self?.isPasswordless = false
-                    self?.logs.append("[Passwordless mode disabled]")
+                    self.logs.append("[Passwordless mode disabled]")
                 }
+                self.passwordlessOperationFinished()
             }
         }
         do {
             try process.run()
         } catch {
             logs.append("[Error: \(error.localizedDescription)]")
+            passwordlessOperationFinished()
         }
     }
 
+    // Called on both success and failure of install/remove — reconciles isPasswordless
+    // with the actual filesystem state (in case optimistic flip was wrong) and clears busy.
+    private func passwordlessOperationFinished() {
+        isPasswordless = FileManager.default.fileExists(atPath: Self.sudoersFile)
+        isPasswordlessBusy = false
+    }
+
     init() {
+        Self.cleanupStalePidFiles()
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -111,6 +261,19 @@ final class ProcessManager {
                     self?.disconnect()
                 }
             }
+        }
+    }
+
+    // Clear PID markers from previous sessions (graceful exit cleans them via stop.sh;
+    // crash does not). Covers current versioned paths plus legacy v1.0 unversioned paths.
+    private static func cleanupStalePidFiles() {
+        let paths = [
+            singboxPidFile, xrayPidFile,
+            "/tmp/warpveil-singbox.pid",
+            "/tmp/warpveil-xray.pid"
+        ]
+        for path in paths {
+            try? FileManager.default.removeItem(atPath: path)
         }
     }
 
@@ -181,22 +344,27 @@ final class ProcessManager {
 
         logs.append(isPasswordless ? "[Connecting...]" : "[Connecting (password prompt)...]")
 
-        FileManager.default.createFile(atPath: logFile, contents: nil)
-        let script = buildScript(engine: engine, binaryPath: binaryPath, singBoxPath: singBoxPath, configFile: configFile)
-        FileManager.default.createFile(atPath: runScript, contents: script.data(using: .utf8),
-                                        attributes: [.posixPermissions: 0o700])
+        // 0600: other local users shouldn't read VPN logs
+        FileManager.default.createFile(atPath: logFile, contents: nil, attributes: [.posixPermissions: 0o600])
 
         startLogTail()
 
         let process = Process()
         if isPasswordless {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-            process.arguments = ["/bin/bash", runScript]
+            if engine == .xray {
+                let sbPath = singBoxPath.isEmpty ? binaryPath : singBoxPath
+                let resolvedSB = Self.findBinary("sing-box") ?? (FileManager.default.isExecutableFile(atPath: sbPath) ? sbPath : binaryPath)
+                process.arguments = [Self.runScriptPath, resolvedSB, singboxConfigFile, binaryPath, configFile]
+            } else {
+                process.arguments = [Self.runScriptPath, binaryPath, configFile]
+            }
+            process.standardOutput = FileHandle(forWritingAtPath: logFile)
+            process.standardError = process.standardOutput
         } else {
+            let cmd = buildNonPrivilegedShellCommand(engine: engine, binaryPath: binaryPath, singBoxPath: singBoxPath, configFile: configFile)
             process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-e", """
-                do shell script "bash '\(runScript)'" with administrator privileges
-                """]
+            process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(cmd)) with administrator privileges"]
         }
 
         process.terminationHandler = { [weak self] p in
@@ -219,28 +387,30 @@ final class ProcessManager {
         }
     }
 
-    private func buildScript(engine: Engine, binaryPath: String, singBoxPath: String, configFile: String) -> String {
-        var cmds = ["#!/bin/bash", "cd /tmp", "exec > \(Self.shellEscape(logFile)) 2>&1"]
+    // Builds the shell command used in the non-passwordless (osascript) path.
+    // The stable run.sh is only available after installPasswordless, so we
+    // replicate the essential logic inline here for the password-prompt flow.
+    private func buildNonPrivilegedShellCommand(engine: Engine, binaryPath: String, singBoxPath: String, configFile: String) -> String {
+        var cmds = ["cd /tmp", "exec > \(Self.shellEscape(logFile)) 2>&1"]
         cmds.append("pkill -f 'sing-box run' 2>/dev/null; pkill -f 'xray run' 2>/dev/null; sleep 1")
 
         if engine == .xray {
-            // Start xray first (SOCKS proxy), then sing-box TUN wrapper
             cmds.append("echo '[xray] starting...'")
             cmds.append("\(Self.shellEscape(binaryPath)) run -config \(Self.shellEscape(configFile)) &")
             cmds.append("XRAY_PID=$!")
+            cmds.append("echo $XRAY_PID > \(Self.shellEscape(Self.xrayPidFile))")
             cmds.append("echo '[xray] started pid='$XRAY_PID")
             cmds.append("sleep 1")
 
             let sbPath = singBoxPath.isEmpty ? binaryPath : singBoxPath
-            if let foundSB = Self.findBinary("sing-box") ?? (FileManager.default.isExecutableFile(atPath: sbPath) ? sbPath : nil) {
-                cmds.append("echo '[sing-box] starting TUN wrapper...'")
-                cmds.append("\(Self.shellEscape(foundSB)) run -c \(Self.shellEscape(singboxConfigFile)) &")
-                cmds.append("SINGBOX_PID=$!")
-                cmds.append("echo '[sing-box] started pid='$SINGBOX_PID")
-            }
-
+            let resolvedSB = Self.findBinary("sing-box") ?? (FileManager.default.isExecutableFile(atPath: sbPath) ? sbPath : binaryPath)
+            cmds.append("echo '[sing-box] starting TUN wrapper...'")
+            cmds.append("\(Self.shellEscape(resolvedSB)) run -c \(Self.shellEscape(singboxConfigFile)) &")
+            cmds.append("SINGBOX_PID=$!")
+            cmds.append("echo $SINGBOX_PID > \(Self.shellEscape(Self.singboxPidFile))")
+            cmds.append("echo '[sing-box] started pid='$SINGBOX_PID")
             cmds.append("""
-                cleanup() { echo '[stopping...]'; kill $XRAY_PID $SINGBOX_PID 2>/dev/null; wait; echo '[stopped]'; exit 0; }
+                cleanup() { echo '[stopping...]'; kill $XRAY_PID $SINGBOX_PID 2>/dev/null; rm -f \(Self.shellEscape(Self.xrayPidFile)) \(Self.shellEscape(Self.singboxPidFile)); wait; echo '[stopped]'; exit 0; }
                 trap cleanup TERM INT
                 wait
                 """)
@@ -248,10 +418,10 @@ final class ProcessManager {
             cmds.append("echo '[sing-box] starting...'")
             cmds.append("\(Self.shellEscape(binaryPath)) run -c \(Self.shellEscape(configFile)) &")
             cmds.append("VPN_PID=$!")
+            cmds.append("echo $VPN_PID > \(Self.shellEscape(Self.singboxPidFile))")
             cmds.append("echo '[sing-box] started pid='$VPN_PID")
-
             cmds.append("""
-                cleanup() { echo '[stopping...]'; kill $VPN_PID 2>/dev/null; wait; echo '[stopped]'; exit 0; }
+                cleanup() { echo '[stopping...]'; kill $VPN_PID 2>/dev/null; rm -f \(Self.shellEscape(Self.singboxPidFile)); wait; echo '[stopped]'; exit 0; }
                 trap cleanup TERM INT
                 wait
                 """)
@@ -288,13 +458,22 @@ final class ProcessManager {
             ["action": "sniff"] as [String: Any]
         ]
 
-        // CRITICAL: route VPN server IP directly to avoid routing loop
-        if let ip = serverIP {
-            rules.insert([
-                "action": "route",
-                "outbound": "direct",
-                "ip_cidr": ["\(ip)/32"]
-            ] as [String: Any], at: 0)
+        // CRITICAL: route VPN server directly to avoid routing loop.
+        // ip_cidr for literal IP addresses; domain_suffix for hostnames.
+        if let addr = serverIP {
+            if IPv4Address(addr) != nil || IPv6Address(addr) != nil {
+                rules.insert([
+                    "action": "route",
+                    "outbound": "direct",
+                    "ip_cidr": ["\(addr)/\(addr.contains(":") ? 128 : 32)"]
+                ] as [String: Any], at: 0)
+            } else {
+                rules.insert([
+                    "action": "route",
+                    "outbound": "direct",
+                    "domain_suffix": [addr]
+                ] as [String: Any], at: 0)
+            }
         }
 
         if !bypassDomains.isEmpty {
@@ -313,9 +492,7 @@ final class ProcessManager {
                     "tag": "tun-in",
                     "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
                     "auto_route": true,
-                    "strict_route": true,
-                    "sniff": true,
-                    "sniff_override_destination": false
+                    "strict_route": true
                 ] as [String: Any]
             ],
             "outbounds": [
@@ -329,16 +506,14 @@ final class ProcessManager {
             ],
             "route": [
                 "auto_detect_interface": true,
+                "default_domain_resolver": ["server": "local"] as [String: Any],
                 "final": "xray-proxy",
                 "rules": rules
             ] as [String: Any],
             "dns": [
                 "servers": [
-                    ["tag": "remote", "address": "tls://1.1.1.1", "detour": "xray-proxy"] as [String: Any],
-                    ["tag": "local", "address": "tls://8.8.8.8", "detour": "direct"] as [String: Any]
-                ],
-                "rules": [
-                    ["outbound": "any", "server": "local"] as [String: Any]
+                    ["tag": "remote", "type": "tls", "server": "1.1.1.1", "detour": "xray-proxy"] as [String: Any],
+                    ["tag": "local", "type": "tls", "server": "8.8.8.8"] as [String: Any]
                 ],
                 "strategy": "prefer_ipv4",
                 "independent_cache": true
@@ -385,22 +560,24 @@ final class ProcessManager {
 
     private func killVPNProcesses() {
         if isPasswordless {
-            let script = "#!/bin/bash\npkill -f 'sing-box run' 2>/dev/null\npkill -f 'xray run' 2>/dev/null\n"
-            FileManager.default.createFile(atPath: stopScript, contents: script.data(using: .utf8), attributes: [.posixPermissions: 0o700])
             let kill = Process()
             kill.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-            kill.arguments = ["/bin/bash", stopScript]
+            kill.arguments = [Self.stopScriptPath]
             do {
                 try kill.run()
             } catch {
                 logs.append("[Error: failed to run stop script: \(error.localizedDescription)]")
             }
         } else {
+            // Read PID files and kill by PID — avoid pkill -f which can match unrelated processes
+            let cmd = """
+                kill_pid() { local f="$1"; [ -f "$f" ] || return; local p; p=$(cat "$f"); [ "$p" -eq "$p" ] 2>/dev/null && kill "$p" 2>/dev/null; rm -f "$f"; }
+                kill_pid \(Self.shellEscape(Self.singboxPidFile))
+                kill_pid \(Self.shellEscape(Self.xrayPidFile))
+                """
             let kill = Process()
             kill.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            kill.arguments = ["-e", """
-                do shell script "pkill -f 'sing-box run'; pkill -f 'xray run'" with administrator privileges
-                """]
+            kill.arguments = ["-e", "do shell script \(Self.appleScriptEscape(cmd)) with administrator privileges"]
             do {
                 try kill.run()
             } catch {
@@ -449,7 +626,14 @@ final class ProcessManager {
     // MARK: - Binary auto-detection
 
     nonisolated static func findBinary(_ name: String) -> String? {
-        // Check well-known paths first (reliable in .app context)
+        // Check bundled binaries first (inside .app/Contents/Resources/)
+        if let bundled = Bundle.main.resourcePath {
+            let path = (bundled as NSString).appendingPathComponent(name)
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+        // Fallback: well-known system paths (Homebrew, MacPorts, etc.)
         let candidates = [
             "/opt/homebrew/bin/\(name)",
             "/usr/local/bin/\(name)",
@@ -484,5 +668,12 @@ final class ProcessManager {
 
     private nonisolated static func shellEscape(_ path: String) -> String {
         "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private nonisolated static func appleScriptEscape(_ s: String) -> String {
+        "\"" + s
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            + "\""
     }
 }
