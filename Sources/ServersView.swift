@@ -42,12 +42,6 @@ struct ServersView: View {
                                 .padding(.bottom, 20)
                         }
 
-                        if !setup.allInstalled {
-                            setupBanner
-                                .padding(.horizontal, 16)
-                                .padding(.bottom, 12)
-                        }
-
                         serverListSection
                             .padding(.bottom, 12)
                     }
@@ -226,23 +220,6 @@ struct ServersView: View {
                 .padding(.horizontal, 12)
             }
         }
-    }
-
-    // MARK: - Setup Banner
-
-    private var setupBanner: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-                .font(.system(size: 12))
-            Text("Dependencies missing — check Settings")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
     }
 
     // MARK: - Bottom Bar

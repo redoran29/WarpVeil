@@ -137,16 +137,13 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
     // MARK: - Fetch helpers
 
     private func fetchData(from urlString: String) async -> Data? {
-        // Try both http and https variants
+        // Never downgrade https→http: a handshake failure could be a MITM RST
+        // that would leak the subscription token in the URL over cleartext.
         let urlsToTry: [String]
-        if urlString.hasPrefix("http://") {
-            let httpsVariant = "https://" + urlString.dropFirst("http://".count)
-            urlsToTry = [urlString, httpsVariant]
-        } else if urlString.hasPrefix("https://") {
-            let httpVariant = "http://" + urlString.dropFirst("https://".count)
-            urlsToTry = [urlString, httpVariant]
+        if urlString.hasPrefix("http://") || urlString.hasPrefix("https://") {
+            urlsToTry = [urlString]
         } else {
-            urlsToTry = ["https://" + urlString, "http://" + urlString]
+            urlsToTry = ["https://" + urlString]
         }
 
         for urlStr in urlsToTry {
@@ -245,9 +242,11 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             queryString = ""
         }
 
-        let parts = hostPort.split(separator: ":", maxSplits: 1)
-        guard parts.count == 2, let port = Int(parts[1]) else { return nil }
-        let host = String(parts[0])
+        // URLComponents handles IPv6 literals like [::1]:443 correctly
+        guard let url = URL(string: "scheme://\(hostPort)"),
+              let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let host = comps.host, !host.isEmpty,
+              let port = comps.port else { return nil }
 
         var params: [String: String] = [:]
         for pair in queryString.split(separator: "&") {
@@ -378,7 +377,9 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         case "tls":
             var tls: [String: Any] = ["enabled": true]
             if let sni = params["sni"], !sni.isEmpty { tls["server_name"] = sni }
-            if let fp = params["fp"], !fp.isEmpty { tls["utls"] = ["fingerprint": fp] }
+            if let fp = params["fp"], !fp.isEmpty {
+                tls["utls"] = ["enabled": true, "fingerprint": fp] as [String: Any]
+            }
             if let alpn = params["alpn"], !alpn.isEmpty {
                 tls["alpn"] = alpn.components(separatedBy: ",")
             }
@@ -389,7 +390,9 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
                 "reality": ["enabled": true] as [String: Any]
             ]
             if let sni = params["sni"], !sni.isEmpty { tls["server_name"] = sni }
-            if let fp = params["fp"], !fp.isEmpty { tls["utls"] = ["fingerprint": fp] }
+            if let fp = params["fp"], !fp.isEmpty {
+                tls["utls"] = ["enabled": true, "fingerprint": fp] as [String: Any]
+            }
 
             var reality: [String: Any] = ["enabled": true]
             if let pbk = params["pbk"] { reality["public_key"] = pbk }
@@ -414,9 +417,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
                     "tag": "tun-in",
                     "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
                     "auto_route": true,
-                    "strict_route": true,
-                    "sniff": true,
-                    "sniff_override_destination": false
+                    "strict_route": true
                 ] as [String: Any]
             ],
             "outbounds": [
@@ -425,6 +426,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             ],
             "route": [
                 "auto_detect_interface": true,
+                "default_domain_resolver": ["server": "local"] as [String: Any],
                 "final": tag,
                 "rules": [
                     ["action": "hijack-dns", "protocol": "dns"] as [String: Any],
@@ -433,11 +435,8 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             ] as [String: Any],
             "dns": [
                 "servers": [
-                    ["tag": "remote", "address": "tls://1.1.1.1", "detour": tag] as [String: Any],
-                    ["tag": "local", "address": "tls://8.8.8.8", "detour": "direct"] as [String: Any]
-                ],
-                "rules": [
-                    ["outbound": "any", "server": "local"] as [String: Any]
+                    ["tag": "remote", "type": "tls", "server": "1.1.1.1", "detour": tag] as [String: Any],
+                    ["tag": "local", "type": "tls", "server": "8.8.8.8"] as [String: Any]
                 ],
                 "strategy": "prefer_ipv4",
                 "independent_cache": true

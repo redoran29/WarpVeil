@@ -27,8 +27,8 @@ struct Subscription: Codable, Identifiable {
     let id: UUID
     var name: String
     var url: String
-    var isManual: Bool
-    var engine: Engine
+    var isManual: Bool = false
+    var engine: Engine = .singBox
     var servers: [Server]
     var lastUpdated: Date?
 
