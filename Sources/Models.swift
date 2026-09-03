@@ -6,21 +6,15 @@ enum Engine: String, Codable, CaseIterable {
 }
 
 struct Server: Codable, Identifiable {
-    let id: UUID
     var name: String
     var protocolType: String
     var address: String
     var config: String
     var engine: Engine?
 
-    init(name: String, protocolType: String, address: String, config: String, engine: Engine? = nil) {
-        self.id = UUID()
-        self.name = name
-        self.protocolType = protocolType
-        self.address = address
-        self.config = config
-        self.engine = engine
-    }
+    // Derived, not stored: refreshing a subscription rebuilds every Server, and a fresh UUID
+    // each time would drop the user's selection and the measured pings on every launch.
+    var id: String { "\(protocolType)|\(address)|\(name)" }
 }
 
 struct Subscription: Codable, Identifiable {

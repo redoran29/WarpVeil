@@ -7,7 +7,7 @@ struct ServersView: View {
 
     @AppStorage("selectedServerID") private var selectedServerID = ""
     @State private var showAddSheet = false
-    @State private var pings: [UUID: Int] = [:]
+    @State private var pings: [String: Int] = [:]
 
     private var allServers: [Server] {
         app.subs.subscriptions.flatMap(\.servers)
@@ -65,11 +65,11 @@ struct ServersView: View {
                     ForEach(allServers) { server in
                         ServerRowView(
                             server: server,
-                            isSelected: selectedServerID == server.id.uuidString,
+                            isSelected: selectedServerID == server.id,
                             ping: pings[server.id]
                         )
                         .contentShape(Rectangle())
-                        .onTapGesture { selectedServerID = server.id.uuidString }
+                        .onTapGesture { selectedServerID = server.id }
                         .contextMenu {
                             if let sub = subscriptionFor(server) {
                                 if !sub.isManual {
