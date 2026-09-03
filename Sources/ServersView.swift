@@ -1,6 +1,4 @@
 import SwiftUI
-import Network
-import os
 
 struct ServersView: View {
     var app: AppState
@@ -8,11 +6,6 @@ struct ServersView: View {
     @Binding var selectedServerID: String
     @State private var showAddSheet = false
     @State private var subscriptionToDelete: Subscription?
-    @State private var pings: [String: Int] = [:]
-
-    private var allServers: [Server] {
-        app.subs.subscriptions.flatMap(\.servers)
-    }
 
     var body: some View {
         serverListSection
@@ -28,9 +21,6 @@ struct ServersView: View {
             presenting: subscriptionToDelete
         ) { sub in
             Button("Delete", role: .destructive) { app.subs.removeSubscription(sub.id) }
-        }
-        .task {
-            await measurePings()
         }
     }
 
@@ -75,8 +65,7 @@ struct ServersView: View {
                         ForEach(sub.servers) { server in
                             ServerRowView(
                                 server: server,
-                                isSelected: selectedServerID == server.id,
-                                ping: pings[server.id]
+                                isSelected: selectedServerID == server.id
                             )
                             .contentShape(Rectangle())
                             .onTapGesture { selectedServerID = server.id }
@@ -133,57 +122,6 @@ struct ServersView: View {
         .padding(.bottom, 6)
     }
 
-    // MARK: - Ping
-
-    private func measurePings() async {
-        for server in allServers {
-            let parts = server.address.split(separator: ":")
-            guard let host = parts.first, !host.isEmpty, host != "?" else { continue }
-            let port = parts.count > 1 ? UInt16(parts[1]) ?? 443 : 443
-
-            if let ms = await tcpPing(host: String(host), port: port) {
-                pings[server.id] = ms
-            }
-        }
-    }
-
-    private func tcpPing(host: String, port: UInt16) async -> Int? {
-        guard let nwPort = NWEndpoint.Port(rawValue: port) else { return nil }
-        return await withCheckedContinuation { continuation in
-            let connection = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: .tcp)
-            let start = CFAbsoluteTimeGetCurrent()
-
-            // .ready, .failed and the 3s timeout all race to finish the ping.
-            // The continuation must be resumed exactly once, so the first caller wins.
-            let resumed = OSAllocatedUnfairLock(initialState: false)
-            let complete: @Sendable (Int?) -> Void = { value in
-                let alreadyResumed = resumed.withLock { done -> Bool in
-                    defer { done = true }
-                    return done
-                }
-                guard !alreadyResumed else { return }
-                connection.cancel()
-                continuation.resume(returning: value)
-            }
-
-            connection.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    complete(Int((CFAbsoluteTimeGetCurrent() - start) * 1000))
-                case .failed, .cancelled:
-                    complete(nil)
-                default:
-                    break
-                }
-            }
-            connection.start(queue: .global(qos: .utility))
-
-            DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
-                complete(nil)
-            }
-        }
-    }
-
 }
 
 // MARK: - Server Row
@@ -191,7 +129,6 @@ struct ServersView: View {
 private struct ServerRowView: View {
     let server: Server
     let isSelected: Bool
-    let ping: Int?
 
     private static let lavender = Color(red: 0.62, green: 0.56, blue: 0.85)
 
@@ -211,15 +148,6 @@ private struct ServerRowView: View {
             }
 
             Spacer()
-
-            if let ping {
-                Text("\(ping)ms")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                Circle()
-                    .fill(pingColor(ping))
-                    .frame(width: 8, height: 8)
-            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -233,12 +161,6 @@ private struct ServerRowView: View {
         let proto = server.protocolType.uppercased()
         let transport = Self.detectTransport(from: server)
         return transport.isEmpty ? proto : "\(proto) \u{00B7} \(transport)"
-    }
-
-    private func pingColor(_ ms: Int) -> Color {
-        if ms < 60 { return Color(red: 0.13, green: 0.55, blue: 0.22) }
-        if ms < 150 { return .orange }
-        return .red
     }
 
     private static func detectTransport(from server: Server) -> String {
