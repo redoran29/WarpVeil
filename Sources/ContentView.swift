@@ -29,6 +29,9 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             SidebarRail(selection: $page, isExpanded: $sidebarExpanded)
+                // The rail carries its own expand control; the built-in one would be a
+                // second, differently-behaving toggle next to it.
+                .toolbar(removing: .sidebarToggle)
                 .navigationSplitViewColumnWidth(sidebarExpanded ? 180 : 60)
         } content: {
             pageView
@@ -37,9 +40,6 @@ struct ContentView: View {
             ConnectionView(app: app)
                 .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 400)
         }
-        // The rail carries its own expand control; the built-in one would be a second,
-        // differently-behaving toggle next to it.
-        .toolbar(removing: .sidebarToggle)
         .frame(minHeight: 480)
     }
 
@@ -71,7 +71,7 @@ private struct SidebarRail: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .padding(.bottom, 10)
+            .padding(.bottom, 14)
 
             ForEach(Page.allCases, id: \.self) { page in
                 Button {
@@ -109,7 +109,7 @@ private struct SidebarRail: View {
 
             Spacer()
         }
-        .padding(.top, 10)
+        .padding(.top, 18)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
