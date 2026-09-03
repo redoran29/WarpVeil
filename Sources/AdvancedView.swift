@@ -44,7 +44,6 @@ struct AdvancedView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(maxHeight: 520)
     }
 
     @ViewBuilder

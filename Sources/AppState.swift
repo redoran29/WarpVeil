@@ -60,9 +60,10 @@ final class AppState {
     // MARK: - Lifecycle
 
     func bootstrap() async {
-        await loc.detect()
         setup.checkAll()
-        await subs.refreshAll()
+        async let location: Void = loc.detect()
+        async let feeds: Void = subs.refreshAll()
+        _ = await (location, feeds)
 
         if defaults.bool(forKey: "autoConnect"), !pm.isRunning, selectedServer != nil {
             connect()

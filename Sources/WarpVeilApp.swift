@@ -74,10 +74,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let contentRect = NSRect(x: 0, y: 0, width: Self.windowWidth, height: height)
         let targetHeight = window.frameRect(forContentRect: contentRect).height
 
+        let available = (window.screen ?? NSScreen.main)?.visibleFrame.height ?? targetHeight
+        let clamped = min(targetHeight, available)
+
         var frame = window.frame
-        guard abs(frame.height - targetHeight) > 0.5 else { return }
-        frame.origin.y += frame.height - targetHeight
-        frame.size.height = targetHeight
+        guard abs(frame.height - clamped) > 0.5 else { return }
+        frame.origin.y += frame.height - clamped
+        frame.size.height = clamped
 
         guard window.isVisible else {
             window.setFrame(frame, display: false)
@@ -111,7 +114,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard app.pm.isRunning else { return .terminateNow }
         app.disconnect()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        Task {
+            await app.pm.awaitTeardown(timeout: 30)
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater

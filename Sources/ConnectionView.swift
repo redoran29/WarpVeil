@@ -5,8 +5,6 @@ struct ConnectionView: View {
 
     @AppStorage("selectedServerID") private var selectedServerID = ""
 
-    private let lavender = Color(red: 0.62, green: 0.56, blue: 0.85)
-
     var body: some View {
         VStack(spacing: 0) {
             powerButton
@@ -32,7 +30,6 @@ struct ConnectionView: View {
                     .padding(.vertical, 12)
             }
         }
-        .frame(maxHeight: 700)
     }
 
     // MARK: - Power Button
@@ -43,20 +40,20 @@ struct ConnectionView: View {
         } label: {
             ZStack {
                 Circle()
-                    .fill(app.pm.isRunning ? lavender.opacity(0.12) : Color.secondary.opacity(0.05))
+                    .fill(app.pm.isRunning ? Color.lavender.opacity(0.12) : Color.secondary.opacity(0.05))
                     .frame(width: 130, height: 130)
 
                 Circle()
-                    .fill(app.pm.isRunning ? lavender.opacity(0.2) : Color.secondary.opacity(0.08))
+                    .fill(app.pm.isRunning ? Color.lavender.opacity(0.2) : Color.secondary.opacity(0.08))
                     .frame(width: 108, height: 108)
 
                 Circle()
-                    .stroke(app.pm.isRunning ? lavender.opacity(0.6) : Color.secondary.opacity(0.2), lineWidth: 1.5)
+                    .stroke(app.pm.isRunning ? Color.lavender.opacity(0.6) : Color.secondary.opacity(0.2), lineWidth: 1.5)
                     .frame(width: 108, height: 108)
 
                 Image(systemName: "power")
                     .font(.system(size: 38, weight: .light))
-                    .foregroundStyle(app.pm.isRunning ? lavender : .secondary)
+                    .foregroundStyle(app.pm.isRunning ? Color.lavender : .secondary)
             }
         }
         .buttonStyle(.plain)

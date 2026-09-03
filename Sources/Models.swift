@@ -13,7 +13,7 @@ struct Server: Codable, Identifiable {
     var engine: Engine?
 
     // Derived, not stored: refreshing a subscription rebuilds every Server, and a fresh UUID
-    // each time would drop the user's selection and the measured pings on every launch.
+    // each time would drop the user's selection on every launch.
     var id: String { "\(protocolType)|\(address)|\(name)" }
 }
 

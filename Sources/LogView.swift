@@ -38,8 +38,8 @@ struct LogView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(app.pm.logs.reversed().enumerated()), id: \.offset) { _, line in
-                        Text(line)
+                    ForEach(app.pm.logs.indices.reversed(), id: \.self) { index in
+                        Text(app.pm.logs[index])
                             .font(.system(size: 10, design: .monospaced))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -50,7 +50,6 @@ struct LogView: View {
             }
             // Fixed viewport: a LazyVStack measured under fixedSize lays out every row,
             // so a cap on the scroll view is not enough here.
-            .frame(height: 440)
         }
     }
 }
