@@ -1,7 +1,9 @@
 # Server ping: the real delay through each proxy
 
-Status: implemented in `c5def82`..`fbe13c7` + this commit. Written against `6da3f4d`.
-One validation is still open — see the end of the Validation record.
+Status: implemented and reviewed, **not closed**. Written against `6da3f4d`.
+It stays in `plans/` because the feature's only successful path has never been observed:
+every run so far went through a live tunnel, where every row fails by design. Move it to
+`plans/done/` after one run with the tunnel down — see the end of the Validation record.
 
 Greenfield: the TCP-handshake ping was removed in `58cd4b6` ("With the tunnel up, sing-box's TUN
 stack accepts the TCP connection locally … the list showed 0ms across the board"). Nothing of it
@@ -770,6 +772,19 @@ Also observed: a `--watch` relaunch kills the app without `applicationShouldTerm
 `ping.cancel()` never runs — the engines were orphaned to `ppid 1` and the two config files stayed
 in `$TMPDIR` until removed by hand. The orphan case under Decisions is therefore routine in
 development, not just a crash path. Not mitigated; the paths are pid-scoped so nothing collides.
+
+Review round (`/code-review high`, fixed in `02259ee`). Nine findings, all addressed. The one
+that mattered was structural: the merged config is all-or-nothing, so a single unusable outbound
+cost every server its measurement. Two triggers were confirmed on the bundled sing-box and are now
+filtered out in `proxyOutbound` — `wireguard`, which 1.14 moved to `endpoints` and rejects inside
+`outbounds` (`FATAL decode config: outbounds[0].server: json: unknown field "server"`), and a
+`detour` naming a sibling the merged config does not carry. **`detour` passes `sing-box check` and
+fails only at `run`** (`FATAL start service: dependency[frontproxy] not found for outbound[A]`),
+so validating the config is not a substitute for stripping the key. The rest: an xray that will
+not start no longer cancels the sing-box rows; xray readiness is its socks inbound accepting, not
+a log line, and is bounded; `measure` checks cancellation before each launch; the automatic run
+waits for `bootstrap()` rather than racing it on the stale on-disk set; only tags that reached the
+config are measured; `isRunning` is raised synchronously; engine pipes are drained once up.
 
 Still not verified: **a ping with the tunnel down.** It needs the owner to disconnect; a planning
 or implementation run may not drop their tunnel. Expect nine values.
