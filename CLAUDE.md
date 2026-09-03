@@ -1,7 +1,7 @@
 # WarpVeil
 
 macOS app for managing VPN connections via sing-box and xray.
-Swift 5.10, SwiftUI, macOS 14+, Apple Silicon. A paged main window plus a menu-bar status item.
+Swift 5.10, SwiftUI, macOS 14+, Apple Silicon. A three-column main window plus a menu-bar status item.
 
 This file is the whole canon: workflow, architecture, conventions, decisions. Read it before
 changing anything.
@@ -57,9 +57,9 @@ guarantee the next bug.
 Sources/
 ├── WarpVeilApp.swift          # @main + AppDelegate: the window, the status item and its menu
 ├── AppState.swift             # Owns every service, the connect/disconnect logic and bootstrap
-├── ContentView.swift          # Page enum, PageTabBar, height measurement
-├── ConnectionView.swift       # Power button, status, stats, location, embedded server list
-├── ServersView.swift          # Server list grouped by subscription, add sheet
+├── ContentView.swift          # Page enum, the split view and its collapsible icon rail
+├── ConnectionView.swift       # Power button, status, stats, location — the right column
+├── ServersView.swift          # Server list grouped by subscription, add sheet — Servers page
 ├── RoutingView.swift          # Domain bypass, grouped Form
 ├── AdvancedView.swift         # Auto-connect, passwordless, components, grouped Form
 ├── LogView.swift              # VPN log with copy and clear
@@ -72,7 +72,9 @@ Sources/
 └── Models.swift               # Server, Subscription, Engine types
 ```
 
-Four pages: Connection, Routing, Advanced, Logs.
+Sidebar: Servers, Routing, Advanced, Logs. It is an icon rail, collapsed to 60 pt by default and
+expanded to 180 pt with labels by its own arrow — the built-in sidebar toggle is removed so there
+is one control, not two. The connection panel is the right column on every page.
 
 Every service is created and owned by `AppState`, which `AppDelegate` holds and every view
 takes as its single `app` parameter. `AppState` is a deliberate exception to "no premature
@@ -120,8 +122,8 @@ the version (`ProcessManager` derives its sudoers, libexec, PID and log paths fr
 TUN interface — only one build can hold a tunnel at a time.
 
 `--watch` is a rebuild-and-relaunch loop, not hot reload: in-memory state resets on every
-change, `@AppStorage` survives. Each relaunch activates the app and recentres the window — there
-is no frame autosave.
+change, `@AppStorage` survives. Each relaunch activates the app; the window comes back at its
+saved frame, and the dev bundle id has its own defaults so its frame is separate.
 
 ---
 
@@ -156,16 +158,16 @@ Write the simplest code that works. Prioritize readability over cleverness.
 ## Key Decisions
 
 - **No sandbox**: the app runs sing-box/xray as child processes under sudo, which needs full system access
-- **Window model**: one `NSWindow` built in `AppDelegate`, hidden on close rather than destroyed
-  (`isReleasedWhenClosed = false`), so the SwiftUI graph and its `@State` survive. Fixed 620 width,
-  not resizable; the height animates to fit the active page
-- **Height fitting**: the page reports its ideal height through `ContentHeightKey` and
-  `AppDelegate.fitWindow` animates the frame, moving `origin.y` by the same delta so the title bar
-  stays put. Two traps: `NSHostingController.sizingOptions` must be `[]` (the default pins
-  `minSize == maxSize` and the frame cannot be animated), and the preference must reduce with
-  `max` (the measured view has both the content and the transparent measuring background as
-  children, so an overwriting reduce lets the background's zero win). Every page needs a height
-  cap — an uncapped `ScrollView` reports its full content height
+- **Window model**: one resizable `NSWindow` built in `AppDelegate`, hidden on close rather than
+  destroyed (`isReleasedWhenClosed = false`), so the SwiftUI graph and its `@State` survive. The
+  content is a three-column `NavigationSplitView` and the window owns its size. Traps:
+  `NSHostingController.sizingOptions` is `[.minSize]`, so the window minimum comes from the column
+  minimums and the root's `minHeight` (`[]` lets the window shrink under its content); assigning
+  the controller zeroes the content size, so `setContentSize` has to follow it;
+  `.toolbar(removing: .sidebarToggle)` only works on the sidebar column's content — on the split
+  view it compiles and does nothing; `.doubleColumn` hides the sidebar, not the middle column, so
+  every sidebar item needs middle-column content. The frame is autosaved as `MainWindow`; the
+  column widths are not
 - **Quit path**: `applicationShouldTerminate` disconnects and waits 0.5 s before replying. Every
   quit goes through it — Cmd+Q, the status menu, `dev-run.sh`. `ProcessManager`'s
   `willTerminateNotification` observer disconnects inside a `Task`, so a plain terminate can exit
