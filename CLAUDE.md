@@ -123,7 +123,8 @@ Builds and runs a dev copy that coexists with an installed or Xcode-launched bui
 Isolation comes from overriding the bundle id (separate `UserDefaults` domain) and suffixing
 the version (`ProcessManager` derives its sudoers, libexec, PID and log paths from
 `CFBundleShortVersionString`). Not isolated: `~/.config/warpveil/subscriptions.json`, and the
-TUN interface — only one build can hold a tunnel at a time.
+TUN interface — only one build can hold a tunnel at a time; the second one's sing-box fails at
+the TUN, it does not take the tunnel over.
 
 `--watch` is a rebuild-and-relaunch loop, not hot reload: in-memory state resets on every
 change, `@AppStorage` survives. Each relaunch activates the app; the window comes back at its
@@ -179,8 +180,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - **Apple Silicon only**: `ARCHS = arm64`, and `fetch-binaries.sh` pulls arm64 assets. Intel support, if ever needed, is a separate piece of work
 - **NSAllowsArbitraryLoads**: user-provided subscription URLs may be HTTP; the app's own calls (`LocationService` → `ipwho.is`) use HTTPS
 - **Version-tagged privileged paths**: sudoers, libexec, PID files and the log all carry the app version (`1.2` → `warpveil-1-2`), because `.` is illegal in a `/etc/sudoers.d/` filename. Side effect: every version bump re-asks for the password once
-- **Passwordless mode**: installs `run.sh`/`stop.sh` into `/usr/local/libexec/warpveil-<tag>/` (root:wheel 0755) and a sudoers entry whitelisting those two exact paths — no wildcards
-- **PID files**: each engine writes its PID so stop targets only our processes. `run.sh` still starts with `pkill -f 'sing-box run'`, so starting a tunnel does kill any other one on the machine
+- **Passwordless mode**: installs `run.sh`/`stop.sh` into `/usr/local/libexec/warpveil-<tag>/` (root:wheel 0755) and a sudoers entry whitelisting those two exact paths — no wildcards. The app compares the installed scripts byte-for-byte with what it would install; a stale install reads as off, the log says so, and switching the toggle on re-installs with one prompt
+- **PID files**: `run.sh`, `stop.sh` and both osascript fallbacks kill by PID file only — one shared `kill_pid_file`, which checks that the PID's executable is the named engine, then waits up to 5 s for it to exit before the file is removed; nothing else on the machine is touched. An engine with no PID file at our path (another build's tag, a hand-started one) survives, and the next connect fails with sing-box's own error in Logs. PID files are not deleted at launch: they are the handle on an engine a crash orphaned
 - **JSONSerialization, not Codable**: bypass injection rewrites arbitrary user configs and needs untyped JSON
 - **Bundled binaries only**: `ProcessManager.findBinary` resolves engines from `Bundle.main.resourcePath` and nowhere else — Homebrew, MacPorts and `$PATH` are ignored
 - **Binary upgrades ship with the app**: no in-app updater; bump the pinned tags in `fetch-binaries.sh` and cut a release
@@ -188,9 +189,11 @@ Write the simplest code that works. Prioritize readability over cleverness.
   as an outbound behind `experimental.clash_api` on a free localhost port and asks
   `/proxies/<Server.id>/delay` per server; xray servers run behind a user-space xray with a socks
   inbound each and are chained in as socks outbounds. No sudo, no TUN, one request per tag.
-  Unavailable while the tunnel is up — the probe would go through it, so the number would be
-  tunnel + proxy. `connect()` cancels a running ping first, because `run.sh` pkills every
-  `sing-box run`
+  Works with the tunnel up: every outbound that leaves the machine is bound to the primary
+  interface (`bind_interface` / `streamSettings.sockopt.interface`), read from `SCDynamicStore`'s
+  `State:/Network/Global/IPv4` → `PrimaryInterface`, which stays physical because sing-box's TUN
+  registers no configd service. The socks hops to xray are not pinned — loopback cannot be bound
+  to a NIC. Nothing in `ProcessManager` touches a ping's engines
 
 ## Runtime Files
 
@@ -214,6 +217,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - sing-box prints nothing at `log.level: warn`, so a ping's readiness is `GET /` answering,
   not a log line
 - Two delay tests on one outbound tag at once time each other out — one request per tag
+- `route get` answers the TUN while it is up; the physical interface is configd's
+  `PrimaryInterface` (`scutil` → `show State:/Network/Global/IPv4`)
+- A wrong interface name in the ping fails silently — every row `--`, no error line
 
 ---
 
