@@ -86,6 +86,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // quit. ProcessManager's willTerminate observer disconnects inside a Task, so a plain
     // terminate can exit before the root-owned engines are stopped.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Synchronous: the .terminateNow path below exits without waiting for anything.
+        app.ping.cancel()
         guard app.pm.isRunning else { return .terminateNow }
         app.disconnect()
         Task {
