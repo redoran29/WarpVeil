@@ -10,7 +10,6 @@ struct ConnectionView: View {
     var body: some View {
         VStack(spacing: 0) {
             powerButton
-                .padding(.top, 28)
                 .padding(.bottom, 10)
 
             statusSection
@@ -19,19 +18,13 @@ struct ConnectionView: View {
             if app.pm.isRunning {
                 statsSection
                     .frame(maxWidth: 360)
+                    .padding(.horizontal, 20)
                     .padding(.bottom, 20)
             }
 
             locationSection
-                .padding(.bottom, 20)
-
-            Divider()
-
-            ScrollView {
-                ServersView(app: app)
-                    .padding(.vertical, 12)
-            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Power Button
@@ -69,6 +62,12 @@ struct ConnectionView: View {
             Text(app.pm.isRunning ? "Connected" : "Disconnected")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(app.pm.isRunning ? .green : .secondary)
+
+            // In its own column the button no longer sits under the list, so it has to say
+            // what it would connect to.
+            Text(app.selectedServer?.name ?? "No server selected")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
 
             if let connectedAt = app.connectedAt, app.pm.isRunning {
                 TimelineView(.periodic(from: .now, by: 1)) { _ in

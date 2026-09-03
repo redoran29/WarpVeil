@@ -8,7 +8,10 @@ struct ServersView: View {
     @State private var subscriptionToDelete: Subscription?
 
     var body: some View {
-        serverListSection
+        ScrollView {
+            serverListSection
+                .padding(.vertical, 12)
+        }
         .sheet(isPresented: $showAddSheet) {
             AddSubscriptionSheet(subs: app.subs)
         }
