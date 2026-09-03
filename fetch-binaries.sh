@@ -16,7 +16,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 XRAY_TAG="${XRAY_TAG:-v26.3.27}"
-SB_TAG="${SB_TAG:-v1.13.8}"
+SB_TAG="${SB_TAG:-v1.14.0}"
 
 # Expected SHA-256 checksums for pinned tag/arch combos.
 # Format: "<tag> <asset-name> <sha256>" — one per line.
@@ -25,7 +25,7 @@ SB_TAG="${SB_TAG:-v1.13.8}"
 #   sing-box: GitHub release API "digest" field on each asset
 read -r -d '' CHECKSUMS <<'EOF' || true
 v26.3.27 Xray-macos-arm64-v8a.zip 2e93a67e8aa1936ecefb307e120830fcbd4c643ab9b1c46a2d0838d5f8409eaf
-v1.13.8 sing-box-1.13.8-darwin-arm64.tar.gz e9e4c72a4a64c19d515b800b7191c50367522c8169654c569677b15873e08249
+v1.14.0 sing-box-1.14.0-darwin-arm64.tar.gz a150c94012ff768b7261939cd236b9c8554127f45137230295d23a5660225cc9
 EOF
 
 BINARIES_DIR="Binaries"
