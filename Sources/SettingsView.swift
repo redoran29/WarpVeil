@@ -18,6 +18,7 @@ struct SettingsView: View {
             }
             .padding(.vertical, 8)
         }
+        .frame(maxHeight: 560)
         .onChange(of: bypassDomainsRaw) { app.routingChanged() }
         .onChange(of: bypassEnabled) { app.routingChanged() }
     }
