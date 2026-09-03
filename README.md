@@ -11,6 +11,7 @@ Lightweight macOS app for managing **sing-box** and **xray** VPN connections.
 - **Auto-reconnect** after sleep/wake
 - **Passwordless mode** — optional sudoers setup to skip password prompts
 - **Bundled engines** — `sing-box` and `xray` ship inside the app, no installation required
+- **Server ping** — real delay through each proxy, measured by the bundled engines in user space
 - **Real-time logs** with copy/clear
 
 ## Screenshots
@@ -69,6 +70,7 @@ Sources/
 ├── SetupService.swift         # Bundled-binary detection & version reporting
 ├── LocationService.swift      # Public IP & geolocation via ipwho.is (HTTPS)
 ├── NetworkMonitor.swift       # Real-time upload/download speed
+├── PingService.swift          # Proxy delay via sing-box's Clash API
 ├── BypassService.swift        # Domain bypass config injection
 └── Models.swift               # Server, Subscription, Engine types
 ```
