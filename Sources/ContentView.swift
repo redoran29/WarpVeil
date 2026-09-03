@@ -3,14 +3,16 @@ import SwiftUI
 enum Page: String, CaseIterable {
     case connection = "Connection"
     case servers = "Servers"
-    case settings = "Settings"
+    case routing = "Routing"
+    case advanced = "Advanced"
     case logs = "Logs"
 
     var icon: String {
         switch self {
         case .connection: "power"
         case .servers: "server.rack"
-        case .settings: "gearshape"
+        case .routing: "arrow.triangle.branch"
+        case .advanced: "gearshape"
         case .logs: "doc.text"
         }
     }
@@ -62,8 +64,10 @@ struct ContentView: View {
             ConnectionView(app: app)
         case .servers:
             ServersView(app: app)
-        case .settings:
-            SettingsView(app: app)
+        case .routing:
+            RoutingView(app: app)
+        case .advanced:
+            AdvancedView(app: app)
         case .logs:
             LogView(app: app)
         }

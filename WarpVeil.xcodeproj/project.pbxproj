@@ -15,10 +15,11 @@
 		AA0000000000000000000006 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000006 /* NetworkMonitor.swift */; };
 		AA0000000000000000000007 /* BypassService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000007 /* BypassService.swift */; };
 		AA0000000000000000000008 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000010 /* Models.swift */; };
-		AA000000000000000000000B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000013 /* SettingsView.swift */; };
+		AA000000000000000000000B /* AdvancedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000013 /* AdvancedView.swift */; };
 		AA000000000000000000000E /* SubscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000016 /* SubscriptionService.swift */; };
 		AA000000000000000000000F /* ServersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000017 /* ServersView.swift */; };
 		AA0000000000000000000018 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000018 /* AppState.swift */; };
+		AA000000000000000000001B /* RoutingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000000000000000000001B /* RoutingView.swift */; };
 		AA000000000000000000001A /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000000000000000000001A /* LogView.swift */; };
 		AA0000000000000000000019 /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000019 /* ConnectionView.swift */; };
 		AA0000000000000000000020 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000020 /* AppIcon.icns */; };
@@ -36,10 +37,11 @@
 		BB0000000000000000000009 /* WarpVeil.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WarpVeil.entitlements; sourceTree = "<group>"; };
 		DD0000000000000000000001 /* WarpVeil.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WarpVeil.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB0000000000000000000010 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
-		BB0000000000000000000013 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		BB0000000000000000000013 /* AdvancedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedView.swift; sourceTree = "<group>"; };
 		BB0000000000000000000016 /* SubscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionService.swift; sourceTree = "<group>"; };
 		BB0000000000000000000017 /* ServersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServersView.swift; sourceTree = "<group>"; };
 		BB0000000000000000000018 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		BB000000000000000000001B /* RoutingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutingView.swift; sourceTree = "<group>"; };
 		BB000000000000000000001A /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
 		BB0000000000000000000019 /* ConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionView.swift; sourceTree = "<group>"; };
 		BB0000000000000000000020 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
@@ -74,7 +76,7 @@
 				BB0000000000000000000002 /* ContentView.swift */,
 				BB0000000000000000000003 /* ProcessManager.swift */,
 				BB0000000000000000000010 /* Models.swift */,
-				BB0000000000000000000013 /* SettingsView.swift */,
+				BB0000000000000000000013 /* AdvancedView.swift */,
 				BB0000000000000000000004 /* SetupService.swift */,
 				BB0000000000000000000005 /* LocationService.swift */,
 				BB0000000000000000000006 /* NetworkMonitor.swift */,
@@ -82,6 +84,7 @@
 				BB0000000000000000000016 /* SubscriptionService.swift */,
 				BB0000000000000000000017 /* ServersView.swift */,
 				BB0000000000000000000018 /* AppState.swift */,
+				BB000000000000000000001B /* RoutingView.swift */,
 				BB000000000000000000001A /* LogView.swift */,
 				BB0000000000000000000019 /* ConnectionView.swift */,
 			);
@@ -189,7 +192,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA0000000000000000000008 /* Models.swift in Sources */,
-				AA000000000000000000000B /* SettingsView.swift in Sources */,
+				AA000000000000000000000B /* AdvancedView.swift in Sources */,
 				AA0000000000000000000001 /* WarpVeilApp.swift in Sources */,
 				AA0000000000000000000002 /* ContentView.swift in Sources */,
 				AA0000000000000000000003 /* ProcessManager.swift in Sources */,
@@ -200,6 +203,7 @@
 				AA000000000000000000000E /* SubscriptionService.swift in Sources */,
 				AA000000000000000000000F /* ServersView.swift in Sources */,
 				AA0000000000000000000018 /* AppState.swift in Sources */,
+				AA000000000000000000001B /* RoutingView.swift in Sources */,
 				AA000000000000000000001A /* LogView.swift in Sources */,
 				AA0000000000000000000019 /* ConnectionView.swift in Sources */,
 			);
