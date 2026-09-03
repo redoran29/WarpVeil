@@ -36,6 +36,7 @@ struct ServersView: View {
                             .padding(.bottom, 12)
                     }
                 }
+                .frame(maxHeight: 560)
 
                 Divider()
                 bottomBar
