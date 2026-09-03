@@ -520,8 +520,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
                     ["tag": "remote", "type": "tls", "server": "1.1.1.1", "detour": tag] as [String: Any],
                     ["tag": "local", "type": "tls", "server": "8.8.8.8"] as [String: Any]
                 ],
-                "strategy": "prefer_ipv4",
-                "independent_cache": true
+                "strategy": "prefer_ipv4"
             ] as [String: Any]
         ]
         return serializeJSON(config) ?? "{}"
