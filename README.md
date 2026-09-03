@@ -22,7 +22,7 @@ Lightweight macOS menu bar app for managing **sing-box** and **xray** VPN connec
 
 ## Requirements
 
-- macOS 14+ (universal binary, runs on Apple Silicon and Intel)
+- macOS 14+, Apple Silicon
 
 `sing-box` and `xray` are bundled inside the `.app` — no separate installation needed.
 
@@ -34,7 +34,7 @@ The app runs in the menu bar (no Dock icon). Right-click the tray icon to quit.
 
 ## Build from Source
 
-1. Run `./fetch-binaries.sh` once to populate `Binaries/` with universal `sing-box` and `xray` binaries (pinned versions, sha256-verified).
+1. Run `./fetch-binaries.sh` once to populate `Binaries/` with arm64 `sing-box` and `xray` binaries (pinned versions, sha256-verified).
 2. Open `WarpVeil.xcodeproj` in Xcode and press **Cmd+R**. The "Bundle VPN Binaries" build phase copies them into `WarpVeil.app/Contents/Resources/`.
 
 > Do not use `swift build` — the project requires a proper `.app` bundle with `Info.plist`.

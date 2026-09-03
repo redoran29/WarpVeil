@@ -21,7 +21,7 @@ Sources/
 └── BypassService.swift      # JSON config injection for domain bypass routing
 ```
 
-Binaries `sing-box` and `xray` ship inside the `.app` at `Contents/Resources/` (universal arm64+x86_64). They are committed to `Binaries/` in the repo and bundled by the Xcode "Bundle VPN Binaries" build phase. Use `./fetch-binaries.sh` to refresh them (pinned versions with SHA-256 verification + `lipo` merge).
+Binaries `sing-box` and `xray` ship inside the `.app` at `Contents/Resources/` (arm64). They are committed to `Binaries/` in the repo and bundled by the Xcode "Bundle VPN Binaries" build phase. Use `./fetch-binaries.sh` to refresh them (pinned versions with SHA-256 verification).
 
 All services use `@Observable`. State is passed down from `WarpVeilApp` via `@State`.
 User settings persist via `@AppStorage` (UserDefaults).
@@ -30,7 +30,7 @@ User settings persist via `@AppStorage` (UserDefaults).
 
 Build exclusively through Xcode:
 
-1. Run `./fetch-binaries.sh` once to populate `Binaries/` (universal `sing-box` and `xray`, pinned + checksum-verified).
+1. Run `./fetch-binaries.sh` once to populate `Binaries/` (arm64 `sing-box` and `xray`, pinned + checksum-verified).
 2. Open `WarpVeil.xcodeproj`.
 3. Cmd+R to build and run.
 4. `./release.sh` for signed + notarized distribution (`NOTARY_PROFILE` env required for notarization).

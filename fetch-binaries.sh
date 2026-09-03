@@ -1,8 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Downloads xray and sing-box binaries for both macOS architectures (arm64 + x86_64),
-# merges them into universal binaries via lipo, and ad-hoc signs them.
+# Downloads arm64 (Apple Silicon) xray and sing-box binaries and ad-hoc signs them.
 # Binaries are placed in ./Binaries/ and used by release.sh to bundle into the app.
 # release.sh re-signs them with Developer ID later.
 #
@@ -26,9 +25,7 @@ SB_TAG="${SB_TAG:-v1.13.8}"
 #   sing-box: GitHub release API "digest" field on each asset
 read -r -d '' CHECKSUMS <<'EOF' || true
 v26.3.27 Xray-macos-arm64-v8a.zip 2e93a67e8aa1936ecefb307e120830fcbd4c643ab9b1c46a2d0838d5f8409eaf
-v26.3.27 Xray-macos-64.zip f5b0471d3459eff1b82e48af0aeac186abcc3298210070afbbbd8437a4e8b203
 v1.13.8 sing-box-1.13.8-darwin-arm64.tar.gz e9e4c72a4a64c19d515b800b7191c50367522c8169654c569677b15873e08249
-v1.13.8 sing-box-1.13.8-darwin-amd64.tar.gz 0db6aca503dcdd5a816e668669e79231f991cdbbd13fcbf6dd4f9bcb8a1c3b0e
 EOF
 
 BINARIES_DIR="Binaries"
@@ -79,6 +76,18 @@ download_and_verify() {
     fi
 }
 
+# The app is Apple Silicon only — a fat or x86_64 binary here means the wrong asset.
+verify_arm64() {
+    local path="$1"
+    local archs
+    archs=$(lipo -archs "$path")
+    echo "  archs: $archs"
+    if [ "$archs" != "arm64" ]; then
+        echo "ERROR: $path is not arm64-only ($archs)" >&2
+        exit 1
+    fi
+}
+
 if [ "$XRAY_TAG" = "latest" ]; then
     XRAY_TAG=$(resolve_latest_tag XTLS/Xray-core)
     echo "Resolved XRAY_TAG=latest -> $XRAY_TAG"
@@ -106,68 +115,43 @@ mkdir -p "$BINARIES_DIR"
 SB_VERSION="${SB_TAG#v}"
 
 echo ""
-echo "=== Fetching xray ${XRAY_TAG} (universal arm64 + x86_64) ==="
+echo "=== Fetching xray ${XRAY_TAG} (arm64) ==="
 
 XRAY_TMP=$(mktemp -d)
 trap 'rm -rf "$XRAY_TMP"' EXIT
 
 XRAY_ARM_ASSET="Xray-macos-arm64-v8a.zip"
-XRAY_X86_ASSET="Xray-macos-64.zip"
 XRAY_BASE="https://github.com/XTLS/Xray-core/releases/download/${XRAY_TAG}"
 
-mkdir -p "$XRAY_TMP/arm64" "$XRAY_TMP/x86_64"
+mkdir -p "$XRAY_TMP/arm64"
 download_and_verify "$XRAY_BASE/$XRAY_ARM_ASSET" "$XRAY_TMP/arm64.zip" "$XRAY_TAG" "$XRAY_ARM_ASSET"
-download_and_verify "$XRAY_BASE/$XRAY_X86_ASSET" "$XRAY_TMP/x86_64.zip" "$XRAY_TAG" "$XRAY_X86_ASSET"
 
 unzip -qo "$XRAY_TMP/arm64.zip" -d "$XRAY_TMP/arm64"
-unzip -qo "$XRAY_TMP/x86_64.zip" -d "$XRAY_TMP/x86_64"
+cp "$XRAY_TMP/arm64/xray" "$BINARIES_DIR/xray"
 
-lipo -create \
-    -output "$BINARIES_DIR/xray" \
-    "$XRAY_TMP/arm64/xray" \
-    "$XRAY_TMP/x86_64/xray"
-
-XRAY_LIPO=$(lipo -info "$BINARIES_DIR/xray")
-echo "  $XRAY_LIPO"
-if ! echo "$XRAY_LIPO" | grep -q "arm64" || ! echo "$XRAY_LIPO" | grep -q "x86_64"; then
-    echo "ERROR: xray is not a universal binary" >&2
-    exit 1
-fi
+verify_arm64 "$BINARIES_DIR/xray"
 
 chmod +x "$BINARIES_DIR/xray"
 codesign --force --sign - --preserve-metadata=entitlements,requirements,flags,runtime "$BINARIES_DIR/xray"
 
 echo ""
-echo "=== Fetching sing-box ${SB_TAG} (universal arm64 + x86_64) ==="
+echo "=== Fetching sing-box ${SB_TAG} (arm64) ==="
 
 SB_TMP=$(mktemp -d)
 trap 'rm -rf "$XRAY_TMP" "$SB_TMP"' EXIT
 
 SB_ARM_ASSET="sing-box-${SB_VERSION}-darwin-arm64.tar.gz"
-SB_X86_ASSET="sing-box-${SB_VERSION}-darwin-amd64.tar.gz"
 SB_BASE="https://github.com/SagerNet/sing-box/releases/download/${SB_TAG}"
 
-mkdir -p "$SB_TMP/arm64" "$SB_TMP/x86_64"
+mkdir -p "$SB_TMP/arm64"
 download_and_verify "$SB_BASE/$SB_ARM_ASSET" "$SB_TMP/arm64.tar.gz" "$SB_TAG" "$SB_ARM_ASSET"
-download_and_verify "$SB_BASE/$SB_X86_ASSET" "$SB_TMP/x86_64.tar.gz" "$SB_TAG" "$SB_X86_ASSET"
 
 tar -xzf "$SB_TMP/arm64.tar.gz" -C "$SB_TMP/arm64"
-tar -xzf "$SB_TMP/x86_64.tar.gz" -C "$SB_TMP/x86_64"
 
 SB_ARM_BIN=$(ls "$SB_TMP"/arm64/sing-box-*/sing-box | head -1)
-SB_X86_BIN=$(ls "$SB_TMP"/x86_64/sing-box-*/sing-box | head -1)
+cp "$SB_ARM_BIN" "$BINARIES_DIR/sing-box"
 
-lipo -create \
-    -output "$BINARIES_DIR/sing-box" \
-    "$SB_ARM_BIN" \
-    "$SB_X86_BIN"
-
-SB_LIPO=$(lipo -info "$BINARIES_DIR/sing-box")
-echo "  $SB_LIPO"
-if ! echo "$SB_LIPO" | grep -q "arm64" || ! echo "$SB_LIPO" | grep -q "x86_64"; then
-    echo "ERROR: sing-box is not a universal binary" >&2
-    exit 1
-fi
+verify_arm64 "$BINARIES_DIR/sing-box"
 
 chmod +x "$BINARIES_DIR/sing-box"
 codesign --force --sign - --preserve-metadata=entitlements,requirements,flags,runtime "$BINARIES_DIR/sing-box"
