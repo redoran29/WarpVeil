@@ -12,6 +12,7 @@ final class AppState {
     let net = NetworkMonitor()
     let setup = SetupService()
     let subs = SubscriptionService()
+    let ping = PingService()
 
     var connectedAt: Date?
 
@@ -78,6 +79,9 @@ final class AppState {
             return
         }
 
+        // run.sh opens with pkill -f 'sing-box run', which would take a ping's engines with it.
+        ping.cancel()
+
         let engine = server.engine ?? sub.engine
         pm.connect(
             config: server.config,
@@ -105,6 +109,14 @@ final class AppState {
             selectedServerID = ""
         }
         subs.removeSubscription(id)
+    }
+
+    // Through the tunnel the probe would measure tunnel + proxy, not the proxy.
+    func pingAll() {
+        guard !pm.isRunning else { return }
+        ping.start(subs.subscriptions.flatMap { sub in
+            sub.servers.map { (server: $0, engine: $0.engine ?? sub.engine) }
+        })
     }
 
     func routingChanged() {

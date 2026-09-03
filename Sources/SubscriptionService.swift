@@ -637,7 +637,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
 
     // MARK: - sing-box JSON parsing (for ?format=singbox)
 
-    private static let vpnTypesSingBox: Set<String> = [
+    static let vpnTypesSingBox: Set<String> = [
         "vless", "vmess", "trojan", "shadowsocks", "shadowtls",
         "hysteria", "hysteria2", "tuic", "wireguard"
     ]
@@ -680,7 +680,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
 
     // MARK: - xray JSON parsing (for ?format=xray)
 
-    private static let vpnTypesXray: Set<String> = [
+    static let vpnTypesXray: Set<String> = [
         "vless", "vmess", "trojan", "shadowsocks"
     ]
 
