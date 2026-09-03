@@ -1,6 +1,7 @@
 # Server ping: the real delay through each proxy
 
-Status: plan, not yet implemented. Written against `6da3f4d` (clean tree).
+Status: implemented in `c5def82`..`fbe13c7` + this commit. Written against `6da3f4d`.
+One validation is still open — see the end of the Validation record.
 
 Greenfield: the TCP-handshake ping was removed in `58cd4b6` ("With the tunnel up, sing-box's TUN
 stack accepts the TCP connection locally … the list showed 0ms across the board"). Nothing of it
@@ -754,7 +755,26 @@ Then move this file to `plans/done/`, run `/code-review`, fix what it surfaces (
 
 ## Validation record
 
-Checked in this run:
+Confirmed after implementation, against the shipped code (2026-09-03, tunnel **up**): a
+`dev-run.sh --watch` rebuild ran `PingService` and its own generated sing-box config was read back
+from `$TMPDIR` — 9 outbounds, 7 `socks` on consecutive ports for the xray servers and 2 `vless`,
+`route.default_domain_resolver: "local"`, `dns.servers: [{local}]`, `log.level: warn`, exactly the
+shape below. Relaunching that config with the bundled binaries reproduced the whole API contract:
+`GET /` → `{"hello":"clash"}` at 150 ms, no `Authorization` → 401, a delay request without
+`timeout` → 400 `Body invalid`, an unknown tag → 404 `Resource not found`. All 9 tags answered —
+6 × 503 (the xray-chained xhttp nodes) and 3 × 504 at exactly 5.001 s. **Every row failed, which
+is what fact 6 predicts through the tunnel and is the evidence for disabling ping while
+connected.**
+
+Also observed: a `--watch` relaunch kills the app without `applicationShouldTerminate`, so
+`ping.cancel()` never runs — the engines were orphaned to `ppid 1` and the two config files stayed
+in `$TMPDIR` until removed by hand. The orphan case under Decisions is therefore routine in
+development, not just a crash path. Not mitigated; the paths are pid-scoped so nothing collides.
+
+Still not verified: **a ping with the tunnel down.** It needs the owner to disconnect; a planning
+or implementation run may not drop their tunnel. Expect nine values.
+
+Checked in the planning run:
 
 - All 15 `Sources/*.swift` read in full, plus `project.pbxproj`, `CLAUDE.md`, `README.md`,
   `Info.plist`, `dev-run.sh`, `fetch-binaries.sh`, `.gitignore`, all six `plans/done/*.md`, and
@@ -782,7 +802,8 @@ Checked in this run:
 
 Not verified:
 
-- A ping with the tunnel down through the unmodified code (risk 1).
+- A ping with the tunnel down through the unmodified code (risk 1) — still open after
+  implementation, see the confirmation note at the top of this section.
 - The look of the header and rows (Step 2 "What could go wrong").
 - Behaviour on macOS 14/15 (`FileHandle.bytes.lines`, `Task.sleep(for:)` are 12+/13+ APIs;
   probes ran on macOS 26).
