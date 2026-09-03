@@ -104,28 +104,32 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
 
     // MARK: - Fetch & Parse
 
-    func addFromURL(_ urlString: String) async {
+    // Returns what to tell the user when nothing was added; nil means it was.
+    func addFromURL(_ urlString: String) async -> String? {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Enter a link or a subscription URL" }
 
         // Direct vless:// or vmess:// URI — add as single server immediately
         if trimmed.hasPrefix("vless://") || trimmed.hasPrefix("vmess://") {
-            var server: Server?
-            if trimmed.hasPrefix("vless://") { server = parseVlessURI(trimmed) }
-            else { server = parseVmessURI(trimmed) }
-            guard let server else { return }
-            guard !subscriptions.contains(where: { $0.servers.contains { $0.id == server.id } }) else { return }
+            guard let server = parseVlessURI(trimmed) ?? parseVmessURI(trimmed) else {
+                return "Could not parse this link"
+            }
+            guard !subscriptions.contains(where: { $0.servers.contains { $0.id == server.id } }) else {
+                return "This server is already in the list"
+            }
             var sub = Subscription(name: server.name, isManual: true, engine: .singBox)
             sub.servers = [server]
             sub.lastUpdated = Date()
             subscriptions.append(sub)
             save()
-            return
+            return nil
         }
 
-        // Re-adding a known feed means "update it", not "add a second copy".
+        // Re-adding a known feed means "update it", not "add a second copy". Not awaited: a
+        // refresh can take up to 45s and the sheet would sit frozen for it.
         if let existing = subscriptions.first(where: { $0.url == trimmed }) {
-            await refreshSubscription(existing.id)
-            return
+            Task { await refreshSubscription(existing.id) }
+            return "Already added — refreshing \(existing.name)"
         }
 
         let name = URLComponents(string: trimmed)?.host ?? "Subscription"
@@ -133,6 +137,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         subscriptions.append(sub)
         save()
         await refreshSubscription(sub.id)
+        return nil
     }
 
     func refreshSubscription(_ id: UUID) async {
