@@ -270,6 +270,7 @@ private struct AddSubscriptionSheet: View {
             }
             .pickerStyle(.segmented)
             .controlSize(.small)
+            .onChange(of: isManual) { message = nil }
 
             if isManual {
                 TextField("Name", text: $manualName)
@@ -281,9 +282,10 @@ private struct AddSubscriptionSheet: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.2)))
             } else {
-                TextField("vless://... или URL подписки", text: $url)
+                TextField("vless:// or subscription URL", text: $url)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12))
+                    .disabled(isLoading)
                     .onSubmit { addSubscription() }
                     .onChange(of: url) { message = nil }
             }
@@ -306,21 +308,27 @@ private struct AddSubscriptionSheet: View {
                 Spacer()
                 Button("Add") { addSubscription() }
                     .controlSize(.small)
-                    .disabled(isManual ? (manualName.isEmpty || manualJSON.isEmpty) : url.isEmpty)
-                    .disabled(isLoading)
+                    .disabled(!canSubmit)
             }
         }
         .padding(16)
         .frame(width: 360)
     }
 
+    private var canSubmit: Bool {
+        guard !isLoading else { return false }
+        return isManual ? !(manualName.isEmpty || manualJSON.isEmpty) : !url.isEmpty
+    }
+
     private func addSubscription() {
+        // Enter in a text field reaches here without passing the button's disabled state.
+        guard canSubmit else { return }
+
         if isManual {
-            subs.addManualConfig(name: manualName, json: manualJSON)
-            dismiss()
+            message = subs.addManualConfig(name: manualName, json: manualJSON)
+            if message == nil { dismiss() }
         } else {
-            // Enter in the field bypasses the button's disabled state.
-            guard !isLoading, !url.isEmpty else { return }
+            message = nil
             isLoading = true
             Task {
                 message = await subs.addFromURL(url)

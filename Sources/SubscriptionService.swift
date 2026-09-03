@@ -60,6 +60,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         subscriptions = decoded.enumerated()
             .filter { i, sub in sub.url.isEmpty || bestByURL[sub.url] == i }
             .map(\.element)
+        subscriptions = subscriptions.map { var sub = $0; sub.servers = uniqueByID(sub.servers); return sub }
         if subscriptions.count != decoded.count { save() }
         migrateSelection(decoded: decoded, data: data)
     }
@@ -98,6 +99,11 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
     }
 
     func removeSubscription(_ id: UUID) {
+        let defaults = UserDefaults.standard
+        if defaults.string(forKey: "selectedSubscriptionID") == id.uuidString {
+            defaults.removeObject(forKey: "selectedSubscriptionID")
+            defaults.removeObject(forKey: "selectedServerID")
+        }
         subscriptions.removeAll { $0.id == id }
         save()
     }
@@ -128,6 +134,9 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         // Re-adding a known feed means "update it", not "add a second copy". Not awaited: a
         // refresh can take up to 45s and the sheet would sit frozen for it.
         if let existing = subscriptions.first(where: { $0.url == trimmed }) {
+            guard !refreshingIDs.contains(existing.id) else {
+                return "Already added — \(existing.name) is refreshing now"
+            }
             Task { await refreshSubscription(existing.id) }
             return "Already added — refreshing \(existing.name)"
         }
@@ -137,6 +146,11 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         subscriptions.append(sub)
         save()
         await refreshSubscription(sub.id)
+
+        if subscriptions.first(where: { $0.id == sub.id })?.servers.isEmpty ?? false {
+            removeSubscription(sub.id)
+            return "Could not load a subscription from this link"
+        }
         return nil
     }
 
@@ -708,7 +722,12 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
 
     // MARK: - Manual config
 
-    func addManualConfig(name: String, json: String) {
+    @discardableResult
+    func addManualConfig(name: String, json: String) -> String? {
+        guard let data = json.data(using: .utf8),
+              (try? JSONSerialization.jsonObject(with: data)) != nil
+        else { return "This is not valid JSON" }
+
         var sub = Subscription(name: name, isManual: true, engine: .singBox)
 
         let singBoxServers = parseSingBox(json)
@@ -727,6 +746,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         sub.lastUpdated = Date()
         subscriptions.append(sub)
         save()
+        return nil
     }
 
     // MARK: - Helpers
