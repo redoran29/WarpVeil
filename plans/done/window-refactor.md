@@ -1,5 +1,10 @@
 # Window refactor: menu-bar popover → regular app with a paged main window
 
+> Superseded the same day by `three-column.md`. Decisions 3-5 (the five pages, the hand-written
+> tab header, the height fitting) and verified facts 1-5 describe a window model that no longer
+> exists: the window is resizable and its content is a three-column `NavigationSplitView`.
+> Everything else here — the popover replacement, hide-on-close, the quit path — still stands.
+
 Status: plan, not yet implemented. Written against commit `83a8ef4` (clean tree).
 
 ## Owner decisions (fixed, not up for redesign)

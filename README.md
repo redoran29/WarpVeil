@@ -15,9 +15,11 @@ Lightweight macOS app for managing **sing-box** and **xray** VPN connections.
 
 ## Screenshots
 
-| Connection | Routing | Advanced | Logs |
-|------------|---------|----------|------|
-| Power button, uptime, traffic stats, location, servers grouped by subscription | Domain bypass | Auto-connect, passwordless, components | VPN log with copy and clear |
+| Servers | Routing | Advanced | Logs |
+|---------|---------|----------|------|
+| Servers grouped by subscription, with refresh and delete per subscription | Domain bypass | Auto-connect, passwordless, components | VPN log with copy and clear |
+
+The power button, uptime, traffic stats and location sit in the right-hand column on every page.
 
 ## Requirements
 
@@ -56,8 +58,8 @@ To bump version, edit `CFBundleShortVersionString` in `Info.plist`.
 Sources/
 ├── WarpVeilApp.swift          # Main window, menu-bar status item and its menu
 ├── AppState.swift             # Owns every service, connect/disconnect, bootstrap
-├── ContentView.swift          # Pages and the tab header
-├── ConnectionView.swift       # Power button, stats, location, server list
+├── ContentView.swift          # Split view and the collapsible icon rail
+├── ConnectionView.swift       # Power button, stats, location — the right column
 ├── ServersView.swift          # Servers grouped by subscription
 ├── RoutingView.swift          # Domain bypass
 ├── AdvancedView.swift         # Auto-connect, passwordless, components
