@@ -322,6 +322,7 @@ private extension AddResult {
         case .refreshing(let name): "Already added — \(name) is refreshing now"
         case .emptyFeed: "Could not load a subscription from this link"
         case .invalidJSON: "This is not valid JSON"
+        case .refreshFailed(let name): "Could not refresh \(name) — its servers are unchanged"
         }
     }
 }
