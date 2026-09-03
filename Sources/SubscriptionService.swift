@@ -49,17 +49,15 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         guard let data = try? Data(contentsOf: filePath),
               let decoded = try? JSONDecoder().decode([Subscription].self, from: data)
         else { return }
-        subscriptions = decoded
+        // Older builds appended a new subscription every time the same URL was added.
+        var seenURLs = Set<String>()
+        subscriptions = decoded.filter { $0.url.isEmpty || seenURLs.insert($0.url).inserted }
+        if subscriptions.count != decoded.count { save() }
     }
 
     func save() {
         guard let data = try? JSONEncoder().encode(subscriptions) else { return }
         try? data.write(to: filePath, options: .atomic)
-    }
-
-    func addSubscription(_ sub: Subscription) {
-        subscriptions.append(sub)
-        save()
     }
 
     func removeSubscription(_ id: UUID) {
@@ -78,6 +76,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             if trimmed.hasPrefix("vless://") { server = parseVlessURI(trimmed) }
             else { server = parseVmessURI(trimmed) }
             guard let server else { return }
+            guard !subscriptions.contains(where: { $0.servers.contains { $0.id == server.id } }) else { return }
             var sub = Subscription(name: server.name, isManual: true, engine: .singBox)
             sub.servers = [server]
             sub.lastUpdated = Date()
@@ -86,7 +85,12 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             return
         }
 
-        // Subscription URL
+        // Re-adding a known feed means "update it", not "add a second copy".
+        if let existing = subscriptions.first(where: { $0.url == trimmed }) {
+            await refreshSubscription(existing.id)
+            return
+        }
+
         let name = URLComponents(string: trimmed)?.host ?? "Subscription"
         let sub = Subscription(name: name, url: trimmed, engine: .singBox)
         subscriptions.append(sub)
