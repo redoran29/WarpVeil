@@ -120,30 +120,31 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
 
         // Re-adding a known feed means "update it", not "add a second copy". Not awaited: a
         // refresh can take up to 45s and the sheet would sit frozen for it.
-        // A refresh already in flight makes the Task a no-op, and the outcome reads the same.
+        // Re-adding a known feed means "update it", not "add a second copy". A refresh already
+        // in flight is left to finish; otherwise the outcome is reported like a first add.
         if let existing = subscriptions.first(where: { $0.url == trimmed }) {
-            Task { await refreshSubscription(existing.id) }
-            return .refreshing(existing.name)
+            guard !refreshingIDs.contains(existing.id) else { return .refreshing(existing.name) }
+            return await refreshSubscription(existing.id) ? .added : .emptyFeed
         }
 
         let name = URLComponents(string: trimmed)?.host ?? "Subscription"
         let sub = Subscription(name: name, url: trimmed, engine: .singBox)
         subscriptions.append(sub)
         save()
-        await refreshSubscription(sub.id)
-
-        if subscriptions.first(where: { $0.id == sub.id })?.servers.isEmpty ?? false {
+        guard await refreshSubscription(sub.id) else {
             removeSubscription(sub.id)
             return .emptyFeed
         }
         return .added
     }
 
-    func refreshSubscription(_ id: UUID) async {
+    // Reports whether the feed yielded servers; a failed fetch leaves the previous ones in place.
+    @discardableResult
+    func refreshSubscription(_ id: UUID) async -> Bool {
         guard let idx = subscriptions.firstIndex(where: { $0.id == id }),
               !subscriptions[idx].isManual,
               !refreshingIDs.contains(id)
-        else { return }
+        else { return false }
 
         // A visible refresh button makes double-clicking easy; without this the two runs race.
         refreshingIDs.insert(id)
@@ -154,16 +155,17 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         // Strategy 1: fetch raw URL → decode base64 → parse vless:// URIs
         if let servers = await fetchAndParseURIs(urlString), !servers.isEmpty {
             store(servers, engine: .singBox, in: id)
-            return
+            return true
         }
 
         // Strategy 2: try ?format=singbox, then ?format=xray
         for engine in [Engine.singBox, .xray] {
             if let servers = await fetchFormattedConfig(urlString, engine: engine), !servers.isEmpty {
                 store(servers, engine: engine, in: id)
-                return
+                return true
             }
         }
+        return false
     }
 
     // A refresh rebuilds every Server; the key has to outlive the rebuild or the selection dies
