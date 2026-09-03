@@ -17,10 +17,12 @@ struct Server: Codable, Identifiable {
     var config: String
     var engine: Engine?
 
-    // What the row shows is what makes two servers one node. A transport the file never
-    // stored matches any: the field is younger than the file.
+    // Identity is the endpoint, not the label. Panels put remaining traffic and expiry dates
+    // in node names, so a name in here would re-key every server on every refresh — the very
+    // failure the stored key exists to prevent. A transport the file never stored matches any:
+    // the field is younger than the file.
     func isSameNode(as other: Server) -> Bool {
-        protocolType == other.protocolType && address == other.address && name == other.name
+        protocolType == other.protocolType && address == other.address
             && (transport.isEmpty || other.transport.isEmpty || transport == other.transport)
     }
 }
@@ -30,7 +32,8 @@ struct Server: Codable, Identifiable {
 extension Server {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        let storedID = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
+        id = storedID.isEmpty ? UUID().uuidString : storedID
         name = try c.decode(String.self, forKey: .name)
         protocolType = try c.decode(String.self, forKey: .protocolType)
         address = try c.decode(String.self, forKey: .address)

@@ -9,6 +9,7 @@ enum AddResult {
     case refreshing(String)
     case emptyFeed
     case invalidJSON
+    case refreshFailed(String)
 }
 
 @Observable
@@ -72,8 +73,10 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             .filter { i, sub in sub.url.isEmpty || bestByURL[sub.url] == i }
             .map(\.element)
         // Keys minted for a file that predates them must reach the disk before a selection can
-        // point at one; writing every launch is simpler than telling that launch apart.
-        save()
+        // point at one — but only then: the file is shared with other builds.
+        if let rewritten = try? JSONEncoder().encode(subscriptions), rewritten != data {
+            try? rewritten.write(to: filePath, options: .atomic)
+        }
     }
 
     // Both cores accept two spellings for the same transport, and a panel that switches
@@ -92,6 +95,11 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
     }
 
     func removeSubscription(_ id: UUID) {
+        let defaults = UserDefaults.standard
+        let selected = defaults.string(forKey: "selectedServerID") ?? ""
+        if subscriptions.first(where: { $0.id == id })?.servers.contains(where: { $0.id == selected }) == true {
+            defaults.removeObject(forKey: "selectedServerID")
+        }
         subscriptions.removeAll { $0.id == id }
         save()
     }
@@ -118,20 +126,20 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             return .added
         }
 
-        // Re-adding a known feed means "update it", not "add a second copy". Not awaited: a
-        // refresh can take up to 45s and the sheet would sit frozen for it.
         // Re-adding a known feed means "update it", not "add a second copy". A refresh already
-        // in flight is left to finish; otherwise the outcome is reported like a first add.
+        // in flight is left to finish; otherwise the outcome is reported.
         if let existing = subscriptions.first(where: { $0.url == trimmed }) {
             guard !refreshingIDs.contains(existing.id) else { return .refreshing(existing.name) }
-            return await refreshSubscription(existing.id) ? .added : .emptyFeed
+            guard await refreshSubscription(existing.id) else { return .refreshFailed(existing.name) }
+            return .added
         }
 
         let name = URLComponents(string: trimmed)?.host ?? "Subscription"
         let sub = Subscription(name: name, url: trimmed, engine: .singBox)
         subscriptions.append(sub)
         save()
-        guard await refreshSubscription(sub.id) else {
+        await refreshSubscription(sub.id)
+        guard subscriptions.first(where: { $0.id == sub.id })?.servers.isEmpty == false else {
             removeSubscription(sub.id)
             return .emptyFeed
         }
@@ -173,12 +181,23 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
     // node twice keeps two keys.
     private func keepingIDs(from previous: [Server], _ fresh: [Server]) -> [Server] {
         var unclaimed = previous
-        return fresh.map { server in
-            guard let i = unclaimed.firstIndex(where: { $0.isSameNode(as: server) }) else { return server }
-            var kept = server
-            kept.id = unclaimed.remove(at: i).id
-            return kept
+        var result = fresh
+        var pending = Array(result.indices)
+
+        // Exact transports first. The wildcard that covers files predating the field is not
+        // transitive, so one greedy pass can hand a key to a node it does not belong to.
+        for requireExactTransport in [true, false] {
+            pending = pending.filter { i in
+                let match = unclaimed.firstIndex {
+                    $0.isSameNode(as: result[i])
+                        && (!requireExactTransport || $0.transport == result[i].transport)
+                }
+                guard let match else { return true }
+                result[i].id = unclaimed.remove(at: match).id
+                return false
+            }
         }
+        return result
     }
 
     private func store(_ servers: [Server], engine: Engine, in id: UUID) {
@@ -730,7 +749,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         var sub = Subscription(name: name, isManual: true, engine: .singBox)
 
         let singBoxServers = parseSingBox(json)
-        let xrayServers = parseXray(json)
+        let xrayServers = singBoxServers.isEmpty ? parseXray(json) : []
         if !singBoxServers.isEmpty {
             sub.engine = .singBox
             sub.servers = singBoxServers

@@ -1,7 +1,6 @@
 # Stored server identity: a key that no formula can break
 
-Status: planned. Written against `9b41b78` (clean tree; the `gitStatus` snapshot handed to the
-planning agent named files that do not exist and was ignored; `CLAUDE.md` is the whole canon).
+Status: implemented in `a9ccdae`..`4762627`, then corrected by a code review — see the commit that follows. Its Step 4 comment block and the name-based isSameNode did not survive review.
 
 Fourth pass at server identity in one day. Out of scope and untouched: `ProcessManager`,
 routing/bypass, the window shell, subscription formats and protocols, `project.pbxproj` (no file

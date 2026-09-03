@@ -30,7 +30,7 @@ final class AppState {
     // reading AppState fresh on that render. Keep the @AppStorage in the editing view.
 
     var selectedServer: Server? {
-        selectedSubscription?.servers.first { $0.id == selectedServerID }
+        subs.subscriptions.lazy.flatMap(\.servers).first { $0.id == selectedServerID }
     }
 
     var bypassDomains: [String] {
@@ -69,9 +69,7 @@ final class AppState {
     }
 
     func connect() {
-        guard let sub = selectedSubscription,
-              let server = sub.servers.first(where: { $0.id == selectedServerID })
-        else {
+        guard let server = selectedServer, let sub = selectedSubscription else {
             pm.logs.append("[Error: no server selected]")
             return
         }
