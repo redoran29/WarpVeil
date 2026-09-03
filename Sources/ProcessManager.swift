@@ -39,6 +39,9 @@ final class ProcessManager {
     // Shared by run.sh, stop.sh and the osascript fallbacks. Kills only a process the PID file
     // names whose executable is the given engine, then waits for it to be gone — up to 5 s — so
     // the next sing-box never races the old one for the TUN. A stale or foreign PID is dropped.
+    // Returns non-zero, keeping the file, when the engine outlives the wait: with no pkill left
+    // that file is the only handle on it, and starting a second engine over a held TUN fails
+    // anyway. No SIGKILL — sing-box exits on TERM, and a forced kill leaves its routes behind.
     private static let killPidFileFunction = """
         kill_pid_file() {
             local f="$1" name="$2" pid
@@ -51,6 +54,7 @@ final class ProcessManager {
                     kill -0 "$pid" 2>/dev/null || break
                     sleep 0.1
                 done
+                kill -0 "$pid" 2>/dev/null && return 1
             fi
             rm -f "$f"
         }
@@ -81,8 +85,8 @@ final class ProcessManager {
 
         \(killPidFileFunction)
 
-        kill_pid_file \(singboxPidFile) sing-box
-        kill_pid_file \(xrayPidFile) xray
+        kill_pid_file \(singboxPidFile) sing-box || { echo '[error] previous sing-box still running'; exit 1; }
+        kill_pid_file \(xrayPidFile) xray || { echo '[error] previous xray still running'; exit 1; }
 
         if [[ $# -eq 4 ]]; then
             XRAY="$3"; XRAY_CFG="$4"
@@ -105,8 +109,8 @@ final class ProcessManager {
             cleanup() {
                 echo '[stopping...]'
                 kill $XRAY_PID $SINGBOX_PID 2>/dev/null || true
-                rm -f \(xrayPidFile) \(singboxPidFile)
                 wait
+                rm -f \(xrayPidFile) \(singboxPidFile)
                 echo '[stopped]'
                 exit 0
             }
@@ -122,8 +126,8 @@ final class ProcessManager {
             cleanup() {
                 echo '[stopping...]'
                 kill $VPN_PID 2>/dev/null || true
-                rm -f \(singboxPidFile)
                 wait
+                rm -f \(singboxPidFile)
                 echo '[stopped]'
                 exit 0
             }
@@ -404,8 +408,8 @@ final class ProcessManager {
     private func buildNonPrivilegedShellCommand(engine: Engine, binaryPath: String, singBoxPath: String, configFile: String) -> String {
         var cmds = ["cd /tmp", "exec > \(Self.shellEscape(logFile)) 2>&1"]
         cmds.append(Self.killPidFileFunction)
-        cmds.append("kill_pid_file \(Self.shellEscape(Self.singboxPidFile)) sing-box")
-        cmds.append("kill_pid_file \(Self.shellEscape(Self.xrayPidFile)) xray")
+        cmds.append("kill_pid_file \(Self.shellEscape(Self.singboxPidFile)) sing-box || { echo '[error] previous sing-box still running'; exit 1; }")
+        cmds.append("kill_pid_file \(Self.shellEscape(Self.xrayPidFile)) xray || { echo '[error] previous xray still running'; exit 1; }")
 
         if engine == .xray {
             cmds.append("echo '[xray] starting...'")
@@ -423,7 +427,7 @@ final class ProcessManager {
             cmds.append("echo $SINGBOX_PID > \(Self.shellEscape(Self.singboxPidFile))")
             cmds.append("echo '[sing-box] started pid='$SINGBOX_PID")
             cmds.append("""
-                cleanup() { echo '[stopping...]'; kill $XRAY_PID $SINGBOX_PID 2>/dev/null; rm -f \(Self.shellEscape(Self.xrayPidFile)) \(Self.shellEscape(Self.singboxPidFile)); wait; echo '[stopped]'; exit 0; }
+                cleanup() { echo '[stopping...]'; kill $XRAY_PID $SINGBOX_PID 2>/dev/null; wait; rm -f \(Self.shellEscape(Self.xrayPidFile)) \(Self.shellEscape(Self.singboxPidFile)); echo '[stopped]'; exit 0; }
                 trap cleanup TERM INT
                 wait
                 """)
@@ -434,7 +438,7 @@ final class ProcessManager {
             cmds.append("echo $VPN_PID > \(Self.shellEscape(Self.singboxPidFile))")
             cmds.append("echo '[sing-box] started pid='$VPN_PID")
             cmds.append("""
-                cleanup() { echo '[stopping...]'; kill $VPN_PID 2>/dev/null; rm -f \(Self.shellEscape(Self.singboxPidFile)); wait; echo '[stopped]'; exit 0; }
+                cleanup() { echo '[stopping...]'; kill $VPN_PID 2>/dev/null; wait; rm -f \(Self.shellEscape(Self.singboxPidFile)); echo '[stopped]'; exit 0; }
                 trap cleanup TERM INT
                 wait
                 """)
