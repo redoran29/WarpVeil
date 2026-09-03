@@ -71,7 +71,7 @@ private struct SidebarRail: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .padding(.bottom, 14)
+            .padding(.bottom, 6)
 
             ForEach(Page.allCases, id: \.self) { page in
                 Button {
@@ -109,7 +109,7 @@ private struct SidebarRail: View {
 
             Spacer()
         }
-        .padding(.top, 18)
+        .padding(.top, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
