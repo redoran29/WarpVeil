@@ -19,9 +19,8 @@ struct ConnectionView: View {
 
             locationSection
         }
-        .padding(.top, 36)
         .padding(.horizontal, 20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Power Button
