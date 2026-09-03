@@ -6,6 +6,10 @@ enum Engine: String, Codable, CaseIterable {
 }
 
 struct Server: Codable, Identifiable {
+    // An opaque key, minted the first time a server is seen and carried across refreshes by
+    // store(). Never derived from the fields: every formula so far broke the moment one site
+    // spelled a field differently, and the stored selection had to be migrated each time.
+    var id = UUID().uuidString
     var name: String
     var protocolType: String
     var address: String
@@ -14,13 +18,27 @@ struct Server: Codable, Identifiable {
     var config: String
     var engine: Engine?
 
-    // Derived, not stored: refreshing a subscription rebuilds every Server, and a fresh UUID
-    // each time would drop the user's selection on every launch. The transport is part of it
-    // because a feed can list one node under one name and address over ws and again over grpc.
-    var id: String { "\(protocolType)|\(address)|\(transport ?? "")|\(name)" }
+    // What the row shows is what makes two servers one node. A transport the file never
+    // stored matches any: the field is younger than the file.
+    func isSameNode(as other: Server) -> Bool {
+        protocolType == other.protocolType && address == other.address && name == other.name
+            && (transport == nil || other.transport == nil || transport == other.transport)
+    }
+}
 
-    // The shape stored before the transport joined the id; read only by the migration.
-    var legacyID: String { "\(protocolType)|\(address)|\(name)" }
+// Files from builds up to 1.2 carry an id per server; later builds wrote none. Declared in an
+// extension so the memberwise init the parsers use survives.
+extension Server {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        name = try c.decode(String.self, forKey: .name)
+        protocolType = try c.decode(String.self, forKey: .protocolType)
+        address = try c.decode(String.self, forKey: .address)
+        transport = try c.decodeIfPresent(String.self, forKey: .transport)
+        config = try c.decode(String.self, forKey: .config)
+        engine = try c.decodeIfPresent(Engine.self, forKey: .engine)
+    }
 }
 
 struct Subscription: Codable, Identifiable {
