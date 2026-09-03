@@ -514,8 +514,7 @@ final class ProcessManager {
                     ["tag": "remote", "type": "tls", "server": "1.1.1.1", "detour": "xray-proxy"] as [String: Any],
                     ["tag": "local", "type": "tls", "server": "8.8.8.8"] as [String: Any]
                 ],
-                "strategy": "prefer_ipv4",
-                "independent_cache": true
+                "strategy": "prefer_ipv4"
             ] as [String: Any]
         ]
 
