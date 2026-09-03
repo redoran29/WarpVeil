@@ -30,7 +30,7 @@ final class AppState {
     // reading AppState fresh on that render. Keep the @AppStorage in the editing view.
 
     var selectedServer: Server? {
-        subs.subscriptions.flatMap(\.servers).first { $0.id.uuidString == selectedServerID }
+        subs.subscriptions.flatMap(\.servers).first { $0.id == selectedServerID }
     }
 
     var bypassDomains: [String] {
@@ -46,7 +46,7 @@ final class AppState {
 
     private var selectedSubscription: Subscription? {
         subs.subscriptions.first { sub in
-            sub.servers.contains { $0.id.uuidString == selectedServerID }
+            sub.servers.contains { $0.id == selectedServerID }
         }
     }
 

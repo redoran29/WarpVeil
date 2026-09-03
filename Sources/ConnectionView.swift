@@ -101,7 +101,7 @@ struct ConnectionView: View {
         } else {
             Picker("Server", selection: $selectedServerID) {
                 ForEach(allServers) { server in
-                    Text(server.name).tag(server.id.uuidString)
+                    Text(server.name).tag(server.id)
                 }
             }
             .pickerStyle(.menu)
