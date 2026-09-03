@@ -162,27 +162,8 @@ private struct ServerRowView: View {
 
     private var protocolLabel: String {
         let proto = server.protocolType.uppercased()
-        let transport = Self.detectTransport(from: server)
-        return transport.isEmpty ? proto : "\(proto) \u{00B7} \(transport)"
-    }
-
-    private static func detectTransport(from server: Server) -> String {
-        guard let data = server.config.data(using: .utf8),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let outbounds = root["outbounds"] as? [[String: Any]]
-        else { return "" }
-
-        for ob in outbounds {
-            if let transport = ob["transport"] as? [String: Any],
-               let type = transport["type"] as? String {
-                return type.uppercased()
-            }
-            if let stream = ob["streamSettings"] as? [String: Any],
-               let network = stream["network"] as? String, network != "tcp" {
-                return network.uppercased()
-            }
-        }
-        return ""
+        guard let transport = server.transport, !transport.isEmpty, transport != "tcp" else { return proto }
+        return "\(proto) \u{00B7} \(transport.uppercased())"
     }
 
     private static let flagPatterns: [(String, String)] = [
