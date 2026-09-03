@@ -139,7 +139,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - `@Observable` for reactive state, not ObservableObject/Published
 - `@AppStorage` for persistent user settings
 - `Process` + pipes for shell commands, `osascript` for privilege escalation
-- All UI in SwiftUI — no AppKit views
+- All UI in SwiftUI. AppKit appears only in `WarpVeilApp.swift`, which owns the window, the
+  status item and its menu — everything hosted inside is SwiftUI
 - No external Swift package dependencies
 - `ProcessManager.logs` is trimmed to the last 500 entries once it passes 600
 

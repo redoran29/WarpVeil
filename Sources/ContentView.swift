@@ -1,5 +1,9 @@
 import SwiftUI
 
+extension Color {
+    static let lavender = Color(red: 0.62, green: 0.56, blue: 0.85)
+}
+
 enum Page: String, CaseIterable {
     case connection = "Connection"
     case routing = "Routing"
@@ -38,7 +42,10 @@ struct ContentView: View {
 
             Divider()
 
+            // One cap for every page: an uncapped page measures its full content height and
+            // the window would grow past the screen.
             pageView
+                .frame(maxHeight: 700)
         }
         .frame(width: 620)
         .fixedSize(horizontal: false, vertical: true)

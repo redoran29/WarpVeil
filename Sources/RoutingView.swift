@@ -9,6 +9,7 @@ struct RoutingView: View {
     @AppStorage("bypassEnabled") private var bypassEnabled = true
 
     @State private var newDomain = ""
+    @State private var reconnectTask: Task<Void, Never>?
 
     var body: some View {
         Form {
@@ -40,9 +41,19 @@ struct RoutingView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(maxHeight: 520)
-        .onChange(of: bypassDomainsRaw) { app.routingChanged() }
-        .onChange(of: bypassEnabled) { app.routingChanged() }
+        .onChange(of: bypassDomainsRaw) { scheduleReconnect() }
+        .onChange(of: bypassEnabled) { scheduleReconnect() }
+    }
+
+    // Every routing change tears the tunnel down and back up, which without passwordless mode
+    // means an admin prompt. Adding three domains should cost one, not three.
+    private func scheduleReconnect() {
+        reconnectTask?.cancel()
+        reconnectTask = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            app.routingChanged()
+        }
     }
 
     private func addDomain() {

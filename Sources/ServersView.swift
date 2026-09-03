@@ -130,8 +130,6 @@ private struct ServerRowView: View {
     let server: Server
     let isSelected: Bool
 
-    private static let lavender = Color(red: 0.62, green: 0.56, blue: 0.85)
-
     var body: some View {
         HStack(spacing: 12) {
             Text(Self.guessFlag(from: server.name))
@@ -153,7 +151,7 @@ private struct ServerRowView: View {
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(isSelected ? Self.lavender.opacity(0.15) : .clear)
+                .fill(isSelected ? Color.lavender.opacity(0.15) : .clear)
         )
     }
 
@@ -182,9 +180,7 @@ private struct ServerRowView: View {
         return ""
     }
 
-    private static func guessFlag(from name: String) -> String {
-        let lower = name.lowercased()
-        let map: [(String, String)] = [
+    private static let flagPatterns: [(String, String)] = [
             ("chicago", "\u{1F1FA}\u{1F1F8}"), ("new york", "\u{1F1FA}\u{1F1F8}"),
             ("los angeles", "\u{1F1FA}\u{1F1F8}"), ("dallas", "\u{1F1FA}\u{1F1F8}"),
             ("miami", "\u{1F1FA}\u{1F1F8}"), ("seattle", "\u{1F1FA}\u{1F1F8}"),
@@ -225,7 +221,10 @@ private struct ServerRowView: View {
             ("mumbai", "\u{1F1EE}\u{1F1F3}"), ("in-", "\u{1F1EE}\u{1F1F3}"),
             ("sao paulo", "\u{1F1E7}\u{1F1F7}"), ("br-", "\u{1F1E7}\u{1F1F7}"),
         ]
-        for (pattern, flag) in map {
+
+    private static func guessFlag(from name: String) -> String {
+        let lower = name.lowercased()
+        for (pattern, flag) in flagPatterns {
             if lower.contains(pattern) { return flag }
         }
         return "\u{1F310}" // globe

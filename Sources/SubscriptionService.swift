@@ -50,9 +50,16 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         guard let data = try? Data(contentsOf: filePath),
               let decoded = try? JSONDecoder().decode([Subscription].self, from: data)
         else { return }
-        // Older builds appended a new subscription every time the same URL was added.
-        var seenURLs = Set<String>()
-        subscriptions = decoded.filter { $0.url.isEmpty || seenURLs.insert($0.url).inserted }
+        // Older builds appended a new subscription every time the same URL was added. Keep the
+        // copy that actually holds servers — the first one may be a refresh that failed.
+        var bestByURL: [String: Int] = [:]
+        for (i, sub) in decoded.enumerated() where !sub.url.isEmpty {
+            if let best = bestByURL[sub.url], decoded[best].servers.count >= sub.servers.count { continue }
+            bestByURL[sub.url] = i
+        }
+        subscriptions = decoded.enumerated()
+            .filter { i, sub in sub.url.isEmpty || bestByURL[sub.url] == i }
+            .map(\.element)
         if subscriptions.count != decoded.count { save() }
     }
 
@@ -113,28 +120,35 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
 
         // Strategy 1: fetch raw URL → decode base64 → parse vless:// URIs
         if let servers = await fetchAndParseURIs(urlString), !servers.isEmpty {
-            subscriptions[idx].engine = .singBox
-            subscriptions[idx].servers = servers
-            subscriptions[idx].lastUpdated = Date()
-            save()
+            store(servers, engine: .singBox, in: id)
             return
         }
 
         // Strategy 2: try ?format=singbox, then ?format=xray
         for engine in [Engine.singBox, .xray] {
             if let servers = await fetchFormattedConfig(urlString, engine: engine), !servers.isEmpty {
-                subscriptions[idx].engine = engine
-                subscriptions[idx].servers = servers
-                subscriptions[idx].lastUpdated = Date()
-                save()
+                store(servers, engine: engine, in: id)
                 return
             }
         }
     }
 
+    private func store(_ servers: [Server], engine: Engine, in id: UUID) {
+        guard let idx = subscriptions.firstIndex(where: { $0.id == id }) else { return }
+        subscriptions[idx].engine = engine
+        subscriptions[idx].servers = servers
+        subscriptions[idx].lastUpdated = Date()
+        save()
+    }
+
     func refreshAll() async {
-        for sub in subscriptions where !sub.isManual {
-            await refreshSubscription(sub.id)
+        // Sequentially, one unreachable feed at a 15s timeout would hold up auto-connect
+        // behind all the others.
+        let ids = subscriptions.filter { !$0.isManual }.map(\.id)
+        await withTaskGroup(of: Void.self) { group in
+            for id in ids {
+                group.addTask { await self.refreshSubscription(id) }
+            }
         }
     }
 

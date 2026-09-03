@@ -1,5 +1,8 @@
 # Servers page: merge Connection + Servers, fix subscription management
 
+> Implemented. One later change is not reflected below: server ping was removed entirely
+> (commit `58cd4b6`), so the ping details in Steps 2-4 describe code that no longer exists.
+
 Status: plan, not yet implemented. Written against the working tree at `bc5b1a2` (window-refactor
 Steps 1-5 committed; its Step 6, documentation, still open and not part of this plan).
 

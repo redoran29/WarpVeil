@@ -557,6 +557,19 @@ final class ProcessManager {
         isRunning = false
     }
 
+    // Quit needs to know when the engines are actually gone. The non-passwordless path puts up
+    // a password dialog, so the wait is however long the user takes, not a fixed delay.
+    private var teardownProcess: Process?
+
+    func awaitTeardown(timeout: TimeInterval) async {
+        guard let process = teardownProcess else { return }
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        teardownProcess = nil
+    }
+
     private func killVPNProcesses() {
         if isPasswordless {
             let kill = Process()
@@ -564,6 +577,7 @@ final class ProcessManager {
             kill.arguments = [Self.stopScriptPath]
             do {
                 try kill.run()
+                teardownProcess = kill
             } catch {
                 logs.append("[Error: failed to run stop script: \(error.localizedDescription)]")
             }
@@ -579,6 +593,7 @@ final class ProcessManager {
             kill.arguments = ["-e", "do shell script \(Self.appleScriptEscape(cmd)) with administrator privileges"]
             do {
                 try kill.run()
+                teardownProcess = kill
             } catch {
                 logs.append("[Error: failed to run disconnect: \(error.localizedDescription)]")
             }
