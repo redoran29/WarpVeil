@@ -42,6 +42,13 @@ deviation — the file must never describe something that was not built.
 - Then run `/code-review` over the finished work and fix everything it surfaces.
   Work on a plan is not over while review findings are open.
 
+### The third fix is a signal
+
+When the same place is fixed a third time, the problem is not the fix. Stop and ask whether the
+construction is right — that is cheaper than a fourth correct fix on a wrong shape. Probes and a
+green build confirm the step, never the shape: a design can be verified end to end and still
+guarantee the next bug.
+
 ---
 
 ## Architecture
