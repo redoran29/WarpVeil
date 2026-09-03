@@ -1,5 +1,6 @@
 import SwiftUI
 import Network
+import os
 
 struct ServersView: View {
     var pm: ProcessManager
@@ -329,14 +330,16 @@ struct ServersView: View {
         return await withCheckedContinuation { continuation in
             let connection = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: .tcp)
             let start = CFAbsoluteTimeGetCurrent()
-            let resumed = NSLock()
-            var didResume = false
 
+            // .ready, .failed and the 3s timeout all race to finish the ping.
+            // The continuation must be resumed exactly once, so the first caller wins.
+            let resumed = OSAllocatedUnfairLock(initialState: false)
             let complete: @Sendable (Int?) -> Void = { value in
-                resumed.lock()
-                guard !didResume else { resumed.unlock(); return }
-                didResume = true
-                resumed.unlock()
+                let alreadyResumed = resumed.withLock { done -> Bool in
+                    defer { done = true }
+                    return done
+                }
+                guard !alreadyResumed else { return }
                 connection.cancel()
                 continuation.resume(returning: value)
             }

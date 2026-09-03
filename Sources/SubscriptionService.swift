@@ -444,7 +444,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
     private func buildXrayConfig(protocol proto: String, uuid: String, host: String, port: Int, params: [String: String], tag: String) -> String {
         let transportType = params["type"] ?? "tcp"
 
-        var vnext: [String: Any] = [
+        let vnext: [String: Any] = [
             "address": host,
             "port": port,
             "users": [
