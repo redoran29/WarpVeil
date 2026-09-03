@@ -13,8 +13,7 @@ struct Server: Codable, Identifiable {
     var name: String
     var protocolType: String
     var address: String
-    // Optional only so files written before it existed still decode; load() fills it in.
-    var transport: String?
+    var transport: String
     var config: String
     var engine: Engine?
 
@@ -22,12 +21,12 @@ struct Server: Codable, Identifiable {
     // stored matches any: the field is younger than the file.
     func isSameNode(as other: Server) -> Bool {
         protocolType == other.protocolType && address == other.address && name == other.name
-            && (transport == nil || other.transport == nil || transport == other.transport)
+            && (transport.isEmpty || other.transport.isEmpty || transport == other.transport)
     }
 }
 
-// Files from builds up to 1.2 carry an id per server; later builds wrote none. Declared in an
-// extension so the memberwise init the parsers use survives.
+// Files from builds up to 1.2 carry an id per server and no transport; later builds wrote the
+// reverse. Declared in an extension so the memberwise init the parsers use survives.
 extension Server {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -35,7 +34,7 @@ extension Server {
         name = try c.decode(String.self, forKey: .name)
         protocolType = try c.decode(String.self, forKey: .protocolType)
         address = try c.decode(String.self, forKey: .address)
-        transport = try c.decodeIfPresent(String.self, forKey: .transport)
+        transport = try c.decodeIfPresent(String.self, forKey: .transport) ?? ""
         config = try c.decode(String.self, forKey: .config)
         engine = try c.decodeIfPresent(Engine.self, forKey: .engine)
     }

@@ -154,8 +154,8 @@ private struct ServerRowView: View {
 
     private var protocolLabel: String {
         let proto = server.protocolType.uppercased()
-        guard let transport = server.transport, !transport.isEmpty, transport != "tcp" else { return proto }
-        return "\(proto) \u{00B7} \(transport.uppercased())"
+        guard !server.transport.isEmpty, server.transport != "tcp" else { return proto }
+        return "\(proto) \u{00B7} \(server.transport.uppercased())"
     }
 
     private static let flagPatterns: [(String, String)] = [
