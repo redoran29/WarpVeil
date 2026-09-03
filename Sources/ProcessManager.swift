@@ -136,8 +136,18 @@ final class ProcessManager {
 
     // MARK: - Passwordless mode
 
-    var isPasswordless = FileManager.default.fileExists(atPath: sudoersFile)
+    var isPasswordless = ProcessManager.passwordlessInstalled()
     var isPasswordlessBusy = false
+
+    // Passwordless is on only while the installed scripts are the ones this build would install.
+    // Only an explicit install writes to /usr/local/libexec, so after a script change an existing
+    // install would keep running the old run.sh indefinitely; instead it reads as off, the log
+    // says why, and the toggle re-installs.
+    private static func passwordlessInstalled() -> Bool {
+        FileManager.default.fileExists(atPath: sudoersFile)
+            && (try? String(contentsOfFile: runScriptPath, encoding: .utf8)) == runShContent
+            && (try? String(contentsOfFile: stopScriptPath, encoding: .utf8)) == stopShContent
+    }
 
     func installPasswordless() {
         guard !isPasswordlessBusy else { return }
@@ -241,12 +251,15 @@ final class ProcessManager {
     // Called on both success and failure of install/remove — reconciles isPasswordless
     // with the actual filesystem state (in case optimistic flip was wrong) and clears busy.
     private func passwordlessOperationFinished() {
-        isPasswordless = FileManager.default.fileExists(atPath: Self.sudoersFile)
+        isPasswordless = Self.passwordlessInstalled()
         isPasswordlessBusy = false
     }
 
     init() {
         Self.cleanupStalePidFiles()
+        if FileManager.default.fileExists(atPath: Self.sudoersFile), !isPasswordless {
+            logs.append("[Passwordless scripts are from an older build — turn Passwordless on again in Advanced]")
+        }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
