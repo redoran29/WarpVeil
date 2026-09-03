@@ -132,8 +132,8 @@ final class PingService {
             URLQueryItem(name: "url", value: Self.testURL),
             URLQueryItem(name: "timeout", value: String(Self.timeoutMilliseconds))
         ]
-        // No answer at all means the engine is gone — a cancel, or run.sh's pkill on connect —
-        // and the row goes back to unmeasured rather than to a failure it did not have.
+        // No answer at all means the engine is gone — the run was cancelled — and the row goes
+        // back to unmeasured rather than to a failure it did not have.
         guard let (data, status) = await api("/proxies/\(tag)/delay", query: query, apiPort: apiPort) else {
             return nil
         }

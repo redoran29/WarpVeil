@@ -32,9 +32,29 @@ final class ProcessManager {
     private static let stopScriptPath = "/usr/local/libexec/warpveil-\(versionTag)/stop.sh"
     private static let sudoersFile = "/etc/sudoers.d/warpveil-\(versionTag)"
 
-    // PID files so stop.sh can kill exact processes without pkill -f
+    // PID files: run.sh and stop.sh kill exactly our engines, nothing else on the machine
     private static let singboxPidFile = "/tmp/warpveil-\(versionTag)-singbox.pid"
     private static let xrayPidFile = "/tmp/warpveil-\(versionTag)-xray.pid"
+
+    // Shared by run.sh, stop.sh and the osascript fallbacks. Kills only a process the PID file
+    // names whose executable is the given engine, then waits for it to be gone — up to 5 s — so
+    // the next sing-box never races the old one for the TUN. A stale or foreign PID is dropped.
+    private static let killPidFileFunction = """
+        kill_pid_file() {
+            local f="$1" name="$2" pid
+            [[ -f "$f" ]] || return 0
+            pid=$(cat "$f" 2>/dev/null || true)
+            [[ "$pid" =~ ^[0-9]+$ ]] || { rm -f "$f"; return 0; }
+            if [[ "$(ps -o comm= -p "$pid" 2>/dev/null)" == *"$name" ]]; then
+                kill "$pid" 2>/dev/null || true
+                for _ in $(seq 1 50); do
+                    kill -0 "$pid" 2>/dev/null || break
+                    sleep 0.1
+                done
+            fi
+            rm -f "$f"
+        }
+        """
 
     // run.sh: validates argv, launches VPN processes, writes PID files
     // argv: run.sh <singbox_path> <singbox_config> [<xray_path> <xray_config>]
@@ -59,9 +79,10 @@ final class ProcessManager {
         validate_arg "$SINGBOX"
         validate_arg "$SINGBOX_CFG"
 
-        pkill -f 'sing-box run' 2>/dev/null || true
-        pkill -f 'xray run' 2>/dev/null || true
-        sleep 1
+        \(killPidFileFunction)
+
+        kill_pid_file \(singboxPidFile) sing-box
+        kill_pid_file \(xrayPidFile) xray
 
         if [[ $# -eq 4 ]]; then
             XRAY="$3"; XRAY_CFG="$4"
@@ -114,17 +135,9 @@ final class ProcessManager {
     // stop.sh: reads PID files and kills only our processes
     private static let stopShContent: String = """
         #!/bin/bash
-        kill_pid_file() {
-            local f="$1"
-            [[ -f "$f" ]] || return 0
-            local pid
-            pid=$(cat "$f" 2>/dev/null)
-            [[ "$pid" =~ ^[0-9]+$ ]] || { rm -f "$f"; return 0; }
-            kill "$pid" 2>/dev/null || true
-            rm -f "$f"
-        }
-        kill_pid_file \(singboxPidFile)
-        kill_pid_file \(xrayPidFile)
+        \(killPidFileFunction)
+        kill_pid_file \(singboxPidFile) sing-box
+        kill_pid_file \(xrayPidFile) xray
         """
 
     private var lastConnection: (config: String, engine: Engine,
@@ -256,7 +269,6 @@ final class ProcessManager {
     }
 
     init() {
-        Self.cleanupStalePidFiles()
         if FileManager.default.fileExists(atPath: Self.sudoersFile), !isPasswordless {
             logs.append("[Passwordless scripts are from an older build — turn Passwordless on again in Advanced]")
         }
@@ -273,19 +285,6 @@ final class ProcessManager {
                     self?.disconnect()
                 }
             }
-        }
-    }
-
-    // Clear PID markers from previous sessions (graceful exit cleans them via stop.sh;
-    // crash does not). Covers current versioned paths plus legacy v1.0 unversioned paths.
-    private static func cleanupStalePidFiles() {
-        let paths = [
-            singboxPidFile, xrayPidFile,
-            "/tmp/warpveil-singbox.pid",
-            "/tmp/warpveil-xray.pid"
-        ]
-        for path in paths {
-            try? FileManager.default.removeItem(atPath: path)
         }
     }
 
@@ -404,7 +403,9 @@ final class ProcessManager {
     // replicate the essential logic inline here for the password-prompt flow.
     private func buildNonPrivilegedShellCommand(engine: Engine, binaryPath: String, singBoxPath: String, configFile: String) -> String {
         var cmds = ["cd /tmp", "exec > \(Self.shellEscape(logFile)) 2>&1"]
-        cmds.append("pkill -f 'sing-box run' 2>/dev/null; pkill -f 'xray run' 2>/dev/null; sleep 1")
+        cmds.append(Self.killPidFileFunction)
+        cmds.append("kill_pid_file \(Self.shellEscape(Self.singboxPidFile)) sing-box")
+        cmds.append("kill_pid_file \(Self.shellEscape(Self.xrayPidFile)) xray")
 
         if engine == .xray {
             cmds.append("echo '[xray] starting...'")
@@ -594,11 +595,11 @@ final class ProcessManager {
                 logs.append("[Error: failed to run stop script: \(error.localizedDescription)]")
             }
         } else {
-            // Read PID files and kill by PID — avoid pkill -f which can match unrelated processes
+            // The helper stop.sh carries, inline: the libexec copy exists only in passwordless mode.
             let cmd = """
-                kill_pid() { local f="$1"; [ -f "$f" ] || return; local p; p=$(cat "$f"); [ "$p" -eq "$p" ] 2>/dev/null && kill "$p" 2>/dev/null; rm -f "$f"; }
-                kill_pid \(Self.shellEscape(Self.singboxPidFile))
-                kill_pid \(Self.shellEscape(Self.xrayPidFile))
+                \(Self.killPidFileFunction)
+                kill_pid_file \(Self.shellEscape(Self.singboxPidFile)) sing-box
+                kill_pid_file \(Self.shellEscape(Self.xrayPidFile)) xray
                 """
             let kill = Process()
             kill.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
