@@ -40,7 +40,9 @@ struct ContentView: View {
             ConnectionView(app: app)
                 .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 400)
         }
-        .frame(minHeight: 480)
+        // The expanded rail must not squeeze the other columns below their minimums: AppKit
+        // applies a new contentMinSize to future resizing only, never to the current frame.
+        .frame(minWidth: 180 + 300 + 300, minHeight: 480)
     }
 
     @ViewBuilder
@@ -61,9 +63,10 @@ private struct SidebarRail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Button {
-                withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() }
+                isExpanded.toggle()
             } label: {
                 Image(systemName: isExpanded ? "arrow.left" : "arrow.right")
+                    .accessibilityLabel(isExpanded ? "Collapse sidebar" : "Expand sidebar")
                     .font(.system(size: 15))
                     .frame(width: 24, height: 34)
                     .padding(.leading, 16)
@@ -105,6 +108,9 @@ private struct SidebarRail: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(selection == page ? .primary : .secondary)
                 .help(page.rawValue)
+                // Collapsed, the row is a bare glyph: help() is a tooltip, not a label.
+                .accessibilityLabel(page.rawValue)
+                .accessibilityAddTraits(selection == page ? [.isButton, .isSelected] : .isButton)
             }
 
             Spacer()

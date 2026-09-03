@@ -82,9 +82,12 @@ abstractions": five pages cannot each carry six service parameters, and the boot
 run at launch rather than when some view happens to appear. User settings persist via
 `@AppStorage` (UserDefaults).
 
-`AppState` reads a few `@AppStorage` keys straight from `UserDefaults`, which `@Observable`
-does not track. That is safe only because the view that edits a key holds the matching
-`@AppStorage` and re-renders itself — keep the `@AppStorage` in the editing view.
+The selected server is an observable property on `AppState`, persisted on write. It used to be
+read straight from `UserDefaults`, which `@Observable` does not track — then every view that
+merely displayed the selection had to carry an `@AppStorage` for a key it never edited, just to
+be invalidated. The bypass keys still work that way, and it is safe only because `RoutingView`
+both edits them and holds the matching `@AppStorage`: keep that `@AppStorage` where the editing
+is, or make the value observable the way the selection is.
 
 `sing-box` and `xray` ship inside the `.app` at `Contents/Resources/` (arm64). They are
 committed to `Binaries/` and copied in by the Xcode "Bundle VPN Binaries" build phase.

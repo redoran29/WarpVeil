@@ -95,11 +95,6 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
     }
 
     func removeSubscription(_ id: UUID) {
-        let defaults = UserDefaults.standard
-        let selected = defaults.string(forKey: "selectedServerID") ?? ""
-        if subscriptions.first(where: { $0.id == id })?.servers.contains(where: { $0.id == selected }) == true {
-            defaults.removeObject(forKey: "selectedServerID")
-        }
         subscriptions.removeAll { $0.id == id }
         save()
     }

@@ -15,19 +15,27 @@ final class AppState {
 
     var connectedAt: Date?
 
+    // Observable, unlike the @AppStorage-mirrored keys below: two columns show the selection and
+    // only one writes it, and a reader had to carry a phantom @AppStorage for a key it never
+    // edited just to be invalidated. Persisted on write.
+    var selectedServerID: String {
+        didSet { defaults.set(selectedServerID, forKey: "selectedServerID") }
+    }
+
     private var locationTimer: Timer?
     private var locationTask: Task<Void, Never>?
     private let defaults = UserDefaults.standard
 
     init() {
+        selectedServerID = defaults.string(forKey: "selectedServerID") ?? ""
         observeReconnects()
     }
 
     // MARK: - Settings
     //
-    // These read UserDefaults directly, which @Observable does not track. That is only safe
-    // because the view editing a key holds the matching @AppStorage and re-renders itself,
-    // reading AppState fresh on that render. Keep the @AppStorage in the editing view.
+    // bypassDomains reads UserDefaults directly, which @Observable does not track. That is only
+    // safe because RoutingView both edits the key and holds the matching @AppStorage, so it
+    // re-renders itself and reads AppState fresh. Keep that @AppStorage where the editing is.
 
     var selectedServer: Server? {
         subs.subscriptions.lazy.flatMap(\.servers).first { $0.id == selectedServerID }
@@ -38,10 +46,6 @@ final class AppState {
             .split(separator: "\n")
             .map { String($0).trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-    }
-
-    private var selectedServerID: String {
-        defaults.string(forKey: "selectedServerID") ?? ""
     }
 
     private var selectedSubscription: Subscription? {
@@ -93,6 +97,14 @@ final class AppState {
         locationTimer = nil
         locationTask?.cancel()
         locationTask = redetectLocation()
+    }
+
+    func removeSubscription(_ id: UUID) {
+        if subs.subscriptions.first(where: { $0.id == id })?
+            .servers.contains(where: { $0.id == selectedServerID }) == true {
+            selectedServerID = ""
+        }
+        subs.removeSubscription(id)
     }
 
     func routingChanged() {
