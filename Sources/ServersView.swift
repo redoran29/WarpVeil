@@ -47,8 +47,7 @@ struct ServersView: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.indigo)
                         .buttonStyle(.plain)
-                        .disabled(app.pm.isRunning)
-                        .help(app.pm.isRunning ? "Disconnect to measure" : "Measure every server")
+                        .help("Measure every server")
                 }
                 Button("+ Add") { showAddSheet = true }
                     .font(.system(size: 13, weight: .medium))

@@ -76,8 +76,6 @@ final class AppState {
             connect()
         }
 
-        // Last, so a page watching this flag sees the connect above already reflected in
-        // pm.isRunning and does not start a ping the tunnel would invalidate.
         isBootstrapped = true
     }
 
@@ -116,9 +114,8 @@ final class AppState {
         subs.removeSubscription(id)
     }
 
-    // Through the tunnel the probe would measure tunnel + proxy, not the proxy.
     func pingAll() {
-        guard isBootstrapped, !pm.isRunning else { return }
+        guard isBootstrapped else { return }
         ping.start(subs.subscriptions.flatMap { sub in
             sub.servers.map { (server: $0, engine: $0.engine ?? sub.engine) }
         })
