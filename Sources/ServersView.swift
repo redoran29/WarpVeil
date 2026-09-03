@@ -306,16 +306,30 @@ private struct AddSubscriptionSheet: View {
         guard canSubmit else { return }
 
         if isManual {
-            message = subs.addManualConfig(name: manualName, json: manualJSON)
+            message = subs.addManualConfig(name: manualName, json: manualJSON).message
             if message == nil { dismiss() }
         } else {
             message = nil
             isLoading = true
             Task {
-                message = await subs.addFromURL(url)
+                message = await subs.addFromURL(url).message
                 isLoading = false
                 if message == nil { dismiss() }
             }
+        }
+    }
+}
+
+private extension AddResult {
+    var message: String? {
+        switch self {
+        case .added: nil
+        case .emptyInput: "Enter a link or a subscription URL"
+        case .unparsableLink: "Could not parse this link"
+        case .duplicateServer: "This server is already in the list"
+        case .refreshing(let name): "Already added — \(name) is refreshing now"
+        case .emptyFeed: "Could not load a subscription from this link"
+        case .invalidJSON: "This is not valid JSON"
         }
     }
 }

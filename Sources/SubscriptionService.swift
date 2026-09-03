@@ -1,5 +1,16 @@
 import Foundation
 
+// What an add reports back. The wording lives in the sheet, with the rest of the UI copy.
+enum AddResult {
+    case added
+    case emptyInput
+    case unparsableLink
+    case duplicateServer
+    case refreshing(String)
+    case emptyFeed
+    case invalidJSON
+}
+
 @Observable
 @MainActor
 final class SubscriptionService: NSObject, URLSessionDelegate {
@@ -125,35 +136,32 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
 
     // MARK: - Fetch & Parse
 
-    // Returns what to tell the user when nothing was added; nil means it was.
-    func addFromURL(_ urlString: String) async -> String? {
+    func addFromURL(_ urlString: String) async -> AddResult {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "Enter a link or a subscription URL" }
+        guard !trimmed.isEmpty else { return .emptyInput }
 
         // Direct vless:// or vmess:// URI — add as single server immediately
         if trimmed.hasPrefix("vless://") || trimmed.hasPrefix("vmess://") {
             guard let server = parseVlessURI(trimmed) ?? parseVmessURI(trimmed) else {
-                return "Could not parse this link"
+                return .unparsableLink
             }
             guard !subscriptions.contains(where: { $0.servers.contains { $0.id == server.id } }) else {
-                return "This server is already in the list"
+                return .duplicateServer
             }
             var sub = Subscription(name: server.name, isManual: true, engine: .singBox)
             sub.servers = [server]
             sub.lastUpdated = Date()
             subscriptions.append(sub)
             save()
-            return nil
+            return .added
         }
 
         // Re-adding a known feed means "update it", not "add a second copy". Not awaited: a
         // refresh can take up to 45s and the sheet would sit frozen for it.
+        // A refresh already in flight makes the Task a no-op, and the outcome reads the same.
         if let existing = subscriptions.first(where: { $0.url == trimmed }) {
-            guard !refreshingIDs.contains(existing.id) else {
-                return "Already added — \(existing.name) is refreshing now"
-            }
             Task { await refreshSubscription(existing.id) }
-            return "Already added — refreshing \(existing.name)"
+            return .refreshing(existing.name)
         }
 
         let name = URLComponents(string: trimmed)?.host ?? "Subscription"
@@ -164,9 +172,9 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
 
         if subscriptions.first(where: { $0.id == sub.id })?.servers.isEmpty ?? false {
             removeSubscription(sub.id)
-            return "Could not load a subscription from this link"
+            return .emptyFeed
         }
-        return nil
+        return .added
     }
 
     func refreshSubscription(_ id: UUID) async {
@@ -744,11 +752,10 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
 
     // MARK: - Manual config
 
-    @discardableResult
-    func addManualConfig(name: String, json: String) -> String? {
+    func addManualConfig(name: String, json: String) -> AddResult {
         guard let data = json.data(using: .utf8),
               (try? JSONSerialization.jsonObject(with: data)) != nil
-        else { return "This is not valid JSON" }
+        else { return .invalidJSON }
 
         var sub = Subscription(name: name, isManual: true, engine: .singBox)
 
@@ -768,7 +775,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         sub.lastUpdated = Date()
         subscriptions.append(sub)
         save()
-        return nil
+        return .added
     }
 
     // MARK: - Helpers
