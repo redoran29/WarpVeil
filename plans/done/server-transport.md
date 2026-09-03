@@ -1,6 +1,6 @@
 # Server transport: tell ws from grpc, keep UI copy in the view
 
-Status: plan, not yet implemented. Written against commit `4da5436` (clean tree; the `gitStatus`
+Status: implemented. Written against commit `4da5436` (clean tree; the `gitStatus`
 snapshot handed to the planning agent named files that do not exist and was ignored).
 
 Two code-review findings on the server identity work (`plans/done/server-identity.md`). Out of
