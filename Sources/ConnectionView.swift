@@ -7,10 +7,6 @@ struct ConnectionView: View {
 
     private let lavender = Color(red: 0.62, green: 0.56, blue: 0.85)
 
-    private var allServers: [Server] {
-        app.subs.subscriptions.flatMap(\.servers)
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             powerButton
@@ -29,10 +25,14 @@ struct ConnectionView: View {
             locationSection
                 .padding(.bottom, 20)
 
-            serverPicker
-                .padding(.horizontal, 20)
-                .padding(.bottom, 24)
+            Divider()
+
+            ScrollView {
+                ServersView(app: app, selectedServerID: $selectedServerID)
+                    .padding(.vertical, 12)
+            }
         }
+        .frame(maxHeight: 700)
     }
 
     // MARK: - Power Button
@@ -60,6 +60,7 @@ struct ConnectionView: View {
             }
         }
         .buttonStyle(.plain)
+        .disabled(!app.pm.isRunning && app.selectedServer == nil)
     }
 
     // MARK: - Status
@@ -87,24 +88,6 @@ struct ConnectionView: View {
             Text(app.loc.location)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-        }
-    }
-
-    // MARK: - Server
-
-    @ViewBuilder
-    private var serverPicker: some View {
-        if allServers.isEmpty {
-            Text("No servers — add one on the Servers page")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-        } else {
-            Picker("Server", selection: $selectedServerID) {
-                ForEach(allServers) { server in
-                    Text(server.name).tag(server.id)
-                }
-            }
-            .pickerStyle(.menu)
         }
     }
 

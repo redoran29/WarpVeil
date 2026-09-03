@@ -5,7 +5,7 @@ import os
 struct ServersView: View {
     var app: AppState
 
-    @AppStorage("selectedServerID") private var selectedServerID = ""
+    @Binding var selectedServerID: String
     @State private var showAddSheet = false
     @State private var subscriptionToDelete: Subscription?
     @State private var pings: [String: Int] = [:]
@@ -15,11 +15,7 @@ struct ServersView: View {
     }
 
     var body: some View {
-        ScrollView {
-            serverListSection
-                .padding(.vertical, 12)
-        }
-        .frame(maxHeight: 560)
+        serverListSection
         .sheet(isPresented: $showAddSheet) {
             AddSubscriptionSheet(subs: app.subs)
         }
