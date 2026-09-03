@@ -24,16 +24,12 @@ struct ContentView: View {
     var app: AppState
 
     @State private var page: Page = .servers
+    @AppStorage("sidebarExpanded") private var sidebarExpanded = false
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $page) {
-                ForEach(Page.allCases, id: \.self) { page in
-                    Label(page.rawValue, systemImage: page.icon).tag(page)
-                }
-            }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 150, ideal: 180, max: 220)
+            SidebarRail(selection: $page, isExpanded: $sidebarExpanded)
+                .navigationSplitViewColumnWidth(sidebarExpanded ? 180 : 60)
         } content: {
             pageView
                 .navigationSplitViewColumnWidth(min: 300, ideal: 380)
@@ -41,6 +37,9 @@ struct ContentView: View {
             ConnectionView(app: app)
                 .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 400)
         }
+        // The rail carries its own expand control; the built-in one would be a second,
+        // differently-behaving toggle next to it.
+        .toolbar(removing: .sidebarToggle)
         .frame(minHeight: 480)
     }
 
@@ -52,5 +51,65 @@ struct ContentView: View {
         case .advanced: AdvancedView(app: app)
         case .logs: LogView(app: app)
         }
+    }
+}
+
+private struct SidebarRail: View {
+    @Binding var selection: Page
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() }
+            } label: {
+                Image(systemName: isExpanded ? "arrow.left" : "arrow.right")
+                    .font(.system(size: 15))
+                    .frame(width: 24, height: 34)
+                    .padding(.leading, 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .padding(.bottom, 10)
+
+            ForEach(Page.allCases, id: \.self) { page in
+                Button {
+                    selection = page
+                } label: {
+                    HStack(spacing: 0) {
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(selection == page ? Color.lavender : .clear)
+                            .frame(width: 3, height: 20)
+
+                        HStack(spacing: 10) {
+                            Image(systemName: page.icon)
+                                .font(.system(size: 15))
+                                .frame(width: 24)
+                            if isExpanded {
+                                Text(page.rawValue).font(.system(size: 13))
+                                Spacer(minLength: 0)
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        .frame(height: 34)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(selection == page ? Color.secondary.opacity(0.14) : .clear)
+                        )
+                        .padding(.leading, 5)
+                        .padding(.trailing, 8)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(selection == page ? .primary : .secondary)
+                .help(page.rawValue)
+            }
+
+            Spacer()
+        }
+        .padding(.top, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
