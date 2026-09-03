@@ -17,8 +17,7 @@ final class AppState {
     var connectedAt: Date?
 
     // Servers load synchronously in SubscriptionService.init, so the Servers page appears with a
-    // stale set. Pinging it would measure ids that refreshAll is about to replace, and under
-    // auto-connect the run would be killed seconds later for nothing.
+    // stale set. Pinging it would measure ids that refreshAll is about to replace.
     private(set) var isBootstrapped = false
 
     // Observable, unlike the @AppStorage-mirrored keys below: two columns show the selection and
@@ -87,9 +86,6 @@ final class AppState {
             pm.logs.append("[Error: no server selected]")
             return
         }
-
-        // run.sh opens with pkill -f 'sing-box run', which would take a ping's engines with it.
-        ping.cancel()
 
         let engine = server.engine ?? sub.engine
         pm.connect(
