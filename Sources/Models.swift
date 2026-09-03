@@ -18,6 +18,9 @@ struct Server: Codable, Identifiable {
     // each time would drop the user's selection on every launch. The transport is part of it
     // because a feed can list one node under one name and address over ws and again over grpc.
     var id: String { "\(protocolType)|\(address)|\(transport ?? "")|\(name)" }
+
+    // The shape stored before the transport joined the id; read only by the migration.
+    var legacyID: String { "\(protocolType)|\(address)|\(name)" }
 }
 
 struct Subscription: Codable, Identifiable {
