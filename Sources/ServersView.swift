@@ -7,6 +7,7 @@ struct ServersView: View {
 
     @AppStorage("selectedServerID") private var selectedServerID = ""
     @State private var showAddSheet = false
+    @State private var subscriptionToDelete: Subscription?
     @State private var pings: [String: Int] = [:]
 
     private var allServers: [Server] {
@@ -21,6 +22,16 @@ struct ServersView: View {
         .frame(maxHeight: 560)
         .sheet(isPresented: $showAddSheet) {
             AddSubscriptionSheet(subs: app.subs)
+        }
+        .confirmationDialog(
+            "Delete \(subscriptionToDelete?.name ?? "")?",
+            isPresented: Binding(
+                get: { subscriptionToDelete != nil },
+                set: { if !$0 { subscriptionToDelete = nil } }
+            ),
+            presenting: subscriptionToDelete
+        ) { sub in
+            Button("Delete", role: .destructive) { app.subs.removeSubscription(sub.id) }
         }
         .task {
             await measurePings()
@@ -45,7 +56,7 @@ struct ServersView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 8)
 
-            if allServers.isEmpty {
+            if app.subs.subscriptions.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "server.rack")
                         .font(.system(size: 28))
@@ -62,31 +73,68 @@ struct ServersView: View {
                 .padding(.vertical, 32)
             } else {
                 VStack(spacing: 2) {
-                    ForEach(allServers) { server in
-                        ServerRowView(
-                            server: server,
-                            isSelected: selectedServerID == server.id,
-                            ping: pings[server.id]
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture { selectedServerID = server.id }
-                        .contextMenu {
-                            if let sub = subscriptionFor(server) {
-                                if !sub.isManual {
-                                    Button("Refresh subscription") {
-                                        Task { await app.subs.refreshSubscription(sub.id) }
-                                    }
-                                }
-                                Button("Delete subscription", role: .destructive) {
-                                    app.subs.removeSubscription(sub.id)
-                                }
-                            }
+                    ForEach(app.subs.subscriptions) { sub in
+                        subscriptionHeader(sub)
+
+                        ForEach(sub.servers) { server in
+                            ServerRowView(
+                                server: server,
+                                isSelected: selectedServerID == server.id,
+                                ping: pings[server.id]
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture { selectedServerID = server.id }
                         }
                     }
                 }
                 .padding(.horizontal, 12)
             }
         }
+    }
+
+    private func subscriptionHeader(_ sub: Subscription) -> some View {
+        HStack(spacing: 6) {
+            Text(sub.name)
+                .font(.system(size: 12, weight: .semibold))
+                .lineLimit(1)
+
+            // A manual subscription's lastUpdated is the moment it was added, which
+            // "updated N ago" would misdescribe, and it has nothing to refresh from.
+            if !sub.isManual, let updated = sub.lastUpdated {
+                Text(updated.formatted(.relative(presentation: .named)))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if !sub.isManual {
+                if app.subs.refreshingIDs.contains(sub.id) {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button {
+                        Task { await app.subs.refreshSubscription(sub.id) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise").font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Refresh subscription")
+                }
+            }
+
+            Button {
+                subscriptionToDelete = sub
+            } label: {
+                Image(systemName: "trash").font(.system(size: 11))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Delete subscription")
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 14)
+        .padding(.bottom, 6)
     }
 
     // MARK: - Ping
@@ -140,11 +188,6 @@ struct ServersView: View {
         }
     }
 
-    private func subscriptionFor(_ server: Server) -> Subscription? {
-        app.subs.subscriptions.first { sub in
-            sub.servers.contains { $0.id == server.id }
-        }
-    }
 }
 
 // MARK: - Server Row
