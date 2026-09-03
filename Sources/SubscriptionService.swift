@@ -133,10 +133,16 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         }
     }
 
+    // A feed can list the same node twice; the derived Server.id has to stay unique for ForEach.
+    private func uniqueByID(_ servers: [Server]) -> [Server] {
+        var seen = Set<String>()
+        return servers.filter { seen.insert($0.id).inserted }
+    }
+
     private func store(_ servers: [Server], engine: Engine, in id: UUID) {
         guard let idx = subscriptions.firstIndex(where: { $0.id == id }) else { return }
         subscriptions[idx].engine = engine
-        subscriptions[idx].servers = servers
+        subscriptions[idx].servers = uniqueByID(servers)
         subscriptions[idx].lastUpdated = Date()
         save()
     }
@@ -683,6 +689,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             sub.servers = [Server(name: name, protocolType: "custom", address: "—", config: json)]
         }
 
+        sub.servers = uniqueByID(sub.servers)
         sub.lastUpdated = Date()
         subscriptions.append(sub)
         save()
