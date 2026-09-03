@@ -16,7 +16,6 @@
 		AA0000000000000000000007 /* BypassService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000007 /* BypassService.swift */; };
 		AA0000000000000000000008 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000010 /* Models.swift */; };
 		AA000000000000000000000B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000013 /* SettingsView.swift */; };
-		AA000000000000000000000D /* StatusIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000015 /* StatusIndicator.swift */; };
 		AA000000000000000000000E /* SubscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000016 /* SubscriptionService.swift */; };
 		AA000000000000000000000F /* ServersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000017 /* ServersView.swift */; };
 		AA0000000000000000000020 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000020 /* AppIcon.icns */; };
@@ -35,7 +34,6 @@
 		DD0000000000000000000001 /* WarpVeil.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WarpVeil.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB0000000000000000000010 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		BB0000000000000000000013 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		BB0000000000000000000015 /* StatusIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusIndicator.swift; sourceTree = "<group>"; };
 		BB0000000000000000000016 /* SubscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionService.swift; sourceTree = "<group>"; };
 		BB0000000000000000000017 /* ServersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServersView.swift; sourceTree = "<group>"; };
 		BB0000000000000000000020 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
@@ -71,7 +69,6 @@
 				BB0000000000000000000003 /* ProcessManager.swift */,
 				BB0000000000000000000010 /* Models.swift */,
 				BB0000000000000000000013 /* SettingsView.swift */,
-				BB0000000000000000000015 /* StatusIndicator.swift */,
 				BB0000000000000000000004 /* SetupService.swift */,
 				BB0000000000000000000005 /* LocationService.swift */,
 				BB0000000000000000000006 /* NetworkMonitor.swift */,
@@ -184,7 +181,6 @@
 			files = (
 				AA0000000000000000000008 /* Models.swift in Sources */,
 				AA000000000000000000000B /* SettingsView.swift in Sources */,
-				AA000000000000000000000D /* StatusIndicator.swift in Sources */,
 				AA0000000000000000000001 /* WarpVeilApp.swift in Sources */,
 				AA0000000000000000000002 /* ContentView.swift in Sources */,
 				AA0000000000000000000003 /* ProcessManager.swift in Sources */,

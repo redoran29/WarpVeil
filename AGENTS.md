@@ -13,11 +13,10 @@ Sources/
 ├── ContentView.swift        # Root container — segmented picker, tab routing, connect/disconnect
 ├── ServersView.swift        # Two-column server list with subscription management
 ├── SettingsView.swift       # Toggles, domain bypass, components info, quit
-├── StatusIndicator.swift    # Reusable pulse animation indicator
 ├── ProcessManager.swift     # VPN process lifecycle, sudo/passwordless, log tailing, sleep/wake
 ├── SetupService.swift       # Bundled-binary detection & version reporting
 ├── LocationService.swift    # Public IP & geolocation via ipwho.is (HTTPS)
-├── NetworkMonitor.swift     # Real-time upload/download speed + 60s history ring buffer
+├── NetworkMonitor.swift     # Real-time upload/download speed
 └── BypassService.swift      # JSON config injection for domain bypass routing
 ```
 

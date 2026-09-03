@@ -3,18 +3,13 @@ import Darwin
 
 @Observable
 final class NetworkMonitor {
-    var uploadSpeed: String = ""
-    var downloadSpeed: String = ""
     var downloadBPS: Double = 0
     var uploadBPS: Double = 0
     var hasTraffic = false
-    var downloadHistory: [Double] = Array(repeating: 0, count: 60)
-    var uploadHistory: [Double] = Array(repeating: 0, count: 60)
 
     private var timer: Timer?
     private var lastIn: UInt64 = 0
     private var lastOut: UInt64 = 0
-    private var historyIndex = 0
 
     deinit {
         timer?.invalidate()
@@ -22,7 +17,6 @@ final class NetworkMonitor {
 
     func start() {
         (lastIn, lastOut) = Self.readBytes()
-        historyIndex = 0
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             self?.tick()
         }
@@ -31,14 +25,9 @@ final class NetworkMonitor {
     func stop() {
         timer?.invalidate()
         timer = nil
-        uploadSpeed = ""
-        downloadSpeed = ""
         downloadBPS = 0
         uploadBPS = 0
         hasTraffic = false
-        downloadHistory = Array(repeating: 0, count: 60)
-        uploadHistory = Array(repeating: 0, count: 60)
-        historyIndex = 0
     }
 
     private func tick() {
@@ -50,19 +39,10 @@ final class NetworkMonitor {
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            downloadSpeed = Self.format(dIn)
-            uploadSpeed = Self.format(dOut)
             downloadBPS = Double(dIn)
             uploadBPS = Double(dOut)
             hasTraffic = dIn > 1024 || dOut > 1024
-            downloadHistory[historyIndex] = Double(dIn)
-            uploadHistory[historyIndex] = Double(dOut)
-            historyIndex = (historyIndex + 1) % 60
         }
-    }
-
-    private static func format(_ bytes: UInt64) -> String {
-        String(format: "%05.2f MB/s", Double(bytes) / 1_048_576)
     }
 
     static func formatSplit(_ bps: Double) -> (String, String) {
