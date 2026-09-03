@@ -19,8 +19,6 @@ enum DependencyStatus: Equatable {
 final class SetupService {
     var statuses: [Dependency: DependencyStatus] = [:]
     var versions: [Dependency: String] = [:]
-    var singBoxPath: String?
-    var xrayPath: String?
 
     func checkAll() {
         for dep in Dependency.allCases {
@@ -29,11 +27,9 @@ final class SetupService {
 
         Task {
             let sb = await Task.detached { ProcessManager.findBinary("sing-box") }.value
-            singBoxPath = sb
             statuses[.singBox] = sb.map { .installed($0) } ?? .missing
 
             let xr = await Task.detached { ProcessManager.findBinary("xray") }.value
-            xrayPath = xr
             statuses[.xray] = xr.map { .installed($0) } ?? .missing
 
             if let sb {

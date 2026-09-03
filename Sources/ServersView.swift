@@ -3,14 +3,7 @@ import Network
 import os
 
 struct ServersView: View {
-    var pm: ProcessManager
-    var loc: LocationService
-    var net: NetworkMonitor
-    var setup: SetupService
-    var subs: SubscriptionService
-    @Binding var connectedAt: Date?
-    var onConnect: () -> Void
-    var onDisconnect: () -> Void
+    var app: AppState
 
     @AppStorage("selectedServerID") private var selectedServerID = ""
     @State private var showAddSheet = false
@@ -18,11 +11,7 @@ struct ServersView: View {
     @State private var pings: [UUID: Int] = [:]
 
     private var allServers: [Server] {
-        subs.subscriptions.flatMap(\.servers)
-    }
-
-    var selectedServer: Server? {
-        allServers.first { $0.id.uuidString == selectedServerID }
+        app.subs.subscriptions.flatMap(\.servers)
     }
 
     var body: some View {
@@ -37,7 +26,7 @@ struct ServersView: View {
                         statusSection
                             .padding(.bottom, 16)
 
-                        if pm.isRunning {
+                        if app.pm.isRunning {
                             statsSection
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 20)
@@ -60,7 +49,7 @@ struct ServersView: View {
                 Color.black.opacity(0.15)
                     .ignoresSafeArea()
                     .onTapGesture { showAddSheet = false }
-                AddSubscriptionSheet(subs: subs, isPresented: $showAddSheet)
+                AddSubscriptionSheet(subs: app.subs, isPresented: $showAddSheet)
                     .frame(maxWidth: 340)
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
@@ -78,24 +67,24 @@ struct ServersView: View {
 
     private var powerButton: some View {
         Button {
-            if pm.isRunning { onDisconnect() } else { onConnect() }
+            if app.pm.isRunning { app.disconnect() } else { app.connect() }
         } label: {
             ZStack {
                 Circle()
-                    .fill(pm.isRunning ? lavender.opacity(0.12) : Color.secondary.opacity(0.05))
+                    .fill(app.pm.isRunning ? lavender.opacity(0.12) : Color.secondary.opacity(0.05))
                     .frame(width: 130, height: 130)
 
                 Circle()
-                    .fill(pm.isRunning ? lavender.opacity(0.2) : Color.secondary.opacity(0.08))
+                    .fill(app.pm.isRunning ? lavender.opacity(0.2) : Color.secondary.opacity(0.08))
                     .frame(width: 108, height: 108)
 
                 Circle()
-                    .stroke(pm.isRunning ? lavender.opacity(0.6) : Color.secondary.opacity(0.2), lineWidth: 1.5)
+                    .stroke(app.pm.isRunning ? lavender.opacity(0.6) : Color.secondary.opacity(0.2), lineWidth: 1.5)
                     .frame(width: 108, height: 108)
 
                 Image(systemName: "power")
                     .font(.system(size: 38, weight: .light))
-                    .foregroundStyle(pm.isRunning ? lavender : .secondary)
+                    .foregroundStyle(app.pm.isRunning ? lavender : .secondary)
             }
         }
         .buttonStyle(.plain)
@@ -105,11 +94,11 @@ struct ServersView: View {
 
     private var statusSection: some View {
         VStack(spacing: 4) {
-            Text(pm.isRunning ? "Connected" : "Disconnected")
+            Text(app.pm.isRunning ? "Connected" : "Disconnected")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(pm.isRunning ? .green : .secondary)
+                .foregroundStyle(app.pm.isRunning ? .green : .secondary)
 
-            if let connectedAt, pm.isRunning {
+            if let connectedAt = app.connectedAt, app.pm.isRunning {
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
                     Text(uptimeString(from: connectedAt))
                         .font(.system(size: 30, weight: .light, design: .monospaced))
@@ -123,8 +112,8 @@ struct ServersView: View {
 
     private var statsSection: some View {
         HStack(spacing: 12) {
-            statBox(label: "DOWNLOAD", icon: "arrow.down", bps: net.downloadBPS)
-            statBox(label: "UPLOAD", icon: "arrow.up", bps: net.uploadBPS)
+            statBox(label: "DOWNLOAD", icon: "arrow.down", bps: app.net.downloadBPS)
+            statBox(label: "UPLOAD", icon: "arrow.up", bps: app.net.uploadBPS)
         }
     }
 
@@ -208,11 +197,11 @@ struct ServersView: View {
                             if let sub = subscriptionFor(server) {
                                 if !sub.isManual {
                                     Button("Refresh subscription") {
-                                        Task { await subs.refreshSubscription(sub.id) }
+                                        Task { await app.subs.refreshSubscription(sub.id) }
                                     }
                                 }
                                 Button("Delete subscription", role: .destructive) {
-                                    subs.removeSubscription(sub.id)
+                                    app.subs.removeSubscription(sub.id)
                                 }
                             }
                         }
@@ -230,7 +219,7 @@ struct ServersView: View {
             HStack(spacing: 0) {
                 Text("IP:")
                     .foregroundStyle(.secondary)
-                Text(" \(loc.ip)")
+                Text(" \(app.loc.ip)")
             }
             .font(.system(size: 12, design: .monospaced))
 
@@ -262,7 +251,7 @@ struct ServersView: View {
                     .font(.system(size: 14, weight: .semibold))
                 Spacer()
                 Button {
-                    let text = pm.logs.joined(separator: "\n")
+                    let text = app.pm.logs.joined(separator: "\n")
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
                 } label: {
@@ -274,7 +263,7 @@ struct ServersView: View {
                 .help("Copy")
 
                 Button {
-                    pm.clearLogs()
+                    app.pm.clearLogs()
                 } label: {
                     Image(systemName: "trash")
                         .font(.system(size: 12))
@@ -297,7 +286,7 @@ struct ServersView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(pm.logs.reversed().enumerated()), id: \.offset) { _, line in
+                    ForEach(Array(app.pm.logs.reversed().enumerated()), id: \.offset) { _, line in
                         Text(line)
                             .font(.system(size: 10, design: .monospaced))
                             .textSelection(.enabled)
@@ -365,7 +354,7 @@ struct ServersView: View {
     // MARK: - Helpers
 
     private func subscriptionFor(_ server: Server) -> Subscription? {
-        subs.subscriptions.first { sub in
+        app.subs.subscriptions.first { sub in
             sub.servers.contains { $0.id == server.id }
         }
     }
