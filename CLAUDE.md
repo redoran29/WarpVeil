@@ -68,6 +68,7 @@ Sources/
 ├── SetupService.swift         # Bundled-binary detection & version reporting
 ├── LocationService.swift      # Public IP & geolocation via ipwho.is (HTTPS)
 ├── NetworkMonitor.swift       # Real-time upload/download speed
+├── PingService.swift          # Proxy delay via a user-space sing-box and its Clash API
 ├── BypassService.swift        # JSON config injection for domain bypass routing
 └── Models.swift               # Server, Subscription, Engine types
 ```
@@ -183,6 +184,13 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - **JSONSerialization, not Codable**: bypass injection rewrites arbitrary user configs and needs untyped JSON
 - **Bundled binaries only**: `ProcessManager.findBinary` resolves engines from `Bundle.main.resourcePath` and nowhere else — Homebrew, MacPorts and `$PATH` are ignored
 - **Binary upgrades ship with the app**: no in-app updater; bump the pinned tags in `fetch-binaries.sh` and cut a release
+- **Ping is a user-space measurement**: `PingService` runs the bundled sing-box with every server
+  as an outbound behind `experimental.clash_api` on a free localhost port and asks
+  `/proxies/<Server.id>/delay` per server; xray servers run behind a user-space xray with a socks
+  inbound each and are chained in as socks outbounds. No sudo, no TUN, one request per tag.
+  Unavailable while the tunnel is up — the probe would go through it, so the number would be
+  tunnel + proxy. `connect()` cancels a running ping first, because `run.sh` pkills every
+  `sing-box run`
 
 ## Runtime Files
 
@@ -191,6 +199,7 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - `$TMPDIR/warpveil-<tag>.log` — VPN process log, tailed by a 0.25s polling timer
 - `$TMPDIR/warpveil-singbox-<pid>.json` — injected sing-box config
 - `$TMPDIR/warpveil-xray-<pid>.json` — injected xray config
+- `$TMPDIR/warpveil-ping-{singbox,xray}-<pid>.json` — ping configs, present only during a run
 - `/tmp/warpveil-<tag>-{singbox,xray}.pid` — engine PIDs
 - `~/.config/warpveil/subscriptions.json` — subscriptions, shared across all builds
 
@@ -200,6 +209,11 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - `which` is unreliable inside `.app` bundles (no shell profile) — resolve paths explicitly
 - Sleep/wake reconnects after a 5 second delay to let the network settle
 - sing-box and xray have different config formats — `BypassService` handles each separately
+- The Clash API silently drops a test URL that starts with `http://` and substitutes its own
+  default, and it rejects a delay request with no `timeout` — the URL must be HTTPS
+- sing-box prints nothing at `log.level: warn`, so a ping's readiness is `GET /` answering,
+  not a log line
+- Two delay tests on one outbound tag at once time each other out — one request per tag
 
 ---
 
