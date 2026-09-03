@@ -9,6 +9,9 @@ struct WarpVeilApp: App {
     var body: some Scene {
         Settings { EmptyView() }
             .commands {
+                // The rail is the only page switcher and the only control that can bring it
+                // back, so nothing may collapse the sidebar column.
+                CommandGroup(replacing: .sidebar) { }
                 CommandGroup(replacing: .appSettings) {
                     Button("Settings…") { delegate.showWindow() }
                         .keyboardShortcut(",")
@@ -56,7 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         host.sizingOptions = [.minSize]
         host.view.autoresizingMask = [.width, .height]
         window.contentViewController = host
-        // Assigning a controller with no sizing options collapses the content height to zero.
+        // Assigning the controller collapses the content height to zero under every sizingOptions.
         window.setContentSize(NSSize(width: 960, height: 640))
         window.center()
         // Restores the last frame on later launches; the first launch keeps the centred one.

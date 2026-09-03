@@ -3,7 +3,6 @@ import SwiftUI
 struct ServersView: View {
     var app: AppState
 
-    @AppStorage("selectedServerID") private var selectedServerID = ""
     @State private var showAddSheet = false
     @State private var subscriptionToDelete: Subscription?
 
@@ -23,7 +22,7 @@ struct ServersView: View {
             ),
             presenting: subscriptionToDelete
         ) { sub in
-            Button("Delete", role: .destructive) { app.subs.removeSubscription(sub.id) }
+            Button("Delete", role: .destructive) { app.removeSubscription(sub.id) }
         }
     }
 
@@ -66,9 +65,9 @@ struct ServersView: View {
                         subscriptionHeader(sub)
 
                         ForEach(sub.servers) { server in
-                            ServerRowView(server: server, isSelected: selectedServerID == server.id)
+                            ServerRowView(server: server, isSelected: app.selectedServerID == server.id)
                                 .contentShape(Rectangle())
-                                .onTapGesture { selectedServerID = server.id }
+                                .onTapGesture { app.selectedServerID = server.id }
                         }
                     }
                 }

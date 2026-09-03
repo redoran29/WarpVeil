@@ -3,10 +3,6 @@ import SwiftUI
 struct ConnectionView: View {
     var app: AppState
 
-    // Not read here, but it must stay: the power button's disabled state comes from
-    // app.selectedServer, which reads UserDefaults untracked — this is what re-renders it.
-    @AppStorage("selectedServerID") private var selectedServerID = ""
-
     var body: some View {
         VStack(spacing: 0) {
             powerButton
@@ -18,13 +14,14 @@ struct ConnectionView: View {
             if app.pm.isRunning {
                 statsSection
                     .frame(maxWidth: 360)
-                    .padding(.horizontal, 20)
                     .padding(.bottom, 20)
             }
 
             locationSection
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.top, 36)
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     // MARK: - Power Button
@@ -68,6 +65,8 @@ struct ConnectionView: View {
             Text(app.selectedServer?.name ?? "No server selected")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
 
             if let connectedAt = app.connectedAt, app.pm.isRunning {
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
@@ -86,6 +85,8 @@ struct ConnectionView: View {
             Text(app.loc.location)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
         }
     }
 
