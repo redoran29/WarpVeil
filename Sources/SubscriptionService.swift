@@ -74,7 +74,9 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             .filter { i, sub in sub.url.isEmpty || bestByURL[sub.url] == i }
             .map(\.element)
         subscriptions = subscriptions.map { var sub = $0; sub.servers = uniqueByID(sub.servers); return sub }
-        if needsTransport || subscriptions.count != decoded.count { save() }
+        let keptServers = subscriptions.reduce(0) { $0 + $1.servers.count }
+        let storedServers = decoded.reduce(0) { $0 + $1.servers.count }
+        if needsTransport || keptServers != storedServers { save() }
         migrateSelection(decoded: decoded, data: data)
     }
 
@@ -82,8 +84,23 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
     private func fillingTransport(_ server: Server) -> Server {
         guard server.transport == nil else { return server }
         var filled = server
-        filled.transport = (parseSingBox(server.config).first ?? parseXray(server.config).first)?.transport ?? ""
+        let root = server.config.data(using: .utf8)
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+        let outbound = (root?["outbounds"] as? [[String: Any]])?.first
+        let singBox = (outbound?["transport"] as? [String: Any])?["type"] as? String
+        let xray = (outbound?["streamSettings"] as? [String: Any])?["network"] as? String
+        filled.transport = Self.canonicalTransport(singBox ?? xray ?? "")
         return filled
+    }
+
+    // Both cores accept two spellings for the same transport, and a panel that switches
+    // spelling would otherwise rename every server and drop the selection.
+    static func canonicalTransport(_ raw: String) -> String {
+        switch raw {
+        case "raw": "tcp"
+        case "splithttp": "xhttp"
+        default: raw
+        }
     }
 
     // Builds up to 1.2 stored a UUID per server and selected by it. That UUID survives only in a
@@ -92,7 +109,8 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         let defaults = UserDefaults.standard
         guard var serverID = defaults.string(forKey: "selectedServerID") else { return }
         let subscriptionID = defaults.string(forKey: "selectedSubscriptionID")
-        let scope = subscriptions.filter { subscriptionID == nil || $0.id.uuidString == subscriptionID }
+        var scope = subscriptions.filter { subscriptionID == nil || $0.id.uuidString == subscriptionID }
+        if scope.isEmpty { scope = subscriptions }
         guard !scope.contains(where: { $0.servers.contains { $0.id == serverID } }) else { return }
 
         if UUID(uuidString: serverID) != nil {
@@ -100,13 +118,14 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
                 .flatMap(\.servers).map(\.id) ?? []
             guard let match = zip(legacyIDs, decoded.flatMap(\.servers)).first(where: { $0.0 == serverID }) else {
                 defaults.removeObject(forKey: "selectedServerID")
+                defaults.removeObject(forKey: "selectedSubscriptionID")
                 return
             }
             serverID = match.1.id
         }
         for sub in scope {
             guard let server = sub.servers.first(where: {
-                $0.id == serverID || "\($0.protocolType)|\($0.address)|\($0.name)" == serverID
+                $0.id == serverID || $0.legacyID == serverID
             }) else { continue }
             defaults.set(sub.id.uuidString, forKey: "selectedSubscriptionID")
             defaults.set(server.id, forKey: "selectedServerID")
@@ -366,7 +385,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         }
 
         return Server(name: name, protocolType: "vless", address: "\(host):\(port)",
-                      transport: transportType, config: config, engine: engine)
+                      transport: Self.canonicalTransport(transportType), config: config, engine: engine)
     }
 
     // MARK: - vmess:// URI parser
@@ -415,7 +434,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
 
         let config = buildSingBoxConfigFromOutbound(outbound)
         return Server(name: name, protocolType: "vmess", address: "\(host):\(port)",
-                      transport: net, config: config)
+                      transport: Self.canonicalTransport(net), config: config)
     }
 
     // MARK: - sing-box config builder from URI params
@@ -683,7 +702,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             let host = ob["server"] as? String ?? "?"
             let port = ob["server_port"] as? Int ?? 0
             let address = "\(host):\(port)"
-            let transport = (ob["transport"] as? [String: Any])?["type"] as? String ?? "tcp"
+            let transport = Self.canonicalTransport((ob["transport"] as? [String: Any])?["type"] as? String ?? "tcp")
 
             var modifiedRoot = root
             modifiedRoot["outbounds"] = [ob] + serviceOutbounds
@@ -738,7 +757,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             } else {
                 address = "?"
             }
-            let transport = (ob["streamSettings"] as? [String: Any])?["network"] as? String ?? "tcp"
+            let transport = Self.canonicalTransport((ob["streamSettings"] as? [String: Any])?["network"] as? String ?? "tcp")
 
             var modifiedRoot = root
             modifiedRoot["outbounds"] = [ob] + serviceOutbounds
