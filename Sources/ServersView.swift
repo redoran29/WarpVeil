@@ -248,6 +248,7 @@ private struct AddSubscriptionSheet: View {
     @State private var manualName = ""
     @State private var manualJSON = ""
     @State private var isLoading = false
+    @State private var message: String?
 
     var body: some View {
         VStack(spacing: 12) {
@@ -284,6 +285,14 @@ private struct AddSubscriptionSheet: View {
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12))
                     .onSubmit { addSubscription() }
+                    .onChange(of: url) { message = nil }
+            }
+
+            if let message {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             HStack {
@@ -310,11 +319,13 @@ private struct AddSubscriptionSheet: View {
             subs.addManualConfig(name: manualName, json: manualJSON)
             dismiss()
         } else {
+            // Enter in the field bypasses the button's disabled state.
+            guard !isLoading, !url.isEmpty else { return }
             isLoading = true
             Task {
-                await subs.addFromURL(url)
+                message = await subs.addFromURL(url)
                 isLoading = false
-                dismiss()
+                if message == nil { dismiss() }
             }
         }
     }
