@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import SystemConfiguration
 
 enum PingResult: Equatable {
     case measuring
@@ -12,6 +13,8 @@ enum PingResult: Equatable {
 // server as an outbound behind its Clash API, whose delay test sends one HEAD request through
 // that outbound. xray servers sit behind a user-space xray with a SOCKS inbound each and are
 // chained in as socks outbounds — the shape the tunnel already uses for them. No sudo, no TUN.
+// Every outbound that leaves the machine is bound to the primary interface, so a tunnel that
+// is up does not swallow the probe: the number is the proxy, never tunnel + proxy.
 @Observable
 @MainActor
 final class PingService {
@@ -92,13 +95,14 @@ final class PingService {
             }
             var xrayPorts = Dictionary(zip(xrayServers.map(\.id), ports.dropFirst()),
                                        uniquingKeysWith: { first, _ in first })
+            let interface = Self.primaryInterface()
             // An xray that will not start costs the xray rows their value, not the whole run:
             // the sing-box servers in the same list never needed it.
-            if !xrayServers.isEmpty, await !launchXray(xrayServers, ports: xrayPorts) {
+            if !xrayServers.isEmpty, await !launchXray(xrayServers, ports: xrayPorts, interface: interface) {
                 xrayPorts = [:]
             }
             guard !Task.isCancelled else { return }
-            let tags = try await launchSingBox(servers, xrayPorts: xrayPorts, apiPort: apiPort)
+            let tags = try await launchSingBox(servers, xrayPorts: xrayPorts, apiPort: apiPort, interface: interface)
             guard !Task.isCancelled else { return }
             await measureAll(tags, apiPort: apiPort)
         } catch {
@@ -171,11 +175,14 @@ final class PingService {
     }
 
     // Reports whether the xray leg is usable; the caller drops the xray rows rather than the run.
-    // Readiness is the first socks inbound accepting a connection, not a log line: a log line is
-    // upstream's wording, and waiting for one that never comes hangs the whole service.
-    private func launchXray(_ servers: [Server], ports: [String: UInt16]) async -> Bool {
-        let (config, tags) = Self.xrayConfig(servers, ports: ports)
-        guard let port = tags.compactMap({ ports[$0] }).first else { return false }
+    // Readiness is every socks inbound accepting a connection, not a log line: a log line is
+    // upstream's wording, and waiting for one that never comes hangs the whole service. Every
+    // inbound, because xray starts tagged inbounds in map order — the first one listed is not
+    // the first one up, and a delay test against a port nobody listens on fails in 14 ms.
+    private func launchXray(_ servers: [Server], ports: [String: UInt16], interface: String?) async -> Bool {
+        let (config, tags) = Self.xrayConfig(servers, ports: ports, interface: interface)
+        let listeningPorts = tags.compactMap { ports[$0] }
+        guard !listeningPorts.isEmpty else { return false }
         guard let xray = ProcessManager.findBinary("xray") else {
             error = "xray is not bundled"
             return false
@@ -191,7 +198,7 @@ final class PingService {
                 error = "xray: \(Self.lastLine(of: readAll(output)))"
                 return false
             }
-            if Self.isListening(port) {
+            if listeningPorts.allSatisfy(Self.isListening) {
                 drainInBackground(output)
                 return true
             }
@@ -203,9 +210,9 @@ final class PingService {
     // Returns the tags actually in the config. sing-box prints nothing at the warn level, so
     // readiness is the API answering; an exit before that leaves the reason on the pipe.
     private func launchSingBox(
-        _ servers: [(server: Server, engine: Engine)], xrayPorts: [String: UInt16], apiPort: UInt16
+        _ servers: [(server: Server, engine: Engine)], xrayPorts: [String: UInt16], apiPort: UInt16, interface: String?
     ) async throws -> [String] {
-        let (config, tags) = singBoxConfig(servers, xrayPorts: xrayPorts, apiPort: apiPort)
+        let (config, tags) = singBoxConfig(servers, xrayPorts: xrayPorts, apiPort: apiPort, interface: interface)
         guard !tags.isEmpty else { return [] }
         guard let singBox = ProcessManager.findBinary("sing-box") else { throw PingError("sing-box is not bundled") }
         write(config, to: singBoxConfigFile)
@@ -244,16 +251,20 @@ final class PingService {
 
     // MARK: - Configs
 
+    // The socks outbounds are not pinned: they dial loopback, which the kernel refuses to bind to
+    // a physical interface (EADDRNOTAVAIL). sing-box happens to skip the bind for loopback, but
+    // the config should not lean on that.
     private func singBoxConfig(
-        _ servers: [(server: Server, engine: Engine)], xrayPorts: [String: UInt16], apiPort: UInt16
+        _ servers: [(server: Server, engine: Engine)], xrayPorts: [String: UInt16], apiPort: UInt16, interface: String?
     ) -> (String, [String]) {
         var outbounds: [[String: Any]] = []
         var tags: [String] = []
         for entry in servers {
-            let outbound: [String: Any]?
+            var outbound: [String: Any]?
             switch entry.engine {
             case .singBox:
                 outbound = Self.proxyOutbound(of: entry.server, types: Self.singBoxPingTypes, typeKey: "type")
+                if let interface { outbound?["bind_interface"] = interface }
             case .xray:
                 outbound = xrayPorts[entry.server.id].map {
                     ["type": "socks", "tag": entry.server.id, "server": "127.0.0.1", "server_port": Int($0)]
@@ -273,15 +284,22 @@ final class PingService {
         return (Self.serialize(config), tags)
     }
 
-    private static func xrayConfig(_ servers: [Server], ports: [String: UInt16]) -> (String, [String]) {
+    private static func xrayConfig(_ servers: [Server], ports: [String: UInt16], interface: String?) -> (String, [String]) {
         var inbounds: [[String: Any]] = []
         var outbounds: [[String: Any]] = []
         var rules: [[String: Any]] = []
         var tags: [String] = []
         for server in servers {
             guard let port = ports[server.id],
-                  let outbound = proxyOutbound(of: server, types: SubscriptionService.vpnTypesXray, typeKey: "protocol")
+                  var outbound = proxyOutbound(of: server, types: SubscriptionService.vpnTypesXray, typeKey: "protocol")
             else { continue }
+            if let interface {
+                var streamSettings = outbound["streamSettings"] as? [String: Any] ?? [:]
+                var sockopt = streamSettings["sockopt"] as? [String: Any] ?? [:]
+                sockopt["interface"] = interface
+                streamSettings["sockopt"] = sockopt
+                outbound["streamSettings"] = streamSettings
+            }
             let inboundTag = "in-\(server.id)"
             inbounds.append(["tag": inboundTag, "listen": "127.0.0.1", "port": Int(port), "protocol": "socks"])
             outbounds.append(outbound)
@@ -314,6 +332,16 @@ final class PingService {
     }
 
     // MARK: - Helpers
+
+    // The interface carrying the system's default route. sing-box's TUN adds half routes and
+    // leaves the real default on the physical interface, so this stays physical while the
+    // tunnel is up — `route get` would answer the TUN. nil means no IPv4 network at all.
+    private static func primaryInterface() -> String? {
+        guard let store = SCDynamicStoreCreate(nil, "WarpVeil" as CFString, nil, nil),
+              let global = SCDynamicStoreCopyValue(store, "State:/Network/Global/IPv4" as CFString) as? [String: Any]
+        else { return nil }
+        return global["PrimaryInterface"] as? String
+    }
 
     private static func serialize(_ config: [String: Any]) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: config, options: [.sortedKeys]),
