@@ -3,7 +3,7 @@ import SwiftUI
 struct ServersView: View {
     var app: AppState
 
-    @Binding var selectedServerID: String
+    @AppStorage("selectedServerID") private var selectedServerID = ""
     @State private var showAddSheet = false
     @State private var subscriptionToDelete: Subscription?
 

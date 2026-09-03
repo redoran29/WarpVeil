@@ -3,6 +3,8 @@ import SwiftUI
 struct ConnectionView: View {
     var app: AppState
 
+    // Not read here, but it must stay: the power button's disabled state comes from
+    // app.selectedServer, which reads UserDefaults untracked — this is what re-renders it.
     @AppStorage("selectedServerID") private var selectedServerID = ""
 
     var body: some View {
@@ -26,7 +28,7 @@ struct ConnectionView: View {
             Divider()
 
             ScrollView {
-                ServersView(app: app, selectedServerID: $selectedServerID)
+                ServersView(app: app)
                     .padding(.vertical, 12)
             }
         }
