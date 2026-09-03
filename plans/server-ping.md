@@ -5,6 +5,10 @@ It stays in `plans/` because the feature's only successful path has never been o
 every run so far went through a live tunnel, where every row fails by design. Move it to
 `plans/done/` after one run with the tunnel down — see the end of the Validation record.
 
+Corrected 2026-09-03: fact 6 and the decision "Ping is unavailable while the tunnel is up" were
+wrong. Both are rewritten in place below with the original text kept; the follow-up is
+`plans/ping-through-tunnel.md`, which also takes over this plan's closing condition.
+
 Greenfield: the TCP-handshake ping was removed in `58cd4b6` ("With the tunnel up, sing-box's TUN
 stack accepts the TCP connection locally … the list showed 0ms across the board"). Nothing of it
 survives in `Sources/`, and nothing below reuses it.
@@ -86,7 +90,7 @@ where it matters; it was not touched.
 3. **What the number is** (`common/urltest/urltest.go`): `start = time.Now()`, `DialContext` through the outbound, then — for outbounds whose proxy handshake is lazy (`NeedHandshakeForWrite`) — `start` is reset just before the request is written, so the handshake lands inside the timed part; one `HEAD` to the URL over that connection (TLS included, `CheckRedirect` disabled); `time.Since(start)` in ms. It is one full HTTPS request through the proxy. Observed on the owner's nodes with outbounds bound to `en0` (see fact 6): 324–761 ms per server, all nine in parallel in under a second; `https://cp.cloudflare.com/generate_204` ≈ 350 ms vs the gstatic default ≈ 715 ms from the same node.
 4. **xhttp/splithttp are not in sing-box 1.14**: `check` fails with `outbounds[0].transport: unknown transport type: splithttp` (and `xhttp`). The canon's "xray for xhttp" holds; the `case "xhttp", "splithttp"` branch in `buildSingBoxConfig` (`:435-444`) is unreachable from `parseVlessURI` and is not this plan's business.
 5. **The xray chain works.** xray config: one `socks` inbound per server on `127.0.0.1:<port>` tagged `in-<id>`, the server's outbound tagged `<id>`, a `routing.rules` entry `{"type":"field","inboundTag":["in-<id>"],"outboundTag":"<id>"}` each; `xray run -test` says `Configuration OK`. sing-box side: `{"type":"socks","tag":"<id>","server":"127.0.0.1","server_port":<port>}`. The delay test through the chain returned 200 with the values in fact 3 for all seven xhttp servers; a chain to a dead node (`203.0.113.1`) → 504 at the timeout.
-6. **The tunnel swallows a user-space engine's traffic.** With the tunnel up, macOS shows the TUN's half routes (`1/8, 2/7, … 64/2 → utun4`) while `default` stays on `en0`. A user-space sing-box with `route.auto_detect_interface: true` reported the tunnel's public IP; so did one with `auto_detect_interface: false`, and so did a `direct` outbound with `bind_interface: "en0"`. Through the tunnel the sing-box node's delay was 385–744 ms on some runs and a 5 s timeout on others; the xhttp servers failed every time with `REALITY: received real certificate (potential MITM or redirection)` on the xray side. Binding xray's outbounds with `streamSettings.sockopt.interface = "en0"` made the same servers answer in ~350 ms — the only thing that changed the path, and only for xray. **Nothing here measures the proxy while the tunnel is up.**
+6. **The tunnel swallows a user-space engine's traffic — unless its outbounds are bound to the physical interface.** *Corrected 2026-09-03; the original text first, unchanged:* With the tunnel up, macOS shows the TUN's half routes (`1/8, 2/7, … 64/2 → utun4`) while `default` stays on `en0`. A user-space sing-box with `route.auto_detect_interface: true` reported the tunnel's public IP; so did one with `auto_detect_interface: false`, and so did a `direct` outbound with `bind_interface: "en0"`. Through the tunnel the sing-box node's delay was 385–744 ms on some runs and a 5 s timeout on others; the xhttp servers failed every time with `REALITY: received real certificate (potential MITM or redirection)` on the xray side. Binding xray's outbounds with `streamSettings.sockopt.interface = "en0"` made the same servers answer in ~350 ms — the only thing that changed the path, and only for xray. ~~**Nothing here measures the proxy while the tunnel is up.**~~ *What was wrong:* the sing-box half of that test bound a `direct` outbound and read the public IP it reported, which is not a proxy outbound's dial; no delay test was ever run on a proxy outbound carrying `bind_interface`. Fact 12's harness did exactly that and measured all nine — the evidence was in this file and was read as harness-only. *Now known* (`plans/ping-through-tunnel.md`, facts 1–4, tunnel up, `PrimaryInterface = en0`, half routes on `utun7`): a vless outbound with `bind_interface: "en0"` and an xray outbound with `streamSettings.sockopt.interface = "en0"` both measure through the tunnel — 9/9 servers, 651–917 ms, all in under a second; the same configs unpinned → 0/9 (six 503s with the REALITY error, three 504s). The physical interface is configd's `State:/Network/Global/IPv4` → `PrimaryInterface`, which stays `en0` because sing-box's TUN registers no network service; `route get` answers the TUN and is useless for this.
 7. **Readiness and output.** xray at `loglevel: "warning"` prints `[Warning] core: Xray 26.3.27 started` once its inbounds listen (35 ms after `Process.run()` in Swift); at `"none"` it prints nothing; `"access": "none"` silences the per-connection `accepted …` lines that otherwise go to stdout. sing-box at `log.level: "warn"` printed **nothing** in any run, dead servers and timeouts included — readiness has to be the API answering. Startup failures are `FATAL …` on stderr regardless of level, wrapped in ANSI colour codes that `NO_COLOR=1`, `TERM=dumb` and `log.output` do not remove; `log.disable_color` is not a field in 1.14 (`unknown field`). Examples seen: `duplicate outbound/endpoint tag: <tag>`, `outbounds[1].bogus_field: json: unknown field "bogus_field"`, `start service: dependency[missing-outbound] not found for outbound[B]` (a `detour` or a `selector` member that is not in the config — `check` passes, `run` exits 1), `external controller listen error: … bind: address already in use`. An outbound `domain_resolver` naming a DNS tag that does not exist is **not** fatal (process alive), and the deprecated `domain_strategy` is accepted.
 8. **Termination.** `SIGTERM` → sing-box exits 0, xray exits 15; both leave nothing behind. `Process.terminate()` on a process that has already exited is a no-op (probed).
 9. **Concurrency.** Nine different tags fired at once all returned 200. Eight requests at **one** tag at once: two answered, six timed out (5 s) — the chain serialises per outbound. One request per tag, never two.
@@ -131,17 +135,25 @@ The number is a full HTTPS request through a proxy (fact 3), 320–760 ms on the
 from here, so the TCP-handshake bands of the old code (60/150) would paint everything red. Two
 constants in `ServerRowView`; taste, owner may move them.
 
-### Ping is unavailable while the tunnel is up
+### Ping is unavailable while the tunnel is up — wrong, superseded
 
-`AppState.pingAll()` refuses while `pm.isRunning`; the header button is disabled with the tooltip
-"Disconnect to measure". Fact 6: a user-space engine's traffic goes through the TUN, so the number
-would be tunnel + proxy — for the connected node a loop back through itself, for the others a
-detour — and the xhttp rows would read `--` for a reason that has nothing to do with the node.
-That is the failure mode `58cd4b6` removed the last ping for; a disabled button is the honest
-version. Priced alternative, **unverified**: pin the engines' outbounds to the physical interface
-(`sockopt.interface` did change xray's path, fact 6; `bind_interface` did not change sing-box's).
-It needs the physical default interface found from Swift while `utun` holds the half routes and a
-verified answer for sing-box; if the owner wants it, that is its own plan.
+*Corrected 2026-09-03. The decision as shipped:* `AppState.pingAll()` refuses while
+`pm.isRunning`; the header button is disabled with the tooltip "Disconnect to measure". Fact 6: a
+user-space engine's traffic goes through the TUN, so the number would be tunnel + proxy — for the
+connected node a loop back through itself, for the others a detour — and the xhttp rows would
+read `--` for a reason that has nothing to do with the node. That is the failure mode `58cd4b6`
+removed the last ping for; a disabled button is the honest version. Priced alternative,
+**unverified**: pin the engines' outbounds to the physical interface (`sockopt.interface` did
+change xray's path, fact 6; `bind_interface` did not change sing-box's). It needs the physical
+default interface found from Swift while `utun` holds the half routes and a verified answer for
+sing-box; if the owner wants it, that is its own plan.
+
+*Why it was wrong:* the "verified answer for sing-box" was already in fact 12 — the harness with
+`bind_interface` injected measured all nine through the live tunnel — and fact 6's negative came
+from a `direct` outbound, not a proxy one. The owner runs the VPN always on, so the shipped guard
+turned the feature off for him entirely. `plans/ping-through-tunnel.md` pins both engines'
+outbounds to configd's `PrimaryInterface` (verified 9/9 with the tunnel up) and removes the
+guard, the `.disabled` and the tooltip.
 
 ### The pkill in `run.sh`, both directions
 
@@ -749,7 +761,8 @@ Then move this file to `plans/done/`, run `/code-review`, fix what it surfaces (
 
 ## Out of scope, deliberately left alone
 
-- Measuring while connected via interface binding (priced under Decisions, unverified).
+- Measuring while connected via interface binding — priced under Decisions as unverified; since
+  verified and planned in `plans/ping-through-tunnel.md`.
 - Persisting results, sorting by delay, a per-row re-ping.
 - A "Stop" control — leaving the page or connecting stops a run; a stop button is a few lines if
   wanted.
@@ -766,7 +779,8 @@ shape below. Relaunching that config with the bundled binaries reproduced the wh
 `timeout` → 400 `Body invalid`, an unknown tag → 404 `Resource not found`. All 9 tags answered —
 6 × 503 (the xray-chained xhttp nodes) and 3 × 504 at exactly 5.001 s. **Every row failed, which
 is what fact 6 predicts through the tunnel and is the evidence for disabling ping while
-connected.**
+connected.** *(Corrected 2026-09-03: every row failed because the shipped config does not pin its
+outbounds — see the corrected fact 6. It is evidence for pinning, not for disabling.)*
 
 Also observed: a `--watch` relaunch kills the app without `applicationShouldTerminate`, so
 `ping.cancel()` never runs — the engines were orphaned to `ppid 1` and the two config files stayed
