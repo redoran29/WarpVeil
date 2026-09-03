@@ -9,12 +9,15 @@ struct Server: Codable, Identifiable {
     var name: String
     var protocolType: String
     var address: String
+    // Optional only so files written before it existed still decode; load() fills it in.
+    var transport: String?
     var config: String
     var engine: Engine?
 
     // Derived, not stored: refreshing a subscription rebuilds every Server, and a fresh UUID
-    // each time would drop the user's selection on every launch.
-    var id: String { "\(protocolType)|\(address)|\(name)" }
+    // each time would drop the user's selection on every launch. The transport is part of it
+    // because a feed can list one node under one name and address over ws and again over grpc.
+    var id: String { "\(protocolType)|\(address)|\(transport ?? "")|\(name)" }
 }
 
 struct Subscription: Codable, Identifiable {

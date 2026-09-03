@@ -48,8 +48,10 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
 
     func load() {
         guard let data = try? Data(contentsOf: filePath),
-              let decoded = try? JSONDecoder().decode([Subscription].self, from: data)
+              let stored = try? JSONDecoder().decode([Subscription].self, from: data)
         else { return }
+        let needsTransport = stored.contains { $0.servers.contains { $0.transport == nil } }
+        let decoded = stored.map { var sub = $0; sub.servers = sub.servers.map(fillingTransport); return sub }
         // Older builds appended a new subscription every time the same URL was added. Keep the
         // copy that actually holds servers — the first one may be a refresh that failed.
         var bestByURL: [String: Int] = [:]
@@ -61,31 +63,44 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             .filter { i, sub in sub.url.isEmpty || bestByURL[sub.url] == i }
             .map(\.element)
         subscriptions = subscriptions.map { var sub = $0; sub.servers = uniqueByID(sub.servers); return sub }
-        if subscriptions.count != decoded.count { save() }
+        if needsTransport || subscriptions.count != decoded.count { save() }
         migrateSelection(decoded: decoded, data: data)
+    }
+
+    // Files written before the transport was stored still carry it inside the config.
+    private func fillingTransport(_ server: Server) -> Server {
+        guard server.transport == nil else { return server }
+        var filled = server
+        filled.transport = (parseSingBox(server.config).first ?? parseXray(server.config).first)?.transport ?? ""
+        return filled
     }
 
     // Builds up to 1.2 stored a UUID per server and selected by it. That UUID survives only in a
     // file those builds wrote, so this is the one place it can still be mapped to today's keys.
     private func migrateSelection(decoded: [Subscription], data: Data) {
         let defaults = UserDefaults.standard
-        guard defaults.string(forKey: "selectedSubscriptionID") == nil,
-              let stored = defaults.string(forKey: "selectedServerID")
-        else { return }
+        guard var serverID = defaults.string(forKey: "selectedServerID") else { return }
+        let subscriptionID = defaults.string(forKey: "selectedSubscriptionID")
+        let scope = subscriptions.filter { subscriptionID == nil || $0.id.uuidString == subscriptionID }
+        guard !scope.contains(where: { $0.servers.contains { $0.id == serverID } }) else { return }
 
-        var serverID = stored
-        if UUID(uuidString: stored) != nil {
+        if UUID(uuidString: serverID) != nil {
             let legacyIDs = (try? JSONDecoder().decode([LegacySubscription].self, from: data))?
                 .flatMap(\.servers).map(\.id) ?? []
-            guard let match = zip(legacyIDs, decoded.flatMap(\.servers)).first(where: { $0.0 == stored }) else {
+            guard let match = zip(legacyIDs, decoded.flatMap(\.servers)).first(where: { $0.0 == serverID }) else {
                 defaults.removeObject(forKey: "selectedServerID")
                 return
             }
             serverID = match.1.id
         }
-        guard let sub = subscriptions.first(where: { $0.servers.contains { $0.id == serverID } }) else { return }
-        defaults.set(sub.id.uuidString, forKey: "selectedSubscriptionID")
-        defaults.set(serverID, forKey: "selectedServerID")
+        for sub in scope {
+            guard let server = sub.servers.first(where: {
+                $0.id == serverID || "\($0.protocolType)|\($0.address)|\($0.name)" == serverID
+            }) else { continue }
+            defaults.set(sub.id.uuidString, forKey: "selectedSubscriptionID")
+            defaults.set(server.id, forKey: "selectedServerID")
+            return
+        }
     }
 
     private struct LegacySubscription: Decodable {
@@ -181,7 +196,8 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         }
     }
 
-    // A feed can list the same node twice; the derived Server.id has to stay unique for ForEach.
+    // A feed can list one entry twice; ForEach needs the derived ids unique. Two entries that
+    // differ in transport are two ids and both stay.
     private func uniqueByID(_ servers: [Server]) -> [Server] {
         var seen = Set<String>()
         return servers.filter { seen.insert($0.id).inserted }
@@ -341,7 +357,8 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             engine = .singBox
         }
 
-        return Server(name: name, protocolType: "vless", address: "\(host):\(port)", config: config, engine: engine)
+        return Server(name: name, protocolType: "vless", address: "\(host):\(port)",
+                      transport: transportType, config: config, engine: engine)
     }
 
     // MARK: - vmess:// URI parser
@@ -389,7 +406,8 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         }
 
         let config = buildSingBoxConfigFromOutbound(outbound)
-        return Server(name: name, protocolType: "vmess", address: "\(host):\(port)", config: config)
+        return Server(name: name, protocolType: "vmess", address: "\(host):\(port)",
+                      transport: net, config: config)
     }
 
     // MARK: - sing-box config builder from URI params
@@ -657,12 +675,14 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             let host = ob["server"] as? String ?? "?"
             let port = ob["server_port"] as? Int ?? 0
             let address = "\(host):\(port)"
+            let transport = (ob["transport"] as? [String: Any])?["type"] as? String ?? "tcp"
 
             var modifiedRoot = root
             modifiedRoot["outbounds"] = [ob] + serviceOutbounds
             let config = serializeJSON(modifiedRoot) ?? ""
 
-            servers.append(Server(name: name, protocolType: type, address: address, config: config))
+            servers.append(Server(name: name, protocolType: type, address: address,
+                                  transport: transport, config: config))
         }
         return servers
     }
@@ -710,12 +730,14 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             } else {
                 address = "?"
             }
+            let transport = (ob["streamSettings"] as? [String: Any])?["network"] as? String ?? "tcp"
 
             var modifiedRoot = root
             modifiedRoot["outbounds"] = [ob] + serviceOutbounds
             let config = serializeJSON(modifiedRoot) ?? ""
 
-            servers.append(Server(name: name, protocolType: proto, address: address, config: config))
+            servers.append(Server(name: name, protocolType: proto, address: address,
+                                  transport: transport, config: config))
         }
         return servers
     }
@@ -739,7 +761,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             sub.engine = .xray
             sub.servers = xrayServers
         } else {
-            sub.servers = [Server(name: name, protocolType: "custom", address: "—", config: json)]
+            sub.servers = [Server(name: name, protocolType: "custom", address: "—", transport: "", config: json)]
         }
 
         sub.servers = uniqueByID(sub.servers)
