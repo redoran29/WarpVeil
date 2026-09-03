@@ -3,6 +3,7 @@ import SwiftUI
 struct ServersView: View {
     var app: AppState
 
+    @Binding var selectedSubscriptionID: String
     @Binding var selectedServerID: String
     @State private var showAddSheet = false
     @State private var subscriptionToDelete: Subscription?
@@ -65,10 +66,14 @@ struct ServersView: View {
                         ForEach(sub.servers) { server in
                             ServerRowView(
                                 server: server,
-                                isSelected: selectedServerID == server.id
+                                isSelected: selectedSubscriptionID == sub.id.uuidString
+                                    && selectedServerID == server.id
                             )
                             .contentShape(Rectangle())
-                            .onTapGesture { selectedServerID = server.id }
+                            .onTapGesture {
+                                selectedSubscriptionID = sub.id.uuidString
+                                selectedServerID = server.id
+                            }
                         }
                     }
                 }

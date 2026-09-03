@@ -30,7 +30,7 @@ final class AppState {
     // reading AppState fresh on that render. Keep the @AppStorage in the editing view.
 
     var selectedServer: Server? {
-        subs.subscriptions.flatMap(\.servers).first { $0.id == selectedServerID }
+        selectedSubscription?.servers.first { $0.id == selectedServerID }
     }
 
     var bypassDomains: [String] {
@@ -45,9 +45,8 @@ final class AppState {
     }
 
     private var selectedSubscription: Subscription? {
-        subs.subscriptions.first { sub in
-            sub.servers.contains { $0.id == selectedServerID }
-        }
+        let id = defaults.string(forKey: "selectedSubscriptionID") ?? ""
+        return subs.subscriptions.first { $0.id.uuidString == id }
     }
 
     // bool(forKey:) reports false for a key that was never written, which would silently
