@@ -92,11 +92,6 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
     }
 
     func removeSubscription(_ id: UUID) {
-        let defaults = UserDefaults.standard
-        if defaults.string(forKey: "selectedSubscriptionID") == id.uuidString {
-            defaults.removeObject(forKey: "selectedSubscriptionID")
-            defaults.removeObject(forKey: "selectedServerID")
-        }
         subscriptions.removeAll { $0.id == id }
         save()
     }

@@ -45,8 +45,7 @@ final class AppState {
     }
 
     private var selectedSubscription: Subscription? {
-        let id = defaults.string(forKey: "selectedSubscriptionID") ?? ""
-        return subs.subscriptions.first { $0.id.uuidString == id }
+        subs.subscriptions.first { $0.servers.contains { $0.id == selectedServerID } }
     }
 
     // bool(forKey:) reports false for a key that was never written, which would silently
