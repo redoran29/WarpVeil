@@ -1,6 +1,6 @@
 # Three-column window: sidebar, page column, connection panel
 
-Status: plan, not yet implemented. Written against `bedae21` (clean tree).
+Status: implemented. Written against `bedae21` (clean tree).
 
 ## What this replaces
 
