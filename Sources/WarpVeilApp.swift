@@ -13,11 +13,7 @@ struct WarpVeilApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
-    private let pm = ProcessManager()
-    private let loc = LocationService()
-    private let net = NetworkMonitor()
-    private let setup = SetupService()
-    private let subs = SubscriptionService()
+    private let app = AppState()
     private var wasRunning = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -30,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
 
-        let contentView = ContentView(pm: pm, loc: loc, net: net, setup: setup, subs: subs)
+        let contentView = ContentView(app: app)
             .frame(width: 400, height: 640)
 
         popover = NSPopover()
@@ -39,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.contentViewController = NSHostingController(rootView: contentView)
 
         observeState()
+        Task { await app.bootstrap() }
     }
 
     // MARK: - Status Bar Actions
@@ -72,7 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quitApp() {
-        if pm.isRunning { pm.disconnect() }
+        if app.pm.isRunning { app.pm.disconnect() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             NSApplication.shared.terminate(nil)
         }
@@ -82,16 +79,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func observeState() {
         withObservationTracking {
-            _ = pm.isRunning
-            _ = loc.flag
-            _ = net.hasTraffic
+            _ = app.pm.isRunning
+            _ = app.loc.flag
+            _ = app.net.hasTraffic
         } onChange: {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 updateStatusIcon()
-                if pm.isRunning != wasRunning {
-                    wasRunning = pm.isRunning
-                    if pm.isRunning { net.start() } else { net.stop() }
+                if app.pm.isRunning != wasRunning {
+                    wasRunning = app.pm.isRunning
+                    if app.pm.isRunning { app.net.start() } else { app.net.stop() }
                 }
                 observeState()
             }
@@ -101,13 +98,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateStatusIcon() {
         guard let button = statusItem.button else { return }
 
-        let iconName = pm.isRunning ? "checkmark.shield.fill" : "shield.slash"
+        let iconName = app.pm.isRunning ? "checkmark.shield.fill" : "shield.slash"
         button.image = NSImage(systemSymbolName: iconName, accessibilityDescription: "WarpVeil")
 
-        if pm.isRunning {
-            button.title = " \(loc.flag)"
-        } else if !loc.flag.isEmpty {
-            button.title = " \(loc.flag)"
+        if app.pm.isRunning {
+            button.title = " \(app.loc.flag)"
+        } else if !app.loc.flag.isEmpty {
+            button.title = " \(app.loc.flag)"
         } else {
             button.title = ""
         }

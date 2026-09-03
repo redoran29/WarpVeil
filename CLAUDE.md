@@ -160,8 +160,6 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - `which` is unreliable inside `.app` bundles (no shell profile) — resolve paths explicitly
 - Sleep/wake reconnects after a 5 second delay to let the network settle
 - sing-box and xray have different config formats — `BypassService` handles each separately
-- The bootstrap (`loc.detect`, `setup.checkAll`, `subs.refreshAll`, autoConnect) hangs off
-  `ContentView.task`, so it does not run until the popover is opened for the first time
 
 ---
 

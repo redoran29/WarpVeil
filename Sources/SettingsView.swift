@@ -1,18 +1,13 @@
 import SwiftUI
 
 struct SettingsView: View {
-    var pm: ProcessManager
-    var setup: SetupService
+    var app: AppState
 
     @AppStorage("autoConnect") private var autoConnect = false
     @AppStorage("bypassDomains") private var bypassDomainsRaw = ""
     @AppStorage("bypassEnabled") private var bypassEnabled = true
     @State private var newDomain = ""
     @State private var showNewDomainField = false
-
-    private var bypassDomains: [String] {
-        bypassDomainsRaw.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-    }
 
     var body: some View {
         ScrollView {
@@ -23,14 +18,8 @@ struct SettingsView: View {
             }
             .padding(.vertical, 8)
         }
-        .onChange(of: bypassDomainsRaw) {
-            guard pm.isRunning else { return }
-            pm.reconnect(bypassDomains: bypassEnabled ? bypassDomains : [])
-        }
-        .onChange(of: bypassEnabled) {
-            guard pm.isRunning else { return }
-            pm.reconnect(bypassDomains: bypassEnabled ? bypassDomains : [])
-        }
+        .onChange(of: bypassDomainsRaw) { app.routingChanged() }
+        .onChange(of: bypassEnabled) { app.routingChanged() }
     }
 
     // MARK: - Connection Section
@@ -49,16 +38,16 @@ struct SettingsView: View {
 
             settingsToggle(
                 title: "Passwordless",
-                subtitle: pm.isPasswordlessBusy ? "Waiting for admin prompt..." : "Skip password prompts via sudoers",
+                subtitle: app.pm.isPasswordlessBusy ? "Waiting for admin prompt..." : "Skip password prompts via sudoers",
                 isOn: Binding(
-                    get: { pm.isPasswordless },
+                    get: { app.pm.isPasswordless },
                     set: { newValue in
-                        if newValue { pm.installPasswordless() }
-                        else { pm.removePasswordless() }
+                        if newValue { app.pm.installPasswordless() }
+                        else { app.pm.removePasswordless() }
                     }
                 )
             )
-            .disabled(pm.isPasswordlessBusy)
+            .disabled(app.pm.isPasswordlessBusy)
         }
     }
 
@@ -75,7 +64,7 @@ struct SettingsView: View {
             )
 
             if bypassEnabled {
-                ForEach(bypassDomains, id: \.self) { domain in
+                ForEach(app.bypassDomains, id: \.self) { domain in
                     domainRow(domain)
                 }
 
@@ -122,17 +111,17 @@ struct SettingsView: View {
 
             ForEach(Dependency.allCases) { dep in
                 HStack(spacing: 10) {
-                    depStatusIcon(setup.statuses[dep] ?? .unknown)
+                    depStatusIcon(app.setup.statuses[dep] ?? .unknown)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(dep.rawValue)
                             .font(.system(size: 13, weight: .medium))
-                        if let version = setup.versions[dep] {
+                        if let version = app.setup.versions[dep] {
                             Text(version)
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         } else {
-                            depStatusLabel(setup.statuses[dep] ?? .unknown)
+                            depStatusLabel(app.setup.statuses[dep] ?? .unknown)
                         }
                     }
                     Spacer()
@@ -203,14 +192,14 @@ struct SettingsView: View {
 
     private func addDomain() {
         let domain = newDomain.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !domain.isEmpty, !bypassDomains.contains(domain) else { return }
+        guard !domain.isEmpty, !app.bypassDomains.contains(domain) else { return }
         bypassDomainsRaw += (bypassDomainsRaw.isEmpty ? "" : "\n") + domain
         newDomain = ""
         showNewDomainField = false
     }
 
     private func removeDomain(_ domain: String) {
-        bypassDomainsRaw = bypassDomains.filter { $0 != domain }.joined(separator: "\n")
+        bypassDomainsRaw = app.bypassDomains.filter { $0 != domain }.joined(separator: "\n")
     }
 
     @ViewBuilder
