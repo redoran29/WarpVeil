@@ -63,10 +63,9 @@ Sources/
 ├── SubscriptionService.swift  # Subscription fetch, vless/vmess URI parsing
 ├── SetupService.swift         # Bundled-binary detection & version reporting
 ├── LocationService.swift      # Public IP & geolocation via ipwho.is (HTTPS)
-├── NetworkMonitor.swift       # Real-time upload/download speed (circular buffer)
+├── NetworkMonitor.swift       # Real-time upload/download speed
 ├── BypassService.swift        # Domain bypass config injection
-├── Models.swift               # Server, Subscription, Engine types
-└── StatusIndicator.swift      # Pulse animation indicator
+└── Models.swift               # Server, Subscription, Engine types
 ```
 
 ## License

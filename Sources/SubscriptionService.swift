@@ -67,12 +67,6 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         save()
     }
 
-    func updateSubscription(_ sub: Subscription) {
-        guard let idx = subscriptions.firstIndex(where: { $0.id == sub.id }) else { return }
-        subscriptions[idx] = sub
-        save()
-    }
-
     // MARK: - Fetch & Parse
 
     func addFromURL(_ urlString: String) async {

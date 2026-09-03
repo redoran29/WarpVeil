@@ -9,7 +9,6 @@ final class ProcessManager {
     var isRunning = false
 
     private var helperProcess: Process?
-    private var logSource: DispatchSourceFileSystemObject?
     private var logHandle: FileHandle?
     private var logDebounceTimer: Timer?
     private let logFile = FileManager.default.temporaryDirectory.path + "/warpveil-\(ProcessManager.versionTag).log"
@@ -617,8 +616,6 @@ final class ProcessManager {
     private func stopLogTail() {
         logDebounceTimer?.invalidate()
         logDebounceTimer = nil
-        logSource?.cancel()
-        logSource = nil
         logHandle?.closeFile()
         logHandle = nil
     }
