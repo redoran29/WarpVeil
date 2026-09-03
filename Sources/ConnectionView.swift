@@ -3,6 +3,7 @@ import SwiftUI
 struct ConnectionView: View {
     var app: AppState
 
+    @AppStorage("selectedSubscriptionID") private var selectedSubscriptionID = ""
     @AppStorage("selectedServerID") private var selectedServerID = ""
 
     var body: some View {
@@ -26,7 +27,9 @@ struct ConnectionView: View {
             Divider()
 
             ScrollView {
-                ServersView(app: app, selectedServerID: $selectedServerID)
+                ServersView(app: app,
+                            selectedSubscriptionID: $selectedSubscriptionID,
+                            selectedServerID: $selectedServerID)
                     .padding(.vertical, 12)
             }
         }
