@@ -61,6 +61,35 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             .filter { i, sub in sub.url.isEmpty || bestByURL[sub.url] == i }
             .map(\.element)
         if subscriptions.count != decoded.count { save() }
+        migrateSelection(decoded: decoded, data: data)
+    }
+
+    // Builds up to 1.2 stored a UUID per server and selected by it. That UUID survives only in a
+    // file those builds wrote, so this is the one place it can still be mapped to today's keys.
+    private func migrateSelection(decoded: [Subscription], data: Data) {
+        let defaults = UserDefaults.standard
+        guard defaults.string(forKey: "selectedSubscriptionID") == nil,
+              let stored = defaults.string(forKey: "selectedServerID")
+        else { return }
+
+        var serverID = stored
+        if UUID(uuidString: stored) != nil {
+            let legacyIDs = (try? JSONDecoder().decode([LegacySubscription].self, from: data))?
+                .flatMap(\.servers).map(\.id) ?? []
+            guard let match = zip(legacyIDs, decoded.flatMap(\.servers)).first(where: { $0.0 == stored }) else {
+                defaults.removeObject(forKey: "selectedServerID")
+                return
+            }
+            serverID = match.1.id
+        }
+        guard let sub = subscriptions.first(where: { $0.servers.contains { $0.id == serverID } }) else { return }
+        defaults.set(sub.id.uuidString, forKey: "selectedSubscriptionID")
+        defaults.set(serverID, forKey: "selectedServerID")
+    }
+
+    private struct LegacySubscription: Decodable {
+        struct LegacyServer: Decodable { let id: String? }
+        let servers: [LegacyServer]
     }
 
     func save() {
