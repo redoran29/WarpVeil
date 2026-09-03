@@ -13,8 +13,10 @@ enum PingResult: Equatable {
 // server as an outbound behind its Clash API, whose delay test sends one HEAD request through
 // that outbound. xray servers sit behind a user-space xray with a SOCKS inbound each and are
 // chained in as socks outbounds — the shape the tunnel already uses for them. No sudo, no TUN.
-// Every outbound that leaves the machine is bound to the primary interface, so a tunnel that
-// is up does not swallow the probe: the number is the proxy, never tunnel + proxy.
+// Every outbound's dial is bound to the primary interface, so a tunnel that is up does not
+// swallow the probe. The bind covers the dial, not name resolution: a server given as a
+// hostname is still resolved by the system resolver, which the tunnel's hijack-dns catches
+// while it is up, and that lookup lands inside the measured time.
 @Observable
 @MainActor
 final class PingService {
