@@ -16,6 +16,11 @@ final class AppState {
 
     var connectedAt: Date?
 
+    // Servers load synchronously in SubscriptionService.init, so the Servers page appears with a
+    // stale set. Pinging it would measure ids that refreshAll is about to replace, and under
+    // auto-connect the run would be killed seconds later for nothing.
+    private(set) var isBootstrapped = false
+
     // Observable, unlike the @AppStorage-mirrored keys below: two columns show the selection and
     // only one writes it, and a reader had to carry a phantom @AppStorage for a key it never
     // edited just to be invalidated. Persisted on write.
@@ -71,6 +76,10 @@ final class AppState {
         if defaults.bool(forKey: "autoConnect"), !pm.isRunning, selectedServer != nil {
             connect()
         }
+
+        // Last, so a page watching this flag sees the connect above already reflected in
+        // pm.isRunning and does not start a ping the tunnel would invalidate.
+        isBootstrapped = true
     }
 
     func connect() {
@@ -113,7 +122,7 @@ final class AppState {
 
     // Through the tunnel the probe would measure tunnel + proxy, not the proxy.
     func pingAll() {
-        guard !pm.isRunning else { return }
+        guard isBootstrapped, !pm.isRunning else { return }
         ping.start(subs.subscriptions.flatMap { sub in
             sub.servers.map { (server: $0, engine: $0.engine ?? sub.engine) }
         })

@@ -20,6 +20,7 @@ final class PingService {
     private(set) var isRunning = false
 
     private var task: Task<Void, Never>?
+    private var generation = 0
     private var engines: [Process] = []
     private let secret = UUID().uuidString
 
@@ -27,6 +28,12 @@ final class PingService {
     private static let testURL = "https://cp.cloudflare.com/generate_204"
     private static let timeoutMilliseconds = 5000
     private static let concurrency = 10
+    private static let readinessAttempts = 100
+    private static let readinessInterval = Duration.milliseconds(30)
+
+    // sing-box 1.14 moved wireguard to `endpoints` and rejects the type inside `outbounds`. One
+    // such server in a feed would fail the merged config, and with it every other server's row.
+    private static let singBoxPingTypes = SubscriptionService.vpnTypesSingBox.subtracting(["wireguard"])
 
     private let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
@@ -42,16 +49,23 @@ final class PingService {
 
     func start(_ servers: [(server: Server, engine: Engine)]) {
         guard !servers.isEmpty else { return }
+        generation += 1
+        let run = generation
         let previous = task
         previous?.cancel()
+        // Raised here rather than inside the task: start() returns before the previous run has
+        // unwound, and an enabled button in that gap invites a click that does nothing visible.
+        isRunning = true
+        error = nil
         task = Task {
             // Runs never overlap: the engines and the config files are shared.
             await previous?.value
-            isRunning = true
-            error = nil
+            guard run == generation else { return }
             for entry in servers { results[entry.server.id] = .measuring }
             await measure(servers)
             results = results.filter { $0.value != .measuring }
+            // A superseded run must not clear the flag its successor has already raised.
+            guard run == generation else { return }
             isRunning = false
         }
     }
@@ -60,6 +74,7 @@ final class PingService {
     func cancel() {
         task?.cancel()
         stopEngines()
+        isRunning = false
     }
 
     // MARK: - Run
@@ -67,17 +82,25 @@ final class PingService {
     private func measure(_ servers: [(server: Server, engine: Engine)]) async {
         defer { stopEngines() }
         do {
+            // A cancel that lands while this run is still parked on the previous one has no
+            // engines to stop yet, so the check has to happen before each launch.
+            guard !Task.isCancelled else { return }
             let xrayServers = servers.filter { $0.engine == .xray }.map(\.server)
             let ports = Self.freePorts(1 + xrayServers.count)
             guard let apiPort = ports.first, ports.count == 1 + xrayServers.count else {
                 throw PingError("no free local port")
             }
-            let xrayPorts = Dictionary(zip(xrayServers.map(\.id), ports.dropFirst()), uniquingKeysWith: { first, _ in first })
-            if !xrayServers.isEmpty {
-                try await launchXray(xrayServers, ports: xrayPorts)
+            var xrayPorts = Dictionary(zip(xrayServers.map(\.id), ports.dropFirst()),
+                                       uniquingKeysWith: { first, _ in first })
+            // An xray that will not start costs the xray rows their value, not the whole run:
+            // the sing-box servers in the same list never needed it.
+            if !xrayServers.isEmpty, await !launchXray(xrayServers, ports: xrayPorts) {
+                xrayPorts = [:]
             }
-            try await launchSingBox(servers, xrayPorts: xrayPorts, apiPort: apiPort)
-            await measureAll(servers.map(\.server.id), apiPort: apiPort)
+            guard !Task.isCancelled else { return }
+            let tags = try await launchSingBox(servers, xrayPorts: xrayPorts, apiPort: apiPort)
+            guard !Task.isCancelled else { return }
+            await measureAll(tags, apiPort: apiPort)
         } catch {
             // A cancel kills the engines, and the launch that was waiting on them reports it.
             guard !Task.isCancelled else { return }
@@ -147,35 +170,55 @@ final class PingService {
         return (process, output)
     }
 
-    // xray announces its inbounds with a "started" line; an exit before it leaves the reason
-    // as the last line.
-    private func launchXray(_ servers: [Server], ports: [String: UInt16]) async throws {
-        guard let xray = ProcessManager.findBinary("xray") else { throw PingError("xray is not bundled") }
-        write(Self.xrayConfig(servers, ports: ports), to: xrayConfigFile)
-        let (_, output) = try launch(xray, ["run", "-config", xrayConfigFile])
-        var lastLine = ""
-        for try await line in output.fileHandleForReading.bytes.lines {
-            if line.contains("started") { return }
-            lastLine = line
+    // Reports whether the xray leg is usable; the caller drops the xray rows rather than the run.
+    // Readiness is the first socks inbound accepting a connection, not a log line: a log line is
+    // upstream's wording, and waiting for one that never comes hangs the whole service.
+    private func launchXray(_ servers: [Server], ports: [String: UInt16]) async -> Bool {
+        let (config, tags) = Self.xrayConfig(servers, ports: ports)
+        guard let port = tags.compactMap({ ports[$0] }).first else { return false }
+        guard let xray = ProcessManager.findBinary("xray") else {
+            error = "xray is not bundled"
+            return false
         }
-        throw PingError("xray: \(lastLine)")
+        write(config, to: xrayConfigFile)
+        guard let (process, output) = try? launch(xray, ["run", "-config", xrayConfigFile]) else {
+            error = "xray did not launch"
+            return false
+        }
+        for _ in 0..<Self.readinessAttempts {
+            guard (try? await Task.sleep(for: Self.readinessInterval)) != nil else { return false }
+            guard process.isRunning else {
+                error = "xray: \(Self.lastLine(of: readAll(output)))"
+                return false
+            }
+            if Self.isListening(port) {
+                drainInBackground(output)
+                return true
+            }
+        }
+        error = "xray did not start"
+        return false
     }
 
-    // sing-box prints nothing at the warn level, so readiness is the API answering; an exit
-    // before that leaves the reason on the pipe.
+    // Returns the tags actually in the config. sing-box prints nothing at the warn level, so
+    // readiness is the API answering; an exit before that leaves the reason on the pipe.
     private func launchSingBox(
         _ servers: [(server: Server, engine: Engine)], xrayPorts: [String: UInt16], apiPort: UInt16
-    ) async throws {
+    ) async throws -> [String] {
+        let (config, tags) = singBoxConfig(servers, xrayPorts: xrayPorts, apiPort: apiPort)
+        guard !tags.isEmpty else { return [] }
         guard let singBox = ProcessManager.findBinary("sing-box") else { throw PingError("sing-box is not bundled") }
-        write(singBoxConfig(servers, xrayPorts: xrayPorts, apiPort: apiPort), to: singBoxConfigFile)
+        write(config, to: singBoxConfigFile)
         let (process, output) = try launch(singBox, ["run", "-c", singBoxConfigFile])
-        for _ in 0..<100 {
-            try await Task.sleep(for: .milliseconds(30))
-            if !process.isRunning {
-                let text = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                throw PingError("sing-box: \(Self.lastLine(of: text))")
+        for _ in 0..<Self.readinessAttempts {
+            try await Task.sleep(for: Self.readinessInterval)
+            guard process.isRunning else {
+                throw PingError("sing-box: \(Self.lastLine(of: readAll(output)))")
             }
-            if await api("/", apiPort: apiPort) != nil { return }
+            if await api("/", apiPort: apiPort) != nil {
+                drainInBackground(output)
+                return tags
+            }
         }
         throw PingError("sing-box did not start")
     }
@@ -187,19 +230,38 @@ final class PingService {
         try? FileManager.default.removeItem(atPath: xrayConfigFile)
     }
 
+    private func readAll(_ output: Pipe) -> String {
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    // Nothing reads an engine's output once it is up, and a full pipe buffer would block the
+    // engine on its next write.
+    private func drainInBackground(_ output: Pipe) {
+        let handle = output.fileHandleForReading
+        Task.detached { _ = try? handle.readToEnd() }
+    }
+
     // MARK: - Configs
 
     private func singBoxConfig(
         _ servers: [(server: Server, engine: Engine)], xrayPorts: [String: UInt16], apiPort: UInt16
-    ) -> String {
-        let outbounds: [[String: Any]] = servers.compactMap { entry in
+    ) -> (String, [String]) {
+        var outbounds: [[String: Any]] = []
+        var tags: [String] = []
+        for entry in servers {
+            let outbound: [String: Any]?
             switch entry.engine {
             case .singBox:
-                return Self.proxyOutbound(of: entry.server, types: SubscriptionService.vpnTypesSingBox, typeKey: "type")
+                outbound = Self.proxyOutbound(of: entry.server, types: Self.singBoxPingTypes, typeKey: "type")
             case .xray:
-                guard let port = xrayPorts[entry.server.id] else { return nil }
-                return ["type": "socks", "tag": entry.server.id, "server": "127.0.0.1", "server_port": Int(port)]
+                outbound = xrayPorts[entry.server.id].map {
+                    ["type": "socks", "tag": entry.server.id, "server": "127.0.0.1", "server_port": Int($0)]
+                }
             }
+            guard let outbound else { continue }
+            outbounds.append(outbound)
+            tags.append(entry.server.id)
         }
         let config: [String: Any] = [
             "log": ["level": "warn"],
@@ -208,13 +270,14 @@ final class PingService {
             "route": ["default_domain_resolver": "local"],
             "experimental": ["clash_api": ["external_controller": "127.0.0.1:\(apiPort)", "secret": secret]]
         ]
-        return Self.serialize(config)
+        return (Self.serialize(config), tags)
     }
 
-    private static func xrayConfig(_ servers: [Server], ports: [String: UInt16]) -> String {
+    private static func xrayConfig(_ servers: [Server], ports: [String: UInt16]) -> (String, [String]) {
         var inbounds: [[String: Any]] = []
         var outbounds: [[String: Any]] = []
         var rules: [[String: Any]] = []
+        var tags: [String] = []
         for server in servers {
             guard let port = ports[server.id],
                   let outbound = proxyOutbound(of: server, types: SubscriptionService.vpnTypesXray, typeKey: "protocol")
@@ -223,6 +286,7 @@ final class PingService {
             inbounds.append(["tag": inboundTag, "listen": "127.0.0.1", "port": Int(port), "protocol": "socks"])
             outbounds.append(outbound)
             rules.append(["type": "field", "inboundTag": [inboundTag], "outboundTag": server.id])
+            tags.append(server.id)
         }
         let config: [String: Any] = [
             "log": ["loglevel": "warning", "access": "none"],
@@ -230,7 +294,7 @@ final class PingService {
             "outbounds": outbounds,
             "routing": ["rules": rules]
         ]
-        return serialize(config)
+        return (serialize(config), tags)
     }
 
     // Every builder and parser puts the proxy first. Anything else — a pasted config whose first
@@ -242,6 +306,10 @@ final class PingService {
               let type = outbound[typeKey] as? String, types.contains(type)
         else { return nil }
         outbound["tag"] = server.id
+        // Both name a sibling outbound to dial through that the merged config does not carry, and
+        // a missing dependency is fatal for every row rather than for this one.
+        outbound["detour"] = nil
+        outbound["proxySettings"] = nil
         return outbound
     }
 
@@ -262,7 +330,24 @@ final class PingService {
 
     private static func lastLine(of text: String) -> String {
         let plain = text.replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression)
-        return plain.split(separator: "\n").last.map(String.init) ?? "exited"
+        let lines = plain.split(separator: "\n").map(String.init).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        return lines.last ?? "exited without a message"
+    }
+
+    private static func isListening(_ port: UInt16) -> Bool {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = port.bigEndian
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        return withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                connect(fd, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0
+            }
+        }
     }
 
     // Binds port 0 once per port and keeps every socket open until all are read back, so no

@@ -12,6 +12,8 @@ struct ServersView: View {
                 .padding(.vertical, 12)
         }
         .onAppear { app.pingAll() }
+        // At launch the page appears before the feeds land, and pingAll() waits for them.
+        .onChange(of: app.isBootstrapped) { app.pingAll() }
         .onDisappear { app.ping.cancel() }
         .sheet(isPresented: $showAddSheet) {
             AddSubscriptionSheet(subs: app.subs)
