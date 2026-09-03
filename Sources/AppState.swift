@@ -70,7 +70,9 @@ final class AppState {
     }
 
     func connect() {
-        guard let server = selectedServer, let sub = selectedSubscription else {
+        guard let sub = selectedSubscription,
+              let server = sub.servers.first(where: { $0.id == selectedServerID })
+        else {
             pm.logs.append("[Error: no server selected]")
             return
         }

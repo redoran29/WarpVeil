@@ -1,6 +1,6 @@
 # Server identity: scope the selection, migrate it, report duplicate adds
 
-Status: plan, not yet implemented. Written against commit `5ebd709` (clean tree; the `gitStatus`
+Status: implemented in `c7f6687`..`2d5c0e6`. Written against commit `5ebd709` (clean tree; the `gitStatus`
 snapshot handed to the planning agent listed files that do not exist — `AGENTS.md`,
 `SettingsView.swift`, `BypassView.swift` — and was ignored. `CLAUDE.md` is the whole canon).
 
