@@ -7,7 +7,6 @@ struct ServersView: View {
 
     @AppStorage("selectedServerID") private var selectedServerID = ""
     @State private var showAddSheet = false
-    @State private var showLog = false
     @State private var pings: [UUID: Int] = [:]
 
     private var allServers: [Server] {
@@ -15,140 +14,17 @@ struct ServersView: View {
     }
 
     var body: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        powerButton
-                            .padding(.top, 28)
-                            .padding(.bottom, 10)
-
-                        statusSection
-                            .padding(.bottom, 16)
-
-                        if app.pm.isRunning {
-                            statsSection
-                                .padding(.horizontal, 20)
-                                .padding(.bottom, 20)
-                        }
-
-                        serverListSection
-                            .padding(.bottom, 12)
-                    }
-                }
-                .frame(maxHeight: 560)
-
-                Divider()
-                bottomBar
-            }
-
-            if showLog {
-                logOverlay
-            }
-
-            if showAddSheet {
-                Color.black.opacity(0.15)
-                    .ignoresSafeArea()
-                    .onTapGesture { showAddSheet = false }
-                AddSubscriptionSheet(subs: app.subs, isPresented: $showAddSheet)
-                    .frame(maxWidth: 340)
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
-            }
+        ScrollView {
+            serverListSection
+                .padding(.vertical, 12)
         }
-        .animation(.easeInOut(duration: 0.2), value: showAddSheet)
-        .animation(.easeInOut(duration: 0.2), value: showLog)
+        .frame(maxHeight: 560)
+        .sheet(isPresented: $showAddSheet) {
+            AddSubscriptionSheet(subs: app.subs)
+        }
         .task {
             await measurePings()
         }
-    }
-
-    // MARK: - Power Button
-
-    private let lavender = Color(red: 0.62, green: 0.56, blue: 0.85)
-
-    private var powerButton: some View {
-        Button {
-            if app.pm.isRunning { app.disconnect() } else { app.connect() }
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(app.pm.isRunning ? lavender.opacity(0.12) : Color.secondary.opacity(0.05))
-                    .frame(width: 130, height: 130)
-
-                Circle()
-                    .fill(app.pm.isRunning ? lavender.opacity(0.2) : Color.secondary.opacity(0.08))
-                    .frame(width: 108, height: 108)
-
-                Circle()
-                    .stroke(app.pm.isRunning ? lavender.opacity(0.6) : Color.secondary.opacity(0.2), lineWidth: 1.5)
-                    .frame(width: 108, height: 108)
-
-                Image(systemName: "power")
-                    .font(.system(size: 38, weight: .light))
-                    .foregroundStyle(app.pm.isRunning ? lavender : .secondary)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Status
-
-    private var statusSection: some View {
-        VStack(spacing: 4) {
-            Text(app.pm.isRunning ? "Connected" : "Disconnected")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(app.pm.isRunning ? .green : .secondary)
-
-            if let connectedAt = app.connectedAt, app.pm.isRunning {
-                TimelineView(.periodic(from: .now, by: 1)) { _ in
-                    Text(uptimeString(from: connectedAt))
-                        .font(.system(size: 30, weight: .light, design: .monospaced))
-                        .monospacedDigit()
-                }
-            }
-        }
-    }
-
-    // MARK: - Stats
-
-    private var statsSection: some View {
-        HStack(spacing: 12) {
-            statBox(label: "DOWNLOAD", icon: "arrow.down", bps: app.net.downloadBPS)
-            statBox(label: "UPLOAD", icon: "arrow.up", bps: app.net.uploadBPS)
-        }
-    }
-
-    private func statBox(label: String, icon: String, bps: Double) -> some View {
-        let (value, unit) = NetworkMonitor.formatSplit(bps)
-        return VStack(spacing: 6) {
-            HStack(spacing: 3) {
-                Image(systemName: icon)
-                    .font(.system(size: 9, weight: .semibold))
-                Text(label)
-                    .font(.system(size: 9, weight: .medium))
-                    .tracking(0.8)
-            }
-            .foregroundStyle(.secondary)
-
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(value)
-                    .font(.system(size: 24, weight: .medium, design: .rounded))
-                    .monospacedDigit()
-                Text(unit)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 14)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.6))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.secondary.opacity(0.1), lineWidth: 1)
-        )
     }
 
     // MARK: - Server List
@@ -213,94 +89,6 @@ struct ServersView: View {
         }
     }
 
-    // MARK: - Bottom Bar
-
-    private var bottomBar: some View {
-        HStack {
-            HStack(spacing: 0) {
-                Text("IP:")
-                    .foregroundStyle(.secondary)
-                Text(" \(app.loc.ip)")
-            }
-            .font(.system(size: 12, design: .monospaced))
-
-            Spacer()
-
-            Button {
-                showLog = true
-            } label: {
-                HStack(spacing: 3) {
-                    Text("Show log")
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 9, weight: .medium))
-                }
-                .font(.system(size: 12))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.indigo)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-    }
-
-    // MARK: - Log Overlay
-
-    private var logOverlay: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Log")
-                    .font(.system(size: 14, weight: .semibold))
-                Spacer()
-                Button {
-                    let text = app.pm.logs.joined(separator: "\n")
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help("Copy")
-
-                Button {
-                    app.pm.clearLogs()
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help("Clear")
-
-                Button { showLog = false } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-
-            Divider()
-
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(app.pm.logs.reversed().enumerated()), id: \.offset) { _, line in
-                        Text(line)
-                            .font(.system(size: 10, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 0.5)
-                    }
-                }
-                .padding(8)
-            }
-        }
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-
     // MARK: - Ping
 
     private func measurePings() async {
@@ -352,17 +140,10 @@ struct ServersView: View {
         }
     }
 
-    // MARK: - Helpers
-
     private func subscriptionFor(_ server: Server) -> Subscription? {
         app.subs.subscriptions.first { sub in
             sub.servers.contains { $0.id == server.id }
         }
-    }
-
-    private func uptimeString(from date: Date) -> String {
-        let s = Int(Date().timeIntervalSince(date))
-        return String(format: "%02d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
     }
 }
 
@@ -494,7 +275,8 @@ private struct ServerRowView: View {
 
 private struct AddSubscriptionSheet: View {
     var subs: SubscriptionService
-    @Binding var isPresented: Bool
+
+    @Environment(\.dismiss) private var dismiss
 
     @State private var isManual = false
     @State private var url = ""
@@ -508,7 +290,7 @@ private struct AddSubscriptionSheet: View {
                 Text("Add Subscription")
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
-                Button { isPresented = false } label: {
+                Button { dismiss() } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 14))
                         .foregroundStyle(.secondary)
@@ -554,22 +336,20 @@ private struct AddSubscriptionSheet: View {
                     .disabled(isLoading)
             }
         }
-        .padding(14)
-        .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
-        .padding(.horizontal, 20)
+        .padding(16)
+        .frame(width: 360)
     }
 
     private func addSubscription() {
         if isManual {
             subs.addManualConfig(name: manualName, json: manualJSON)
-            isPresented = false
+            dismiss()
         } else {
             isLoading = true
             Task {
                 await subs.addFromURL(url)
                 isLoading = false
-                isPresented = false
+                dismiss()
             }
         }
     }

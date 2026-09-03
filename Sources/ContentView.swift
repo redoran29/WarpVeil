@@ -1,13 +1,17 @@
 import SwiftUI
 
 enum Page: String, CaseIterable {
+    case connection = "Connection"
     case servers = "Servers"
     case settings = "Settings"
+    case logs = "Logs"
 
     var icon: String {
         switch self {
+        case .connection: "power"
         case .servers: "server.rack"
         case .settings: "gearshape"
+        case .logs: "doc.text"
         }
     }
 }
@@ -26,7 +30,7 @@ struct ContentView: View {
     var app: AppState
     var onHeightChange: @MainActor (CGFloat) -> Void
 
-    @State private var page: Page = .servers
+    @State private var page: Page = .connection
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,10 +58,14 @@ struct ContentView: View {
     @ViewBuilder
     private var pageView: some View {
         switch page {
+        case .connection:
+            ConnectionView(app: app)
         case .servers:
             ServersView(app: app)
         case .settings:
             SettingsView(app: app)
+        case .logs:
+            LogView(app: app)
         }
     }
 }
