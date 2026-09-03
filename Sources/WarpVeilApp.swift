@@ -4,76 +4,124 @@ import SwiftUI
 struct WarpVeilApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
 
+    // macOS 14 offers no way to declare an App with no scenes at all. This one is never shown:
+    // the Settings… item it would contribute is replaced so Cmd+, opens the real window instead.
     var body: some Scene {
         Settings { EmptyView() }
+            .commands {
+                CommandGroup(replacing: .appSettings) {
+                    Button("Settings…") { delegate.showWindow() }
+                        .keyboardShortcut(",")
+                }
+            }
     }
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
-    private var popover: NSPopover!
+    private var window: NSWindow!
     private let app = AppState()
     private var wasRunning = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.button?.image = NSImage(systemSymbolName: "shield.slash", accessibilityDescription: "WarpVeil")
 
-        if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "shield.slash", accessibilityDescription: "WarpVeil")
-            button.action = #selector(statusBarAction)
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-            button.target = self
-        }
+        let menu = NSMenu()
+        menu.delegate = self
+        statusItem.menu = menu
 
-        let contentView = ContentView(app: app)
-            .frame(width: 400, height: 640)
-
-        popover = NSPopover()
-        popover.contentSize = NSSize(width: 400, height: 640)
-        popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: contentView)
-
+        makeWindow()
         observeState()
         Task { await app.bootstrap() }
+        showWindow()
     }
 
-    // MARK: - Status Bar Actions
+    // MARK: - Window
 
-    @objc private func statusBarAction(_ sender: NSStatusBarButton) {
-        guard let event = NSApp.currentEvent else { return }
-        if event.type == .rightMouseUp {
-            showContextMenu(sender)
-        } else {
-            togglePopover(sender)
-        }
+    private func makeWindow() {
+        window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 640),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "WarpVeil"
+        // Turns close() into orderOut, so the SwiftUI graph and its @State survive hiding.
+        window.isReleasedWhenClosed = false
+
+        let host = NSHostingController(rootView: ContentView(app: app))
+        // Default sizing options pin minSize == maxSize to the content's intrinsic size,
+        // which leaves the window unable to change size from code.
+        host.sizingOptions = []
+        host.view.autoresizingMask = [.width, .height]
+        window.contentViewController = host
+        // Assigning a controller with no sizing options collapses the content height to zero.
+        window.setContentSize(NSSize(width: 400, height: 640))
+        window.center()
     }
 
-    private func togglePopover(_ sender: NSStatusBarButton) {
-        if popover.isShown {
-            popover.performClose(sender)
-        } else {
-            popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
-        }
+    func showWindow() {
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate()
     }
 
-    private func showContextMenu(_ sender: NSStatusBarButton) {
-        let menu = NSMenu()
-        let quit = NSMenuItem(title: "Quit WarpVeil", action: #selector(quitApp), keyEquivalent: "q")
-        quit.target = self
-        menu.addItem(quit)
-        statusItem.menu = menu
-        sender.performClick(nil)
-        statusItem.menu = nil
+    // MARK: - App Lifecycle
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        showWindow()
+        return false
     }
 
-    @objc private func quitApp() {
-        if app.pm.isRunning { app.pm.disconnect() }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    // Every quit path goes through here — Cmd+Q, the status menu, and dev-run.sh's AppleScript
+    // quit. ProcessManager's willTerminate observer disconnects inside a Task, so a plain
+    // terminate can exit before the root-owned engines are stopped.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard app.pm.isRunning else { return .terminateNow }
+        app.disconnect()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            NSApplication.shared.terminate(nil)
+            NSApp.reply(toApplicationShouldTerminate: true)
         }
+        return .terminateLater
     }
+
+    // MARK: - Status Menu
+
+    // Rebuilt on every open, so it always reflects live state without observing anything.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+
+        let status = app.pm.isRunning
+            ? "Connected — \(app.loc.flag) \(app.loc.ip)"
+            : "Disconnected"
+        menu.addItem(NSMenuItem(title: status, action: nil, keyEquivalent: ""))
+
+        menu.addItem(.separator())
+
+        let toggle = app.pm.isRunning
+            ? NSMenuItem(title: "Disconnect", action: #selector(disconnectAction), keyEquivalent: "")
+            : NSMenuItem(title: "Connect", action: #selector(connectAction), keyEquivalent: "")
+        toggle.target = self
+        menu.addItem(toggle)
+
+        let open = NSMenuItem(title: "Open WarpVeil", action: #selector(openAction), keyEquivalent: "")
+        open.target = self
+        menu.addItem(open)
+
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Quit WarpVeil",
+                                action: #selector(NSApplication.terminate(_:)),
+                                keyEquivalent: "q"))
+    }
+
+    @objc private func connectAction() { app.connect() }
+    @objc private func disconnectAction() { app.disconnect() }
+    @objc private func openAction() { showWindow() }
 
     // MARK: - Reactive State Observation
 
@@ -100,13 +148,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let iconName = app.pm.isRunning ? "checkmark.shield.fill" : "shield.slash"
         button.image = NSImage(systemSymbolName: iconName, accessibilityDescription: "WarpVeil")
-
-        if app.pm.isRunning {
-            button.title = " \(app.loc.flag)"
-        } else if !app.loc.flag.isEmpty {
-            button.title = " \(app.loc.flag)"
-        } else {
-            button.title = ""
-        }
+        button.title = app.loc.flag.isEmpty ? "" : " \(app.loc.flag)"
     }
 }
