@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class SubscriptionService: NSObject, URLSessionDelegate {
     var subscriptions: [Subscription] = []
+    var refreshingIDs: Set<UUID> = []
 
     private let configDir: URL = {
         let dir = FileManager.default.homeDirectoryForCurrentUser
@@ -100,8 +101,13 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
 
     func refreshSubscription(_ id: UUID) async {
         guard let idx = subscriptions.firstIndex(where: { $0.id == id }),
-              !subscriptions[idx].isManual
+              !subscriptions[idx].isManual,
+              !refreshingIDs.contains(id)
         else { return }
+
+        // A visible refresh button makes double-clicking easy; without this the two runs race.
+        refreshingIDs.insert(id)
+        defer { refreshingIDs.remove(id) }
 
         let urlString = subscriptions[idx].url
 
