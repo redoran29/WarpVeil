@@ -11,6 +11,8 @@ struct ServersView: View {
             serverListSection
                 .padding(.vertical, 12)
         }
+        .onAppear { app.pingAll() }
+        .onDisappear { app.ping.cancel() }
         .sheet(isPresented: $showAddSheet) {
             AddSubscriptionSheet(subs: app.subs)
         }
@@ -30,12 +32,22 @@ struct ServersView: View {
 
     private var serverListSection: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: 12) {
                 Text("SERVERS")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .tracking(1)
                 Spacer()
+                if app.ping.isRunning {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button("Ping all") { app.pingAll() }
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.indigo)
+                        .buttonStyle(.plain)
+                        .disabled(app.pm.isRunning)
+                        .help(app.pm.isRunning ? "Disconnect to measure" : "Measure every server")
+                }
                 Button("+ Add") { showAddSheet = true }
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.indigo)
@@ -43,6 +55,16 @@ struct ServersView: View {
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 8)
+
+            if let error = app.ping.error {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 8)
+            }
 
             if app.subs.subscriptions.isEmpty {
                 VStack(spacing: 8) {
@@ -65,7 +87,11 @@ struct ServersView: View {
                         subscriptionHeader(sub)
 
                         ForEach(sub.servers) { server in
-                            ServerRowView(server: server, isSelected: app.selectedServerID == server.id)
+                            ServerRowView(
+                                server: server,
+                                isSelected: app.selectedServerID == server.id,
+                                ping: app.ping.results[server.id]
+                            )
                                 .contentShape(Rectangle())
                                 .onTapGesture { app.selectedServerID = server.id }
                         }
@@ -128,6 +154,7 @@ struct ServersView: View {
 private struct ServerRowView: View {
     let server: Server
     let isSelected: Bool
+    let ping: PingResult?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -145,6 +172,8 @@ private struct ServerRowView: View {
             }
 
             Spacer()
+
+            pingLabel
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -152,6 +181,32 @@ private struct ServerRowView: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(isSelected ? Color.lavender.opacity(0.15) : .clear)
         )
+    }
+
+    @ViewBuilder
+    private var pingLabel: some View {
+        switch ping {
+        case .measuring:
+            ProgressView().controlSize(.small)
+        case .delay(let milliseconds):
+            Text("\(milliseconds) ms")
+                .font(.system(size: 12))
+                .monospacedDigit()
+                .foregroundStyle(Self.color(forDelay: milliseconds))
+        case .failed:
+            Text("--")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+        case nil:
+            EmptyView()
+        }
+    }
+
+    // A full HEAD request through the proxy, so the bands sit well above TCP-handshake numbers.
+    private static func color(forDelay milliseconds: Int) -> Color {
+        if milliseconds < 300 { return .green }
+        if milliseconds < 800 { return .yellow }
+        return .red
     }
 
     private var protocolLabel: String {
