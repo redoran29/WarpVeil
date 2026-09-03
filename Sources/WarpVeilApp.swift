@@ -24,8 +24,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let app = AppState()
     private var wasRunning = false
 
-    private static let windowWidth: CGFloat = 620
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "shield.slash", accessibilityDescription: "WarpVeil")
@@ -44,8 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func makeWindow() {
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: Self.windowWidth, height: 640),
-            styleMask: [.titled, .closable, .miniaturizable],
+            contentRect: NSRect(x: 0, y: 0, width: 960, height: 640),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -53,43 +51,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Turns close() into orderOut, so the SwiftUI graph and its @State survive hiding.
         window.isReleasedWhenClosed = false
 
-        // self.window is already assigned above: setting contentViewController triggers the
-        // first height measurement, which calls straight back into fitWindow.
-        let host = NSHostingController(rootView: ContentView(app: app) { [weak self] height in
-            self?.fitWindow(toContentHeight: height)
-        })
-        // Default sizing options pin minSize == maxSize to the content's intrinsic size,
-        // which leaves the window unable to change size from code.
-        host.sizingOptions = []
+        let host = NSHostingController(rootView: ContentView(app: app))
+        // The window owns its size; SwiftUI only contributes the minimum the columns need.
+        host.sizingOptions = [.minSize]
         host.view.autoresizingMask = [.width, .height]
         window.contentViewController = host
         // Assigning a controller with no sizing options collapses the content height to zero.
-        window.setContentSize(NSSize(width: Self.windowWidth, height: 640))
+        window.setContentSize(NSSize(width: 960, height: 640))
         window.center()
-    }
-
-    // Grows and shrinks the window to whatever the active page measured, keeping the title
-    // bar anchored: NSWindow's origin is bottom-left, so the origin moves with the height.
-    private func fitWindow(toContentHeight height: CGFloat) {
-        let contentRect = NSRect(x: 0, y: 0, width: Self.windowWidth, height: height)
-        let targetHeight = window.frameRect(forContentRect: contentRect).height
-
-        let available = (window.screen ?? NSScreen.main)?.visibleFrame.height ?? targetHeight
-        let clamped = min(targetHeight, available)
-
-        var frame = window.frame
-        guard abs(frame.height - clamped) > 0.5 else { return }
-        frame.origin.y += frame.height - clamped
-        frame.size.height = clamped
-
-        guard window.isVisible else {
-            window.setFrame(frame, display: false)
-            return
-        }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.25
-            window.animator().setFrame(frame, display: true)
-        }
+        // Restores the last frame on later launches; the first launch keeps the centred one.
+        window.setFrameAutosaveName("MainWindow")
     }
 
     func showWindow() {

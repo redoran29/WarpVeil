@@ -48,8 +48,6 @@ struct LogView: View {
                 }
                 .padding(8)
             }
-            // Fixed viewport: a LazyVStack measured under fixedSize lays out every row,
-            // so a cap on the scroll view is not enough here.
         }
     }
 }
