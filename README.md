@@ -1,13 +1,12 @@
 # WarpVeil
 
-Lightweight macOS menu bar app for managing **sing-box** and **xray** VPN connections.
+Lightweight macOS app for managing **sing-box** and **xray** VPN connections.
 
 ## Features
 
-- **Menu bar widget** — connection status, country flag, live traffic speed
+- **Menu bar status** — connection state and country flag, with connect/disconnect in its menu
 - **One-click connect/disconnect** with admin privileges
 - **Subscription support** — add via URL (`vless://`, `vmess://`) or JSON config
-- **Server ping** — TCP latency measurement with color indicators
 - **Domain bypass** — route specific domains outside the VPN tunnel
 - **Auto-reconnect** after sleep/wake
 - **Passwordless mode** — optional sudoers setup to skip password prompts
@@ -16,9 +15,9 @@ Lightweight macOS menu bar app for managing **sing-box** and **xray** VPN connec
 
 ## Screenshots
 
-| Servers | Settings |
-|---------|----------|
-| Power button, uptime timer, download/upload stats, server list with ping | Auto-connect, passwordless, kill switch, domain bypass, components |
+| Connection | Routing | Advanced | Logs |
+|------------|---------|----------|------|
+| Power button, uptime, traffic stats, location, servers grouped by subscription | Domain bypass | Auto-connect, passwordless, components | VPN log with copy and clear |
 
 ## Requirements
 
@@ -30,7 +29,7 @@ Lightweight macOS menu bar app for managing **sing-box** and **xray** VPN connec
 
 Download the latest `.zip` from [Releases](../../releases), unzip, and drag `WarpVeil.app` to `/Applications`.
 
-The app runs in the menu bar (no Dock icon). Right-click the tray icon to quit.
+Quit from the app menu or from the menu-bar icon.
 
 ## Build from Source
 
@@ -55,10 +54,14 @@ To bump version, edit `CFBundleShortVersionString` in `Info.plist`.
 
 ```
 Sources/
-├── WarpVeilApp.swift          # NSStatusItem + NSPopover, right-click menu
-├── ContentView.swift          # Tab bar (Servers / Settings), connect/disconnect
-├── ServersView.swift          # Power button, stats, server list with ping, log overlay
-├── SettingsView.swift         # Toggles, domain bypass, components info
+├── WarpVeilApp.swift          # Main window, menu-bar status item and its menu
+├── AppState.swift             # Owns every service, connect/disconnect, bootstrap
+├── ContentView.swift          # Pages and the tab header
+├── ConnectionView.swift       # Power button, stats, location, server list
+├── ServersView.swift          # Servers grouped by subscription
+├── RoutingView.swift          # Domain bypass
+├── AdvancedView.swift         # Auto-connect, passwordless, components
+├── LogView.swift              # VPN log
 ├── ProcessManager.swift       # VPN process lifecycle, sudo, log tailing, sleep/wake
 ├── SubscriptionService.swift  # Subscription fetch, vless/vmess URI parsing
 ├── SetupService.swift         # Bundled-binary detection & version reporting
