@@ -473,6 +473,24 @@ mode against the 26.5 SDK at the macOS 14 target in the probes.
 
 ---
 
+## Deviation — the sidebar is an icon rail after all
+
+The plan recommended the native `List` + `.listStyle(.sidebar)` and priced the 60-pt icon rail as
+rejected, because `NavigationSplitView` installs a sidebar toggle in its toolbar that the probe
+could not remove and that a rail with its own expand control would duplicate.
+
+The owner chose the rail. The toggle turned out to be removable after all:
+`.toolbar(removing: .sidebarToggle)` is macOS 14.0+ and typechecks at the project's target — the
+probe had simply not found it. So the rail lives inside the split view, keeps the column widths
+and the resizing behaviour described above, and owns the only expand control:
+`SidebarRail` in `ContentView.swift`, the column width switching between 60 and 180 on an
+`@AppStorage("sidebarExpanded")`.
+
+The reference's `+` and info buttons are not carried over: adding a subscription already has its
+button in the list header, and there is nothing for an info button to open.
+
+---
+
 ## Step 3 — Documentation
 
 **Commit:** `Document the three-column window`
