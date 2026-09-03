@@ -153,7 +153,7 @@ ${CHANGES}
 1. Download \`${ZIP_NAME}\`
 2. Unzip
 3. Drag ${APP_NAME}.app to /Applications
-4. Launch — the icon appears in the menu bar
+4. Launch — the window opens and the icon appears in the menu bar
 
 > Requires macOS 14+"
 
