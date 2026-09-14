@@ -188,9 +188,14 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - **Ping is a user-space measurement**: `PingService` runs the bundled sing-box with every server
   as an outbound behind `experimental.clash_api` on a free localhost port and asks
   `/proxies/<Server.id>/delay` per server; xray servers run behind a user-space xray with a socks
-  inbound each and are chained in as socks outbounds. No sudo, no TUN, one request per tag.
-  Works with the tunnel up: every outbound that leaves the machine is bound to the primary
-  interface (`bind_interface` / `streamSettings.sockopt.interface`), read from `SCDynamicStore`'s
+  inbound each and are chained in as socks outbounds. No sudo, no TUN. Every tag is measured in
+  three passes over the same engines and the minimum is reported: the first request through a
+  proxy carries its REALITY/TLS handshake, which puts every server at the same ~800 ms and hides
+  the real differences. Passes over all tags, not three requests in a row on one tag — that shape
+  was built and measured worse: only the sing-box rows warmed up, the xray rows stayed at ~700 ms
+  and three of them timed out, because simultaneous cold handshakes are themselves what makes a
+  request time out. Works with the tunnel up: every outbound that leaves the machine is bound to the
+  primary interface (`bind_interface` / `streamSettings.sockopt.interface`), read from `SCDynamicStore`'s
   `State:/Network/Global/IPv4` → `PrimaryInterface`, which stays physical because sing-box's TUN
   registers no configd service. The socks hops to xray are not pinned — loopback cannot be bound
   to a NIC. Nothing in `ProcessManager` touches a ping's engines
@@ -216,10 +221,13 @@ Write the simplest code that works. Prioritize readability over cleverness.
   default, and it rejects a delay request with no `timeout` — the URL must be HTTPS
 - sing-box prints nothing at `log.level: warn`, so a ping's readiness is `GET /` answering,
   not a log line
-- Two delay tests on one outbound tag at once time each other out — one request per tag
+- Two delay tests on one outbound tag at once time each other out — a ping pass measures each tag
+  once, tags run concurrently
 - `route get` answers the TUN while it is up; the physical interface is configd's
   `PrimaryInterface` (`scutil` → `show State:/Network/Global/IPv4`)
 - A wrong interface name in the ping fails silently — every row `--`, no error line
+- A single Clash delay test is a cold one: it pays the handshake to the proxy, so one request per
+  tag reads ~800 ms for every server and never moves between runs
 
 ---
 
