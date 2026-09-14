@@ -7,7 +7,6 @@ struct LogView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("Log")
-                    .font(.system(size: 14, weight: .semibold))
                 Spacer()
                 Button {
                     let text = app.pm.logs.joined(separator: "\n")
@@ -31,10 +30,10 @@ struct LogView: View {
                 .foregroundStyle(.secondary)
                 .help("Clear")
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-
-            Divider()
+            .font(.system(size: 13, weight: .semibold))
+            .padding(.horizontal, 30)
+            .padding(.top, 20)
+            .padding(.bottom, 10)
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -46,8 +45,14 @@ struct LogView: View {
                             .padding(.vertical, 0.5)
                     }
                 }
-                .padding(8)
+                .padding(10)
             }
+            // A grouped Form cannot host the log — it builds all 500 rows at once, its row
+            // separators and insets are fixed, and one Text of every line costs ~110 ms per
+            // update against ~11 ms here — so these are the Form's metrics copied by hand.
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .quaternarySystemFill)))
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
         }
     }
 }
