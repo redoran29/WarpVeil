@@ -1,9 +1,9 @@
 # Server ping: the real delay through each proxy
 
-Status: implemented and reviewed, **not closed**. Written against `6da3f4d`.
-It stays in `plans/` because the feature's only successful path has never been observed:
-every run so far went through a live tunnel, where every row fails by design. Move it to
-`plans/done/` after one run with the tunnel down — see the end of the Validation record.
+Status: implemented, reviewed and closed. Written against `6da3f4d`. The closing condition — one
+run where the rows actually carry delays — is met: `plans/done/ping-through-tunnel.md` made the
+measurement work with the tunnel up, and `plans/done/ping-warm-measurement.md` made the number
+mean something.
 
 Corrected 2026-09-03: fact 6 and the decision "Ping is unavailable while the tunnel is up" were
 wrong. Both are rewritten in place below with the original text kept; the follow-up is
