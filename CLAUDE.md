@@ -59,10 +59,10 @@ Sources/
 ├── AppState.swift             # Owns every service, the connect/disconnect logic and bootstrap
 ├── ContentView.swift          # Page enum, the split view and its collapsible icon rail
 ├── ConnectionView.swift       # Power button, status, stats, location — the right column
-├── ServersView.swift          # Server list grouped by subscription, add sheet — Servers page
+├── ServersView.swift          # Grouped Form, one section per subscription, add sheet
 ├── RoutingView.swift          # Domain bypass, grouped Form
 ├── AdvancedView.swift         # Auto-connect, passwordless, components, grouped Form
-├── LogView.swift              # VPN log with copy and clear
+├── LogView.swift              # VPN log with copy and clear, drawn as a grouped-Form card
 ├── ProcessManager.swift       # VPN process lifecycle, sudo/passwordless, log tailing, sleep/wake
 ├── SubscriptionService.swift  # Subscription fetch, vless:// and vmess:// parsing, config building
 ├── SetupService.swift         # Bundled-binary detection & version reporting
@@ -173,6 +173,15 @@ Write the simplest code that works. Prioritize readability over cleverness.
   view it compiles and does nothing; `.doubleColumn` hides the sidebar, not the middle column, so
   every sidebar item needs middle-column content. The frame is autosaved as `MainWindow`; the
   column widths are not
+- **Page chrome**: every middle-column page wears the grouped-`Form` look. Servers, Routing and
+  Advanced are real `Form { Section }`s. Logs is not: a grouped `Form` on macOS builds all 500 log
+  rows at once, its row separators and insets cannot be removed, and one `Text` of every line
+  costs ~110 ms per log update against ~11 ms for the `LazyVStack` — so `LogView` keeps
+  `ScrollView { LazyVStack }` and copies the Form's metrics by hand (13 pt semibold header at
+  30 pt, card 20 pt from the edges, corner radius 10, row inset 10, `quaternarySystemFill`).
+  A change to one of the two has to be made to the other. Servers' page header ("Servers", Ping
+  all, + Add) rides on the first subscription's section header, because a section with no rows
+  renders its header alone and drops the next header to footer style
 - **Quit path**: `applicationShouldTerminate` disconnects and waits 0.5 s before replying. Every
   quit goes through it — Cmd+Q, the status menu, `dev-run.sh`. `ProcessManager`'s
   `willTerminateNotification` observer disconnects inside a `Task`, so a plain terminate can exit
@@ -226,6 +235,10 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - `route get` answers the TUN while it is up; the physical interface is configd's
   `PrimaryInterface` (`scutil` → `show State:/Network/Global/IPv4`)
 - A wrong interface name in the ping fails silently — every row `--`, no error line
+- Inside a grouped `Form` on macOS, `listRowBackground`, `listRowSeparator` and `listRowInsets`
+  are no-ops and `listSectionSpacing` does not exist — draw row state on the row's own content
+- A grouped `Section` with a header and no rows renders the header alone and the next section's
+  header in footer style — keep every section non-empty
 - A single Clash delay test is a cold one: it pays the handshake to the proxy, so one request per
   tag reads ~800 ms for every server and never moves between runs
 
