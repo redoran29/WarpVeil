@@ -13,6 +13,9 @@ enum PingResult: Equatable {
 // server as an outbound behind its Clash API, whose delay test sends one HEAD request through
 // that outbound. xray servers sit behind a user-space xray with a SOCKS inbound each and are
 // chained in as socks outbounds — the shape the tunnel already uses for them. No sudo, no TUN.
+// Every tag is measured in several passes over the same engines and the minimum is reported: the
+// first request through a proxy pays its REALITY/TLS handshake, which puts every server at
+// ~800 ms and hides the ~50 ms that actually separate them.
 // Every outbound's dial is bound to the primary interface, so a tunnel that is up does not
 // swallow the probe. The bind covers the dial, not name resolution: a server given as a
 // hostname is still resolved by the system resolver, which the tunnel's hijack-dns catches
@@ -33,6 +36,7 @@ final class PingService {
     private static let testURL = "https://cp.cloudflare.com/generate_204"
     private static let timeoutMilliseconds = 5000
     private static let concurrency = 10
+    private static let passes = 3
     private static let readinessAttempts = 100
     private static let readinessInterval = Duration.milliseconds(30)
 
@@ -114,7 +118,16 @@ final class PingService {
         }
     }
 
+    // Passes over every tag, not repeats inside one: nine cold handshakes at once is also what
+    // makes a pass fail, and a tag that lost that race gets another chance instead of a `--`.
     private func measureAll(_ tags: [String], apiPort: UInt16) async {
+        for _ in 0..<Self.passes {
+            guard !Task.isCancelled else { return }
+            await measurePass(tags, apiPort: apiPort)
+        }
+    }
+
+    private func measurePass(_ tags: [String], apiPort: UInt16) async {
         var pending = tags[...]
         await withTaskGroup(of: (String, PingResult?).self) { group in
             func addNext() {
@@ -123,9 +136,21 @@ final class PingService {
             }
             for _ in 0..<Self.concurrency { addNext() }
             for await (tag, result) in group {
-                results[tag] = result
+                record(result, for: tag)
                 addNext()
             }
+        }
+    }
+
+    // The minimum across the passes is the value the handshake cannot inflate. A pass that fails
+    // after another one measured does not erase that measurement, and no answer at all means the
+    // engines are gone — the row keeps whatever it already shows.
+    private func record(_ result: PingResult?, for tag: String) {
+        switch (result, results[tag]) {
+        case (nil, _): return
+        case (.delay(let measured), .delay(let best)): results[tag] = .delay(min(measured, best))
+        case (.failed, .delay): return
+        default: results[tag] = result
         }
     }
 
@@ -134,8 +159,8 @@ final class PingService {
             URLQueryItem(name: "url", value: Self.testURL),
             URLQueryItem(name: "timeout", value: String(Self.timeoutMilliseconds))
         ]
-        // No answer at all means the engine is gone — the run was cancelled — and the row goes
-        // back to unmeasured rather than to a failure it did not have.
+        // No answer at all means the engine is gone — the run was cancelled — which `record`
+        // keeps apart from a failure the server did not have.
         guard let (data, status) = await api("/proxies/\(tag)/delay", query: query, apiPort: apiPort) else {
             return nil
         }
