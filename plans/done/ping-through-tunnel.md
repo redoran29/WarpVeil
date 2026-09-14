@@ -1,6 +1,6 @@
 # Ping through the tunnel: bind the probe to the physical interface
 
-Status: plan, not yet implemented. Written against `82bc6c7` (clean tree). Second draft: the
+Status: implemented in `f54f4ec`, `acbb16a` and `d93901b`; the plan was corrected in `d79c56a`. Second draft: the
 first one kept the ping's engines out of `run.sh`'s `pkill -f` by spelling their argv differently;
 the owner rejected that and chose the root fix — `run.sh` kills by the PID files it already
 writes. `ProcessManager` is therefore in scope.
