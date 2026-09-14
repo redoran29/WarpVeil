@@ -18,6 +18,14 @@ struct ServersView: View {
 
             ForEach(Array(app.subs.subscriptions.enumerated()), id: \.element.id) { index, sub in
                 Section {
+                    // A subscription is saved before its first fetch lands, and an empty section
+                    // would render its header alone and drop the next one to footer style.
+                    if sub.servers.isEmpty {
+                        Text("No servers yet")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+
                     ForEach(sub.servers) { server in
                         ServerRowView(
                             server: server,
