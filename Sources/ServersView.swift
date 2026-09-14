@@ -7,10 +7,37 @@ struct ServersView: View {
     @State private var subscriptionToDelete: Subscription?
 
     var body: some View {
-        ScrollView {
-            serverListSection
-                .padding(.vertical, 12)
+        Form {
+            if app.subs.subscriptions.isEmpty {
+                Section {
+                    emptyState
+                } header: {
+                    pageHeader
+                }
+            }
+
+            ForEach(Array(app.subs.subscriptions.enumerated()), id: \.element.id) { index, sub in
+                Section {
+                    ForEach(sub.servers) { server in
+                        ServerRowView(
+                            server: server,
+                            isSelected: app.selectedServerID == server.id,
+                            ping: app.ping.results[server.id]
+                        )
+                            .contentShape(Rectangle())
+                            .onTapGesture { app.selectedServerID = server.id }
+                    }
+                } header: {
+                    // A section with no rows renders its header alone and drops the next header
+                    // to footer style, so the page header rides on the first subscription.
+                    VStack(alignment: .leading, spacing: 10) {
+                        if index == 0 { pageHeader }
+                        subscriptionHeader(sub)
+                    }
+                }
+            }
         }
+        .formStyle(.grouped)
         .onAppear { app.pingAll() }
         // At launch the page appears before the feeds land, and pingAll() waits for them.
         .onChange(of: app.isBootstrapped) { app.pingAll() }
@@ -30,83 +57,55 @@ struct ServersView: View {
         }
     }
 
-    // MARK: - Server List
+    // MARK: - Headers
 
-    private var serverListSection: some View {
-        VStack(spacing: 0) {
+    private var pageHeader: some View {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 12) {
-                Text("SERVERS")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .tracking(1)
+                Text("Servers")
                 Spacer()
                 if app.ping.isRunning {
                     ProgressView().controlSize(.small)
                 } else {
                     Button("Ping all") { app.pingAll() }
-                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.indigo)
                         .buttonStyle(.plain)
                         .help("Measure every server")
                 }
                 Button("+ Add") { showAddSheet = true }
-                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.indigo)
                     .buttonStyle(.plain)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 8)
 
             if let error = app.ping.error {
                 Text(error)
                     .font(.system(size: 11))
                     .foregroundStyle(.red)
                     .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 8)
-            }
-
-            if app.subs.subscriptions.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "server.rack")
-                        .font(.system(size: 28))
-                        .foregroundStyle(.quaternary)
-                    Text("No servers")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                    Button("Add subscription") { showAddSheet = true }
-                        .font(.system(size: 12))
-                        .foregroundStyle(.indigo)
-                        .buttonStyle(.plain)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 32)
-            } else {
-                VStack(spacing: 2) {
-                    ForEach(app.subs.subscriptions) { sub in
-                        subscriptionHeader(sub)
-
-                        ForEach(sub.servers) { server in
-                            ServerRowView(
-                                server: server,
-                                isSelected: app.selectedServerID == server.id,
-                                ping: app.ping.results[server.id]
-                            )
-                                .contentShape(Rectangle())
-                                .onTapGesture { app.selectedServerID = server.id }
-                        }
-                    }
-                }
-                .padding(.horizontal, 12)
             }
         }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "server.rack")
+                .font(.system(size: 28))
+                .foregroundStyle(.quaternary)
+            Text("No servers")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+            Button("Add subscription") { showAddSheet = true }
+                .font(.system(size: 12))
+                .foregroundStyle(.indigo)
+                .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 32)
     }
 
     private func subscriptionHeader(_ sub: Subscription) -> some View {
         HStack(spacing: 6) {
             Text(sub.name)
-                .font(.system(size: 12, weight: .semibold))
                 .lineLimit(1)
 
             // A manual subscription's lastUpdated is the moment it was added, which
@@ -143,9 +142,6 @@ struct ServersView: View {
             .foregroundStyle(.secondary)
             .help("Delete subscription")
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 14)
-        .padding(.bottom, 6)
     }
 
 }
@@ -176,10 +172,10 @@ private struct ServerRowView: View {
 
             pingLabel
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
         .background(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 6)
                 .fill(isSelected ? Color.lavender.opacity(0.15) : .clear)
         )
     }
