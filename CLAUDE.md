@@ -136,7 +136,9 @@ saved frame, and the dev bundle id has its own defaults so its frame is separate
 Builds Release into `build/` (shared with `release.sh`, which wipes it; otherwise incremental),
 signs the way `release.sh` does (Developer ID if present, ad-hoc otherwise, no notarization),
 quits the installed copy, replaces `/Applications/WarpVeil.app` and relaunches it. No flags.
-`/Applications` is admin-writable, so the replacement itself needs no sudo.
+`/Applications` is admin-writable, so the replacement itself needs no sudo. The new bundle is
+staged as `/Applications/.WarpVeil.app.new` and renamed in — a failed copy must not leave
+`/Applications` with no app after the old one is already quit.
 
 The quit goes to `application "/Applications/WarpVeil.app"` by path, because the bundle id is
 shared with any Xcode-launched copy, and waits up to 35 s — the app's own quit path waits 30 s
@@ -144,8 +146,10 @@ for its teardown, a password dialog when passwordless is off. Engines still aliv
 swept by the **installed** copy's version tag (read from its `Info.plist`), not the one being
 built: after a version bump the new `run.sh` cannot see the old tag's PID files. An
 Xcode-launched copy of the same version shares those files and loses its tunnel too. The sweep
-is `sudo stop.sh` of that tag when installed, else `sudo kill`. Stale root-owned PID files are
-left for `kill_pid_file` at the next connect.
+is `sudo stop.sh` of that tag when installed, else `sudo kill`, and a PID is signalled only
+while its executable is one of our engines. Under the same version a stale PID file is dropped
+by `kill_pid_file` at the next connect; after a bump the old tag's PID files, sudoers entry and
+libexec directory stay behind — nothing removes them.
 
 Callable from anywhere via `ln -sf "$PWD/install.sh" ~/.local/bin/warpveil-install`; the script
 resolves its own path with `readlink -f`.
@@ -202,8 +206,10 @@ Write the simplest code that works. Prioritize readability over cleverness.
   A change to one of the two has to be made to the other. Servers' page header ("Servers", Ping
   all, + Add) rides on the first subscription's section header, because a section with no rows
   renders its header alone and drops the next header to footer style
-- **Quit path**: `applicationShouldTerminate` disconnects and waits 0.5 s before replying. Every
-  quit goes through it — Cmd+Q, the status menu, `dev-run.sh`. `ProcessManager`'s
+- **Quit path**: `applicationShouldTerminate` disconnects and replies `.terminateLater`, waiting
+  up to 30 s for the teardown — with passwordless off that teardown is a password dialog, so
+  anything that kills the app on a timer has to outwait it. Every quit goes through it — Cmd+Q,
+  the status menu, `dev-run.sh`, `install.sh`. `ProcessManager`'s
   `willTerminateNotification` observer disconnects inside a `Task`, so a plain terminate can exit
   before the root engines are stopped
 - **Apple Silicon only**: `ARCHS = arm64`, and `fetch-binaries.sh` pulls arm64 assets. Intel support, if ever needed, is a separate piece of work
@@ -262,7 +268,7 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - A single Clash delay test is a cold one: it pays the handshake to the proxy, so one request per
   tag reads ~800 ms for every server and never moves between runs
 - `kill -0` on a root-owned engine from the user's shell fails with "not permitted", which reads
-  as "dead" — the scripts check liveness with `ps -p`
+  as "dead" — the scripts read `ps -o comm=` instead, which also keeps them off a recycled PID
 
 ---
 
