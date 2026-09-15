@@ -103,12 +103,13 @@ wrapper, because it is the only sing-box in the topology.
 
 ## Build & Run
 
-Build through Xcode, or through `./dev-run.sh` — never `swift build`, the app needs a real
-bundle with `Info.plist`.
+Build through Xcode, `./dev-run.sh` or `./install.sh` — never `swift build`, the app needs a
+real bundle with `Info.plist`.
 
 1. `./fetch-binaries.sh` once, to populate `Binaries/`.
 2. `WarpVeil.xcodeproj` → Cmd+R.
 3. `./release.sh` for a signed + notarized build (`NOTARY_PROFILE` required for notarization).
+4. `./install.sh` to build Release without Xcode and replace `/Applications/WarpVeil.app`.
 
 ### dev-run.sh
 
@@ -129,6 +130,25 @@ the TUN, it does not take the tunnel over.
 `--watch` is a rebuild-and-relaunch loop, not hot reload: in-memory state resets on every
 change, `@AppStorage` survives. Each relaunch activates the app; the window comes back at its
 saved frame, and the dev bundle id has its own defaults so its frame is separate.
+
+### install.sh
+
+Builds Release into `build/` (shared with `release.sh`, which wipes it; otherwise incremental),
+signs the way `release.sh` does (Developer ID if present, ad-hoc otherwise, no notarization),
+quits the installed copy, replaces `/Applications/WarpVeil.app` and relaunches it. No flags.
+`/Applications` is admin-writable, so the replacement itself needs no sudo.
+
+The quit goes to `application "/Applications/WarpVeil.app"` by path, because the bundle id is
+shared with any Xcode-launched copy, and waits up to 35 s — the app's own quit path waits 30 s
+for its teardown, a password dialog when passwordless is off. Engines still alive afterwards are
+swept by the **installed** copy's version tag (read from its `Info.plist`), not the one being
+built: after a version bump the new `run.sh` cannot see the old tag's PID files. An
+Xcode-launched copy of the same version shares those files and loses its tunnel too. The sweep
+is `sudo stop.sh` of that tag when installed, else `sudo kill`. Stale root-owned PID files are
+left for `kill_pid_file` at the next connect.
+
+Callable from anywhere via `ln -sf "$PWD/install.sh" ~/.local/bin/warpveil-install`; the script
+resolves its own path with `readlink -f`.
 
 ---
 
@@ -241,6 +261,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
   header in footer style — keep every section non-empty
 - A single Clash delay test is a cold one: it pays the handshake to the proxy, so one request per
   tag reads ~800 ms for every server and never moves between runs
+- `kill -0` on a root-owned engine from the user's shell fails with "not permitted", which reads
+  as "dead" — the scripts check liveness with `ps -p`
 
 ---
 

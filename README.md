@@ -38,6 +38,7 @@ Quit from the app menu or from the menu-bar icon.
 
 1. Run `./fetch-binaries.sh` once to populate `Binaries/` with arm64 `sing-box` and `xray` binaries (pinned versions, sha256-verified).
 2. Open `WarpVeil.xcodeproj` in Xcode and press **Cmd+R**. The "Bundle VPN Binaries" build phase copies them into `WarpVeil.app/Contents/Resources/`.
+3. Or skip Xcode: `./install.sh` builds Release, signs it (Developer ID when the keychain has one, ad-hoc otherwise), quits the installed copy, replaces `/Applications/WarpVeil.app` and relaunches it. To call it from anywhere: `ln -sf "$PWD/install.sh" ~/.local/bin/warpveil-install`.
 
 > Do not use `swift build` — the project requires a proper `.app` bundle with `Info.plist`.
 
