@@ -174,6 +174,9 @@ No Swift changes. No new runtime files. No new `.gitignore` entries.
 
 ### `install.sh`
 
+The draft below is the pre-review shape. `install.sh` in the repo is the source of truth —
+`/code-review` changed five things in it after implementation, listed under "Review fixes".
+
 ```bash
 #!/bin/bash
 set -euo pipefail
@@ -447,3 +450,34 @@ ad-hoc signing, the sweep of the Xcode copy's `sing-box` (pid 29805) through
 `codesign --verify --deep --strict` valid, both engines in `Contents/Resources/`, no engine left
 running. The installed copy was not running beforehand, so the quit path was exercised only by
 its detection (`installed_is_running` → false).
+
+## Review fixes
+
+`/code-review` over `03489c9^..HEAD` found 13 items. Applied in `19a184f` (install.sh),
+`8811c72` (dev-run.sh) and `cb67922` (canon):
+
+- **`live_engine_pids` aborted the script.** A PID file holding a dead PID made the function
+  return the failing `ps`, and `leftovers=$(… | …)` under `set -euo pipefail` exited the script
+  silently — after the app was quit and before anything was installed. Reproduced in isolation
+  (rc=1, the line after the call never ran). The engine test is now a `case`, which exits 0 when
+  nothing matches. The same shape was in `dev-run.sh`, with `kill -0`, since before this plan.
+- **A PID was signalled without checking whose it is**, against the canon's "nothing else on the
+  machine is touched". Now mirrors `kill_pid_file`: `ps -o comm=` must end in `sing-box` or
+  `xray`. That is also the liveness test, so `ps -p` is gone.
+- **The replacement was not staged.** `rm -rf` before `ditto` meant a full disk or a Ctrl+C left
+  `/Applications` with no app. Now `ditto` to `/Applications/.WarpVeil.app.new`, then rename.
+- **Nothing waited for the TUN.** `sudo kill` returns before sing-box releases `utun`, and
+  `open -n` followed two lines later. Both scripts now poll `live_engine_pids` for up to 5 s.
+- **`dev-run.sh` pkilled the dev copy 3 s into a 30 s teardown**, i.e. under the password dialog
+  that teardown opens when passwordless is off — the same defect this plan fixed in `install.sh`
+  and did not carry back. Its wait is 35 s now, and the sweep's own lines go to stderr, because
+  both callers run `stop_dev >/dev/null` and the `sudo` prompt arrived with no explanation.
+- **The canon said the quit path waits 0.5 s**; `WarpVeilApp.swift:94` is
+  `awaitTeardown(timeout: 30)`. Every script's kill timer is sized against that number.
+- `installed_tag` now survives a broken installed `Info.plist`; the unreachable "Build failed"
+  message says what it actually checks; `local f`; `dev-run.sh`'s `rm -f` of root-owned PID files
+  in sticky `/tmp` is deleted — it never removed anything.
+
+Declined: extracting the sweep into a shared shell helper. Two shell callers, and the canon's
+threshold is three — `ProcessManager.killPidFileFunction` is not a third caller of a bash
+function. The duplication is now identical in both files, comment for comment.
