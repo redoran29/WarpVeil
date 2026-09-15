@@ -4,6 +4,10 @@ struct LogView: View {
     var app: AppState
 
     var body: some View {
+        // Snapshot: the tail trims logs to 500 whenever they pass 600, and SwiftUI re-runs a
+        // row's closure with the index it was built for — read live, that index is gone.
+        let lines = app.pm.logs
+
         VStack(spacing: 0) {
             HStack {
                 Text("Log")
@@ -37,8 +41,8 @@ struct LogView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(app.pm.logs.indices.reversed(), id: \.self) { index in
-                        Text(app.pm.logs[index])
+                    ForEach(lines.indices.reversed(), id: \.self) { index in
+                        Text(lines[index])
                             .font(.system(size: 10, design: .monospaced))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
