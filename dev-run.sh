@@ -47,7 +47,8 @@ live_engine_pids() {
         [ -f "$f" ] || continue
         pid=$(cat "$f" 2>/dev/null || true)
         [[ "$pid" =~ ^[0-9]+$ ]] || continue
-        kill -0 "$pid" 2>/dev/null && echo "$pid"
+        # Not kill -0: the engines are root's, and that says "not permitted" from here.
+        ps -p "$pid" >/dev/null 2>&1 && echo "$pid"
     done
 }
 
