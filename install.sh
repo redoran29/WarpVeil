@@ -27,13 +27,16 @@ BUILT_APP="$BUILD_DIR/${APP_NAME}.app"
 RESOURCES_DIR="$BUILT_APP/Contents/Resources"
 INSTALLED_APP="/Applications/${APP_NAME}.app"
 INSTALLED_BIN="$INSTALLED_APP/Contents/MacOS/${APP_NAME}"
+# Staged next to the target, on the same volume, so the swap is a rename.
+STAGED_APP="/Applications/.${APP_NAME}.app.new"
 
 # The engines belong to the version that started them — the installed copy's, not the one
 # being built. After a version bump the new run.sh only looks at its own tag's PID files.
 installed_tag() {
     local plist="$INSTALLED_APP/Contents/Info.plist" version
     [ -f "$plist" ] || return 0
-    version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist")
+    version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist" 2>/dev/null) || return 0
+    [ -n "$version" ] || return 0
     echo "${version//./-}"
 }
 
@@ -49,13 +52,18 @@ installed_is_running() {
 
 # PIDs from the installed version's PID files that are still alive.
 live_engine_pids() {
-    local pid
+    local f pid
     for f in "${PID_FILES[@]}"; do
         [ -f "$f" ] || continue
         pid=$(cat "$f" 2>/dev/null || true)
         [[ "$pid" =~ ^[0-9]+$ ]] || continue
-        # Not kill -0: the engines are root's, and that says "not permitted" from here.
-        ps -p "$pid" >/dev/null 2>&1 && echo "$pid"
+        # Mirrors kill_pid_file in ProcessManager: a PID is ours only while its executable is
+        # one of our engines — PIDs are recycled, and a crash leaves the file behind. Not
+        # kill -0: the engines are root's, and that says "not permitted" from here. case with
+        # no match exits 0, so a stale PID cannot trip set -e through the caller's pipeline.
+        case "$(ps -o comm= -p "$pid" 2>/dev/null)" in
+            *sing-box|*xray) echo "$pid" ;;
+        esac
     done
 }
 
@@ -86,8 +94,13 @@ stop_installed() {
     if [ -x "$STOP_SH" ]; then
         sudo "$STOP_SH" || true
     else
+        # Unlike stop.sh, a bare kill returns before sing-box has released the TUN.
         sudo kill $leftovers || true
     fi
+    for _ in $(seq 1 50); do
+        [ -n "$(live_engine_pids)" ] || break
+        sleep 0.1
+    done
     echo "stopped: VPN engines"
 }
 
@@ -108,7 +121,7 @@ xcodebuild -project "$PROJECT" \
     -quiet
 
 if [ ! -d "$BUILT_APP" ]; then
-    echo "Build failed"
+    echo "ERROR: no app produced at $BUILT_APP" >&2
     exit 1
 fi
 
@@ -141,8 +154,10 @@ fi
 
 # --- Replace the installed copy ---
 stop_installed
+rm -rf "$STAGED_APP"
+ditto "$BUILT_APP" "$STAGED_APP"
 rm -rf "$INSTALLED_APP"
-ditto "$BUILT_APP" "$INSTALLED_APP"
+mv "$STAGED_APP" "$INSTALLED_APP"
 echo "installed: $INSTALLED_APP"
 
 open -n "$INSTALLED_APP"
