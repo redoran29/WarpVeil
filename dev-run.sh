@@ -42,21 +42,28 @@ dev_is_running() {
 
 # PIDs from the dev PID files that are still alive.
 live_engine_pids() {
-    local pid
+    local f pid
     for f in "${DEV_PID_FILES[@]}"; do
         [ -f "$f" ] || continue
         pid=$(cat "$f" 2>/dev/null || true)
         [[ "$pid" =~ ^[0-9]+$ ]] || continue
-        # Not kill -0: the engines are root's, and that says "not permitted" from here.
-        ps -p "$pid" >/dev/null 2>&1 && echo "$pid"
+        # Mirrors kill_pid_file in ProcessManager: a PID is ours only while its executable is
+        # one of our engines — PIDs are recycled, and a crash leaves the file behind. Not
+        # kill -0: the engines are root's, and that says "not permitted" from here. case with
+        # no match exits 0, so a stale PID cannot trip set -e through the caller's pipeline.
+        case "$(ps -o comm= -p "$pid" 2>/dev/null)" in
+            *sing-box|*xray) echo "$pid" ;;
+        esac
     done
 }
 
 stop_dev() {
     if dev_is_running; then
-        # Quit properly first — that path lets the app tear down its own engines.
+        # Quit properly first — that path lets the app tear down its own engines. The app
+        # waits up to 30 s for that teardown (a password dialog when passwordless is off),
+        # so this wait is longer than that.
         osascript -e "tell application id \"$DEV_BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
-        for _ in $(seq 1 15); do
+        for _ in $(seq 1 175); do
             dev_is_running || break
             sleep 0.2
         done
@@ -75,14 +82,18 @@ stop_dev() {
     leftovers=$(live_engine_pids | tr '\n' ' ' | sed 's/ *$//')
     [ -n "$leftovers" ] || return 0
 
-    echo "dev VPN engines still up (pid: $leftovers) — needs admin"
+    echo "dev VPN engines still up (pid: $leftovers) — needs admin" >&2
     if [ -x "$DEV_STOP_SH" ]; then
         sudo "$DEV_STOP_SH" || true
     else
+        # Unlike stop.sh, a bare kill returns before sing-box has released the TUN.
         sudo kill $leftovers || true
     fi
-    rm -f "${DEV_PID_FILES[@]}" 2>/dev/null || true
-    echo "stopped: dev VPN engines"
+    for _ in $(seq 1 50); do
+        [ -n "$(live_engine_pids)" ] || break
+        sleep 0.1
+    done
+    echo "stopped: dev VPN engines" >&2
 }
 
 build_dev() {
