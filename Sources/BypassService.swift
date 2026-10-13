@@ -80,7 +80,8 @@ enum BypassService {
         var namesZone = trimmed.hasPrefix(".") || trimmed.hasPrefix("*.")
         if trimmed.hasPrefix("*.") { trimmed.removeFirst(2) }
         while trimmed.hasPrefix(".") { trimmed.removeFirst() }
-        guard !trimmed.isEmpty else { return nil }
+        // One wildcard only: a second one is a typo, and stripping it too would widen it to a zone.
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("*") else { return nil }
         let url = trimmed.contains("://") ? trimmed : "https://" + trimmed
         guard var host = URLComponents(string: url)?.encodedHost?.lowercased() else { return nil }
         if host.hasPrefix("*.") {

@@ -521,7 +521,7 @@ let cases: [(String, String?)] = [
     ("госуслуги.рф", "xn--c1aapkosapc.xn--p1ai"), ("https://госуслуги.рф/", "xn--c1aapkosapc.xn--p1ai"),
     ("*.example.com", "example.com"), (".example.com", "example.com"), ("example.com.", "example.com"),
     ("example.com:8443", "example.com"), ("user@example.com", "example.com"), ("sub.domain.example.co.uk", "sub.domain.example.co.uk"),
-    ("a b.com", nil), ("1.2.3.4", nil), ("[::1]", nil), ("::1", nil), ("localhost", nil), ("ru", nil), ("youtubecom", nil), (".ru", "ru"), ("*.ru", "ru"), (".рф", "xn--p1ai"), ("рф", nil), (".a", nil), (".1234", nil),
+    ("a b.com", nil), ("1.2.3.4", nil), ("[::1]", nil), ("::1", nil), ("localhost", nil), ("ru", nil), ("youtubecom", nil), (".ru", ".ru"), ("*.ru", ".ru"), (".рф", ".xn--p1ai"), ("https://*.foo.com", "foo.com"), ("https://*.ru", ".ru"), ("https://*.рф/", ".xn--p1ai"), ("*.*.ru", nil), ("https://*.*.ru", nil), ("**.ru", nil), ("*.*.example.com", nil), ("рф", nil), (".a", nil), (".1234", nil),
     ("", nil), ("   ", nil), ("-bad.com", nil), ("bad-.com", nil), ("ex_ample.com", nil),
     (String(repeating: "a", count: 64) + ".com", nil),
 ]
@@ -534,11 +534,17 @@ let parsed = BypassService.parseDomains("Example.com, https://госуслуги
 check(parsed.domains == ["example.com", "xn--c1aapkosapc.xn--p1ai", "bar.org"], "parseDomains: order kept, duplicates dropped")
 check(parsed.rejected == ["foo", "1.2.3.4"], "parseDomains: rejected tokens verbatim")
 let sentence = BypassService.parseDomains("bypass google.com and .me")
-check(sentence.domains == ["google.com", "me"] && sentence.rejected == ["bypass", "and"], "parseDomains: words stay out, .me is a TLD")
+check(sentence.domains == ["google.com", ".me"] && sentence.rejected == ["bypass", "and"], "parseDomains: words stay out, .me is a TLD")
+let legacyRows = ["*.YouTube.com", "https://Example.org/path", "10.0.0.1", "example.org", "ru", "рф", ".su", "youtube.com", "a.com, b.com", ".ru", "youtube.com googlevideo com"]
+var seenRows = Set<String>()
+let routedRows = legacyRows.compactMap(BypassService.normalizeDomain).filter { seenRows.insert($0).inserted }
+check(routedRows == ["youtube.com", "example.org", ".su", ".ru"], "legacy rows, one by one, as AppState hands them to the engine -> \(routedRows)")
 let commaURL = BypassService.parseDomains("https://maps.example.com/@55.7,37.6,12z")
-check(commaURL.domains == ["maps.example.com"] && commaURL.rejected.isEmpty, "parseDomains: a URL keeps its commas")
+check(commaURL.domains == ["maps.example.com"] && commaURL.rejected == ["37.6", "12z"], "parseDomains: a URL's comma tail stays in the field")
 let mixed = BypassService.parseDomains("a.com,https://b.com https://c.com/x,https://d.com https://e.com,f.com")
 check(mixed.domains == ["a.com", "b.com", "c.com", "d.com", "e.com", "f.com"] && mixed.rejected.isEmpty, "parseDomains: comma lists mixing URLs and domains")
+let trailing = BypassService.parseDomains("https://youtube.com/,google.com")
+check(trailing.domains == ["youtube.com", "google.com"] && trailing.rejected.isEmpty, "parseDomains: a domain after a URL and a comma")
 let single = BypassService.parseDomains("a b.com")
 check(single.domains == ["b.com"] && single.rejected == ["a"], "parseDomains: 'a b.com'")
 let none = BypassService.parseDomains("  ,  ")
@@ -551,7 +557,7 @@ swiftc -target arm64-apple-macosx14.0 main.swift \
   "/Users/lortan29/Documents/Home Projects/vpn-swift/Sources/BypassService.swift" -o harness && ./harness
 ```
 
-Expect every line `ok` and `ALL OK` (52 checks after both review passes). `fitTunToHost` has its
+Expect every line `ok` and `ALL OK` (61 checks after the fifth review pass). `fitTunToHost` has its
 own harness, compiled the same way:
 
 ```swift
@@ -1007,3 +1013,19 @@ Not fixed, with the reason:
   read answer "IPv6 present", which is right at connect but made the periodic check restart a v4-only
   host into an IPv6 TUN on a configd hiccup. `hostIPv6State()` returns `Bool?`; connect reads nil as
   yes, the check skips on nil.
+- **R29. A second wildcard is rejected** (finding 7): `*.*.ru` stripped one `*.` from the raw
+  input and the other from the parsed host, and came out as the zone `.ru` — a typo widened to
+  every .ru site. `*.*.ru`, `https://*.*.ru`, `**.ru` and `*.*.example.com` are now nil. The
+  harness in Verification 2 is the one that ran: 61/61 ok.
+
+Stopped here, not fixed — the review loop no longer converges on these. Across passes the
+reviewers asked for opposite shapes (a trailing debounce, then a first-change check, then a
+trailing one with a cap; a launch migration, then none, then one again; split legacy rows, then
+not, then yes), and the owner's stored list is empty, so none of it touches him today. They go
+to the owner as decisions, with the rest that is open:
+
+- Finding 3: the IPv6 check's shape — first-change (now) or a debounce with a max wait.
+- Findings 5, 6, 8, 9, 10: legacy rows — flagged and left out (now), split into tokens, or a
+  one-time migration; with that, whether a typed domain already covered by a legacy row is added
+  as its own row.
+- Finding 11 (this pass) and finding 13 (fourth pass): the plan in `done/` with these open.
