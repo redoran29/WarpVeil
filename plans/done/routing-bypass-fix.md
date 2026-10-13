@@ -504,7 +504,10 @@ r["rules"] = [["action": "hijack-dns", "protocol": "dns"] as [String: Any],
               ["action": "route", "outbound": "proxy", "domain_suffix": ["example.com"]] as [String: Any]]
 mid["route"] = r
 let midOut = BypassService.injectSingBox(json(mid), domains: domains)
-check(actions(of: midOut) == ["hijack-dns", "route", "sniff", "route", "route"] && (rules(of: midOut)[3]["outbound"] as? String) == "direct", "conditioned sniff mid-list: inserted right after it")
+check(actions(of: midOut) == ["sniff", "route", "hijack-dns", "route", "sniff", "route"] && (rules(of: midOut)[1]["outbound"] as? String) == "direct", "conditioned sniff only: own sniff at 0, bypass at 1")
+var timed = parse(serverConfig()); r = timed["route"] as! [String: Any]
+r["rules"] = [["action": "hijack-dns", "protocol": "dns"] as [String: Any], ["action": "sniff", "timeout": "1s"] as [String: Any]]; timed["route"] = r
+check(actions(of: BypassService.injectSingBox(json(timed), domains: domains)) == ["hijack-dns", "sniff", "route"], "sniff with only a timeout counts as unconditional")
 
 check(BypassService.injectSingBox(serverConfig(), domains: []) == serverConfig(), "empty domains: unchanged")
 check(BypassService.injectSingBox("not json", domains: domains) == "not json", "invalid json: unchanged")
@@ -515,7 +518,7 @@ let cases: [(String, String?)] = [
     ("госуслуги.рф", "xn--c1aapkosapc.xn--p1ai"), ("https://госуслуги.рф/", "xn--c1aapkosapc.xn--p1ai"),
     ("*.example.com", "example.com"), (".example.com", "example.com"), ("example.com.", "example.com"),
     ("example.com:8443", "example.com"), ("user@example.com", "example.com"), ("sub.domain.example.co.uk", "sub.domain.example.co.uk"),
-    ("a b.com", nil), ("1.2.3.4", nil), ("[::1]", nil), ("::1", nil), ("localhost", nil), ("example", nil),
+    ("a b.com", nil), ("1.2.3.4", nil), ("[::1]", nil), ("::1", nil), ("localhost", "localhost"), ("ru", "ru"), (".ru", "ru"), ("рф", "xn--p1ai"), ("a", nil), ("1234", nil),
     ("", nil), ("   ", nil), ("-bad.com", nil), ("bad-.com", nil), ("ex_ample.com", nil),
     (String(repeating: "a", count: 64) + ".com", nil),
 ]
@@ -525,8 +528,10 @@ for (input, expected) in cases {
 }
 
 let parsed = BypassService.parseDomains("Example.com, https://госуслуги.рф/x  foo\nbar.org,1.2.3.4 example.com")
-check(parsed.domains == ["example.com", "xn--c1aapkosapc.xn--p1ai", "bar.org"], "parseDomains: order kept, duplicates dropped")
-check(parsed.rejected == ["foo", "1.2.3.4"], "parseDomains: rejected tokens verbatim")
+check(parsed.domains == ["example.com", "xn--c1aapkosapc.xn--p1ai", "foo", "bar.org"], "parseDomains: order kept, duplicates dropped")
+check(parsed.rejected == ["1.2.3.4"], "parseDomains: rejected tokens verbatim")
+let commaURL = BypassService.parseDomains("https://maps.example.com/@55.7,37.6,12z")
+check(commaURL.domains == ["maps.example.com"] && commaURL.rejected.isEmpty, "parseDomains: a URL keeps its commas")
 let single = BypassService.parseDomains("a b.com")
 check(single.domains == ["b.com"] && single.rejected == ["a"], "parseDomains: 'a b.com'")
 let none = BypassService.parseDomains("  ,  ")
@@ -537,6 +542,28 @@ exit(failures == 0 ? 0 : 1)
 EOF
 swiftc -target arm64-apple-macosx14.0 main.swift \
   "/Users/lortan29/Documents/Home Projects/vpn-swift/Sources/BypassService.swift" -o harness && ./harness
+```
+
+Expect every line `ok` and `ALL OK` (46 checks after the review fixes). `fitTunToHost` has its
+own harness, compiled the same way:
+
+```swift
+import Foundation
+var failures = 0
+func check(_ c: Bool, _ l: String) { print((c ? "ok   " : "FAIL ") + l); if !c { failures += 1 } }
+func parse(_ s: String) -> [String: Any] { try! JSONSerialization.jsonObject(with: s.data(using: .utf8)!) as! [String: Any] }
+func json(_ d: [String: Any]) -> String { String(data: try! JSONSerialization.data(withJSONObject: d), encoding: .utf8)! }
+func tunAddresses(_ s: String) -> [[String]] { (parse(s)["inbounds"] as! [[String: Any]]).filter { $0["type"] as? String == "tun" }.map { $0["address"] as! [String] } }
+let old = json(["inbounds": [["type": "tun", "tag": "tun-in", "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"]] as [String: Any],
+                             ["type": "mixed", "tag": "m", "listen_port": 1] as [String: Any]], "outbounds": [] as [Any]])
+let v4 = json(["inbounds": [["type": "tun", "tag": "tun-in", "address": ["172.19.0.1/30"]] as [String: Any]]])
+check(tunAddresses(BypassService.fitTunToHost(old, hostHasIPv6: false)) == [["172.19.0.1/30"]], "stored ULA dropped on an IPv4-only host")
+check(tunAddresses(BypassService.fitTunToHost(v4, hostHasIPv6: true)) == [["172.19.0.1/30", "fdfe:dcba:9876::1/126"]], "ULA added on a dual-stack host")
+check(tunAddresses(BypassService.fitTunToHost(old, hostHasIPv6: true)) == [["172.19.0.1/30", "fdfe:dcba:9876::1/126"]], "no duplicate ULA")
+check(tunAddresses(BypassService.fitTunToHost(v4, hostHasIPv6: false)) == [["172.19.0.1/30"]], "IPv4-only stays")
+check(((parse(BypassService.fitTunToHost(old, hostHasIPv6: false))["inbounds"] as! [[String: Any]])[1]["type"] as? String) == "mixed", "other inbounds untouched")
+check(BypassService.fitTunToHost("nope", hostHasIPv6: true) == "nope", "invalid json unchanged")
+print(failures == 0 ? "ALL OK" : "\(failures) FAILURE(S)"); exit(failures == 0 ? 0 : 1)
 ```
 
 Expect every line `ok` and `ALL OK`. This exact harness (with the pre-step-4 TUN address in the
@@ -667,10 +694,8 @@ footer caption renders under the card. Only then add the grouped-`Form` gotcha o
 - **An xray server given by hostname would loop in the wrapper**: `buildTunWrapperConfig` writes a
   `domain_suffix` rule for it, which is matched against the sniffed REALITY camouflage SNI, not
   the server name. All current servers are IPs.
-- `plans/client-feature-parity.md` (proposed) still says `injectXray` "stays as is", names
-  `buildTunWrapperConfig(serverIP:bypassDomains:)` and records the IPv6 TUN address as a fact;
-  after this plan its item 1 and item 2 need re-basing. Its D5 rule order already puts the bypass
-  after `sniff` — consistent.
+- `plans/client-feature-parity.md` (proposed) named code this plan changed; it now carries a
+  rebase note at the top (review finding 14).
 - A sing-box server's config is generated once and stored in `subscriptions.json`, TUN inbound
   included. Feed servers are rebuilt by `refreshAll` on every launch, before auto-connect, so
   they lose the IPv6 address on the first launch of the new build; a manual `vless://` server
@@ -746,3 +771,22 @@ app's started or stopped:
   stored" above. `addDomains` reads `app.bypassDomains` once instead of per element.
 - **R6. The reconnect guard compares sets** (finding 7): removing and re-adding a domain inside the
   debounce reorders the list without changing the routing.
+- **R7. The parity plan carries a rebase note** (finding 14).
+
+Not fixed, with the reason:
+
+- **Finding 4, an xray server given by hostname loops in the wrapper** — already listed under
+  "found in passing". Every fix changes how xray reaches its server (pin `sockopt.interface`,
+  which goes stale on an interface change; resolve to `ip_cidr`, which can disagree with xray's
+  own lookup; a `process_path` rule), and none can be verified here: it needs a live TUN on a
+  hostname server, and dropping the live tunnel cuts the session off. No current server is a
+  hostname.
+- **Finding 6, bypass for clients of xray's local SOCKS 10808 / HTTP 10809** — `injectXray` never
+  delivered it: xray's `freedom` dial entered the TUN, the old wrapper's rule sat before `sniff`,
+  and the flow went `final → xray-proxy` back into the VPN. Nothing working was removed; making the
+  local proxies bypass-aware is new scope.
+- **Finding 10, IDN on macOS 14** — `URLComponents.encodedHost` returning punycode is verified on
+  macOS 27 only. Where it does not, the IDN token is rejected and stays in the field, never stored
+  wrong; a hand-written punycode encoder is not worth it before someone hits this.
+- **Finding 12, the wrapper's serialize → parse → serialize round trip** — one extra pass per
+  connect on a small dictionary; the `"{}"` failure path cannot happen for a literal.
