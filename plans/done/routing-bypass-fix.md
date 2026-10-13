@@ -903,3 +903,9 @@ passes had already reworked twice — domain input and the restart machinery. Pe
   or `SetDispatchQueue` releases it and logs a line. `hostHasGlobalIPv6()` reads through the
   watcher's session, opening one only when there is none. The canon says "gains or loses", not
   "a change of that key".
+- **R21. Wake re-arms a pending restart** (finding 4). A restart's delay ran on the continuous
+  clock, so one pending at sleep fired the moment the Mac woke, before the network settled, and
+  `handleWake` (gated on `isRunning`) then restarted a second time. The delay is `.suspending`
+  now; `handleWake` also runs while a restart is pending (`reconnectTask != nil` — `connect`
+  clears it), and `restart` tears the engines down only when they run, so the re-arm costs no
+  second teardown or password prompt.

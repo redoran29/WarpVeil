@@ -298,8 +298,10 @@ final class ProcessManager {
         watchHostIPv6()
     }
 
+    // A restart pending at sleep is re-armed too: its engines are down, and the network needs
+    // the same 5 s to settle before they start.
     private func handleWake() {
-        guard isRunning else { return }
+        guard isRunning || reconnectTask != nil else { return }
         restart("[System woke up — reconnecting...]", after: .seconds(5))
     }
 
@@ -344,19 +346,22 @@ final class ProcessManager {
     }
 
     // Starts the engines again from lastConnection as it is when the delay ends, so a routing
-    // edit made while the reconnect is pending is not lost.
+    // edit made while the restart is pending is not lost. The delay stops during sleep, so wake
+    // can re-arm a pending restart before it fires.
     private func restart(_ message: String, after delay: Duration) {
         guard lastConnection != nil else { return }
         logs.append(message)
         reconnectTask?.cancel()
-        helperProcess?.terminate()
-        helperProcess = nil
-        stopLogTail()
-        killVPNProcesses()
-        isRunning = false
+        if isRunning {
+            helperProcess?.terminate()
+            helperProcess = nil
+            stopLogTail()
+            killVPNProcesses()
+            isRunning = false
+        }
 
         reconnectTask = Task {
-            try? await Task.sleep(for: delay)
+            try? await Task.sleep(for: delay, clock: .suspending)
             guard !Task.isCancelled, let params = lastConnection else { return }
             connect(config: params.config, engine: params.engine,
                     binaryPath: params.binaryPath, singBoxPath: params.singBoxPath,
@@ -376,6 +381,7 @@ final class ProcessManager {
         // A connect supersedes a pending restart: left alone it would connect a second time,
         // and without passwordless ask for the password again.
         reconnectTask?.cancel()
+        reconnectTask = nil
         guard !config.isEmpty else {
             logs.append("[Error: no config provided]")
             return
