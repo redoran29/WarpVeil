@@ -358,10 +358,6 @@ final class ProcessManager {
 
         reconnectTask = Task {
             try? await Task.sleep(for: delay, clock: .suspending)
-            // A stop still running would read the PID file the new run.sh writes, and kill the
-            // fresh engine or delete its only handle. Without passwordless it is the first of the
-            // two password dialogs, so the run dialog waits for the answer to it.
-            await awaitTeardown(timeout: 30)
             guard !Task.isCancelled, let params = lastConnection else { return }
             connect(config: params.config, engine: params.engine,
                     binaryPath: params.binaryPath, singBoxPath: params.singBoxPath,
@@ -382,6 +378,21 @@ final class ProcessManager {
         // and without passwordless ask for the password again.
         reconnectTask?.cancel()
         reconnectTask = nil
+        // A stop still running would read the PID file the new run.sh writes and kill the fresh
+        // engine or delete its only handle. Without passwordless it is the first of two password
+        // dialogs, so the connect waits for its answer, however long that takes.
+        if let stop = teardownProcess, stop.isRunning {
+            logs.append("[Waiting for the previous engines to stop...]")
+            reconnectTask = Task {
+                while stop.isRunning, !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                guard !Task.isCancelled else { return }
+                connect(config: config, engine: engine, binaryPath: binaryPath,
+                        singBoxPath: singBoxPath, bypassDomains: bypassDomains)
+            }
+            return
+        }
         guard !config.isEmpty else {
             logs.append("[Error: no config provided]")
             return
@@ -644,7 +655,7 @@ final class ProcessManager {
         isRunning = false
     }
 
-    // Quit and restart need to know when the engines are actually gone. The non-passwordless
+    // Quit and connect need to know when the engines are actually gone. The non-passwordless
     // path puts up a password dialog, so the wait is however long the user takes.
     private var teardownProcess: Process?
 

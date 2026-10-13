@@ -994,3 +994,12 @@ Not fixed, with the reason:
 - **Finding 13, the plan sits in `done/` with two findings open.** Both open items — the
   hostname-server loop (first pass, finding 4) and the server config captured for a pending
   restart (third pass, finding 11) — predate this plan and go to the owner as decisions.
+
+`/code-review daa9d86..HEAD` (fifth pass) found 11. Fixed:
+
+- **R27. Every connect waits for a running stop, with no deadline** (findings 1, 2 — moves R24's
+  wait). R24 waited only inside `restart`, and only 30 s: a Connect pressed during a restart, or a
+  stop dialog answered after 30 s, still raced the stop against the new `run.sh`. Now `connect`
+  itself, when `teardownProcess` is still running, logs `[Waiting for the previous engines to
+  stop...]` and parks the connect in `reconnectTask` until the stop exits — cancellable like any
+  pending restart. The quit path keeps `awaitTeardown(timeout: 30)`.
