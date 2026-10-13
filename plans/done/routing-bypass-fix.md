@@ -958,3 +958,5 @@ reconnect; the stored list is empty.
   subtitle). `addDomains` compares normalized forms, so `youtube.com` is not added next to a
   legacy `*.youtube.com`. The canon no longer claims the stored text is never rewritten. Harness
   55/55 ok, including the legacy rows above → `youtube.com, example.org, .su, .ru`.
+- **R23. A wildcard URL host names a zone too** (finding 8): `https://*.ru` gives `.ru`, as `*.ru`
+  does; `https://*.рф/` gives `.xn--p1ai`. Harness 57/57 ok.

@@ -77,13 +77,16 @@ enum BypassService {
     static func normalizeDomain(_ input: String) -> String? {
         var trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         // Stripped before parsing: IDNA rejects a host that starts with a dot.
-        let namesZone = trimmed.hasPrefix(".") || trimmed.hasPrefix("*.")
+        var namesZone = trimmed.hasPrefix(".") || trimmed.hasPrefix("*.")
         if trimmed.hasPrefix("*.") { trimmed.removeFirst(2) }
         while trimmed.hasPrefix(".") { trimmed.removeFirst() }
         guard !trimmed.isEmpty else { return nil }
         let url = trimmed.contains("://") ? trimmed : "https://" + trimmed
         guard var host = URLComponents(string: url)?.encodedHost?.lowercased() else { return nil }
-        if host.hasPrefix("*.") { host.removeFirst(2) }
+        if host.hasPrefix("*.") {
+            host.removeFirst(2)
+            namesZone = true
+        }
         while host.hasSuffix(".") { host.removeLast() }
         guard isDomainName(host) else { return nil }
         if host.contains(".") { return host }
