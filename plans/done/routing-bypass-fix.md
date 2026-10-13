@@ -945,3 +945,16 @@ empty, no reconnect). The sing-box-server topology on the TUN, the dual-stack br
 IPv6 watcher's callback are not exercised either (no dual-stack network here, no admin to
 change one). Left behind: `ifconfig.me` stays bypassed in the running tunnel until its next
 reconnect; the stored list is empty.
+
+`/code-review d79bee2..HEAD` (fourth pass) found 14. Fixed:
+
+- **R22. Stored rows are normalized one by one; a row that fails is flagged, not reinterpreted**
+  (findings 1, 5, 9, 12, 14 — replaces R17's `storedDomains`). Promoting every dot-less token of
+  a stored row to a zone turned a legacy row `youtube.com googlevideo com` into `.com` — every
+  .com site past the VPN. Guessing what an old format meant was the wrong shape: now
+  `activeBypassDomains` is `bypassDomains.compactMap(normalizeDomain)`, deduplicated; a legacy
+  `ru` or `a.com, b.com` row is not routed, and the Routing page says so under the row ("Not a
+  domain — not routed", rendered offscreen through `NSHostingView` to check the grouped-Form
+  subtitle). `addDomains` compares normalized forms, so `youtube.com` is not added next to a
+  legacy `*.youtube.com`. The canon no longer claims the stored text is never rewritten. Harness
+  55/55 ok, including the legacy rows above → `youtube.com, example.org, .su, .ru`.

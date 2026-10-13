@@ -260,8 +260,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - A sniffed SNI is lowercase punycode, so bypass domains are stored that way
   (`BypassService.normalizeDomain`); `domain_suffix` covers subdomains and never an IP literal.
   A whole TLD is typed and stored as `.ru` — a bare word is rejected, or pasted text would bypass
-  zones. The engine gets the list through `storedDomains`, which also reads what older builds
-  stored as typed (several per line, `*.foo.com`, a bare `ru`); the stored text is never rewritten
+  zones. Each stored row is normalized again on its way to the engine — older builds stored rows
+  as typed — and a row that does not normalize is flagged on the Routing page and left out
 - The Clash API silently drops a test URL that starts with `http://` and substitutes its own
   default, and it rejects a delay request with no `timeout` — the URL must be HTTPS
 - sing-box prints nothing at `log.level: warn`, so a ping's readiness is `GET /` answering,

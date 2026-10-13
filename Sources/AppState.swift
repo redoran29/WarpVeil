@@ -58,10 +58,13 @@ final class AppState {
     }
 
     // bool(forKey:) reports false for a key that was never written, which would silently
-    // disable bypass on first launch — the @AppStorage default is true.
+    // disable bypass on first launch — the @AppStorage default is true. Each row is normalized
+    // on its own: an older build stored them as typed, and a row that does not normalize is
+    // flagged on the Routing page and left out.
     private var activeBypassDomains: [String] {
-        let enabled = defaults.object(forKey: "bypassEnabled") as? Bool ?? true
-        return enabled ? BypassService.storedDomains(defaults.string(forKey: "bypassDomains") ?? "") : []
+        guard defaults.object(forKey: "bypassEnabled") as? Bool ?? true else { return [] }
+        var seen = Set<String>()
+        return bypassDomains.compactMap(BypassService.normalizeDomain).filter { seen.insert($0).inserted }
     }
 
     // MARK: - Lifecycle

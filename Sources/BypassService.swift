@@ -107,15 +107,6 @@ enum BypassService {
         return (domains, rejected)
     }
 
-    // The stored list as the engine gets it. Normalized again because an older build stored
-    // entries as typed: several on a line, `*.foo.com`, a URL, a bare `ru` meant as a TLD.
-    static func storedDomains(_ raw: String) -> [String] {
-        var seen = Set<String>()
-        return tokens(in: raw)
-            .compactMap { normalizeDomain($0.contains(".") ? $0 : "." + $0) }
-            .filter { seen.insert($0).inserted }
-    }
-
     private static func tokens(in text: String) -> [String] {
         let separators = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ","))
         return text.components(separatedBy: separators).filter { !$0.isEmpty }

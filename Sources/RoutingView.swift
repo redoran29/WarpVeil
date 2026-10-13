@@ -23,7 +23,7 @@ struct RoutingView: View {
             if bypassEnabled {
                 Section {
                     ForEach(app.bypassDomains, id: \.self) { domain in
-                        LabeledContent(domain) {
+                        LabeledContent {
                             Button {
                                 removeDomain(domain)
                             } label: {
@@ -32,6 +32,12 @@ struct RoutingView: View {
                             }
                             .buttonStyle(.plain)
                             .foregroundStyle(.secondary)
+                        } label: {
+                            Text(verbatim: domain)
+                            // Only a row an older build stored as typed can fail here.
+                            if BypassService.normalizeDomain(domain) == nil {
+                                Text(verbatim: "Not a domain — not routed")
+                            }
                         }
                     }
 
@@ -76,7 +82,8 @@ struct RoutingView: View {
     private func addDomains() {
         let parsed = BypassService.parseDomains(newDomain)
         let current = app.bypassDomains
-        let fresh = parsed.domains.filter { !current.contains($0) }
+        let routed = Set(current.compactMap(BypassService.normalizeDomain))
+        let fresh = parsed.domains.filter { !routed.contains($0) }
         if !fresh.isEmpty {
             bypassDomainsRaw = (current + fresh).joined(separator: "\n")
         }
