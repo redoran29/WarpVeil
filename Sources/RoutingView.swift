@@ -38,7 +38,7 @@ struct RoutingView: View {
                     // A TextField's title is a row label in a grouped Form, so the example
                     // goes in the prompt and the label is hidden.
                     HStack {
-                        TextField("Domain", text: $newDomain, prompt: Text("example.com"))
+                        TextField("Domain", text: $newDomain, prompt: Text(verbatim: "example.com"))
                             .labelsHidden()
                             .onSubmit(addDomains)
                         Button("Add", action: addDomains)
