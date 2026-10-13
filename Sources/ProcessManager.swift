@@ -490,9 +490,10 @@ final class ProcessManager {
     }
 
     // configd publishes State:/Network/Global/IPv6 only while a physical service has a routable
-    // IPv6; sing-box's TUN registers no configd service, so the answer is the host's.
+    // IPv6; sing-box's TUN registers no configd service, so the answer is the host's. Unknown
+    // reads as yes: an IPv6 address on the TUN costs bypass at worst, a missing one leaks IPv6.
     private nonisolated static func hostHasGlobalIPv6() -> Bool {
-        guard let store = SCDynamicStoreCreate(nil, "WarpVeil" as CFString, nil, nil) else { return false }
+        guard let store = SCDynamicStoreCreate(nil, "WarpVeil" as CFString, nil, nil) else { return true }
         return SCDynamicStoreCopyValue(store, globalIPv6Key as CFString) != nil
     }
 

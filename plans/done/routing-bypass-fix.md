@@ -808,3 +808,5 @@ Not fixed, with the reason:
   re-resolved to IPv4" was not an option. Not exercised: a non-root process cannot write a
   dynamic-store key to trigger the callback (a scratch test: `SCDynamicStoreSetValue` → false,
   while subscribing returns true), and no network change was made here.
+- **R10. An unreadable configd answers "IPv6 present"** (finding 10): the wrong guess then costs
+  bypass on IPv6, not an IPv6 leak.
