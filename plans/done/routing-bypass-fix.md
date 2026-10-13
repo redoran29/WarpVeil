@@ -728,3 +728,11 @@ app's started or stopped:
   `action` and `timeout`; with none, `{"action":"sniff"}` goes to index 0 as before. Harness:
   the conditioned-sniff case now expects `[sniff, route, hijack-dns, route, sniff, route]`, plus a
   timeout-only case; 41/41 ok.
+- **R3. Domain input accepts a bare TLD and keeps a URL's commas** (findings 2, 9). `ru` — the usual
+  first entry of a Russian bypass list, which the old `addDomain` stored — was rejected by the
+  two-label rule; `isDomainName` now needs only a last label of 2+ characters that is not all
+  digits (IP literals still fail). Verified with the bundled sing-box: `domain_suffix: ["ru"]`
+  sends `ya.ru` and `www.gosuslugi.ru` direct and `example.com` to the proxy. `parseDomains` splits
+  on whitespace, and on commas only outside a token with `://`, so
+  `https://maps.example.com/@55.7,37.6,12z` adds `maps.example.com` and leaves nothing behind.
+  The footer says `ru covers every .ru site`. Harness 46/46 ok.

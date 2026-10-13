@@ -68,8 +68,8 @@ enum BypassService {
 
     // Accepts a bare domain or a pasted URL and returns what a sniffed SNI looks like:
     // lowercase ASCII (punycode for IDN), no scheme, port, path, wildcard or trailing dot.
-    // nil for anything that is not a DNS name with at least one dot — IP literals included,
-    // which `domain_suffix` cannot match.
+    // nil for anything that is not a DNS name — IP literals included, which `domain_suffix`
+    // cannot match. A bare TLD counts: `ru` covers every .ru site.
     static func normalizeDomain(_ input: String) -> String? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -81,26 +81,28 @@ enum BypassService {
         return isDomainName(host) ? host : nil
     }
 
-    // Splits pasted text on whitespace and commas; the tokens that do not normalize come back
-    // so the caller can leave them in the field.
+    // Splits pasted text on whitespace, and on commas outside a URL — its path or query may carry
+    // them. The tokens that do not normalize come back so the caller can leave them in the field.
     static func parseDomains(_ text: String) -> (domains: [String], rejected: [String]) {
         var domains: [String] = []
         var rejected: [String] = []
-        let separators = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ","))
-        for token in text.components(separatedBy: separators) where !token.isEmpty {
-            guard let domain = normalizeDomain(token) else {
-                rejected.append(token)
-                continue
+        for word in text.components(separatedBy: .whitespacesAndNewlines) {
+            let tokens = word.contains("://") ? [word] : word.components(separatedBy: ",")
+            for token in tokens where !token.isEmpty {
+                guard let domain = normalizeDomain(token) else {
+                    rejected.append(token)
+                    continue
+                }
+                if !domains.contains(domain) { domains.append(domain) }
             }
-            if !domains.contains(domain) { domains.append(domain) }
         }
         return (domains, rejected)
     }
 
     private static func isDomainName(_ host: String) -> Bool {
         let labels = host.split(separator: ".", omittingEmptySubsequences: false)
-        guard labels.count >= 2, host.count <= 253,
-              let last = labels.last, !last.allSatisfy(\.isNumber) else { return false }
+        guard host.count <= 253, let last = labels.last, last.count >= 2,
+              !last.allSatisfy(\.isNumber) else { return false }
         return labels.allSatisfy { label in
             (1...63).contains(label.count)
                 && !label.hasPrefix("-") && !label.hasSuffix("-")

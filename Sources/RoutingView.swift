@@ -47,7 +47,7 @@ struct RoutingView: View {
                 } header: {
                     Text("Domains")
                 } footer: {
-                    Text(verbatim: "Subdomains are included: example.com also covers www.example.com. A URL or several domains at once are accepted.")
+                    Text(verbatim: "Subdomains are included: example.com also covers www.example.com, and ru covers every .ru site. A URL or several domains at once are accepted.")
                 }
             }
         }
