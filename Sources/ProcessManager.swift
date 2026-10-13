@@ -535,8 +535,10 @@ final class ProcessManager {
         return str
     }
 
+    // Toggling bypass with an empty list, or editing the list while bypass is off, changes
+    // nothing in the config; without passwordless a reconnect is two admin prompts.
     func reconnect(bypassDomains: [String]) {
-        guard isRunning, let params = lastConnection else { return }
+        guard isRunning, let params = lastConnection, bypassDomains != params.bypassDomains else { return }
         logs.append("[Routing changed — reconnecting...]")
         reconnectTask?.cancel()
         helperProcess?.terminate()
