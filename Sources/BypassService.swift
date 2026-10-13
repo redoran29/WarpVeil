@@ -93,8 +93,9 @@ enum BypassService {
     static func parseDomains(_ text: String) -> (domains: [String], rejected: [String]) {
         var domains: [String] = []
         var rejected: [String] = []
+        var seen = Set<String>()
         func add(_ domain: String) {
-            if !domains.contains(domain) { domains.append(domain) }
+            if seen.insert(domain).inserted { domains.append(domain) }
         }
         for word in text.components(separatedBy: .whitespacesAndNewlines) {
             for segment in word.split(separator: #/,(?=[A-Za-z][A-Za-z0-9+.-]*://)/#) {

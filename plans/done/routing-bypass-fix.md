@@ -829,3 +829,12 @@ Not fixed, with the reason:
   a URL segment that normalizes whole keeps its commas, and one that does not is split on commas.
   `a.com,https://b.com https://c.com/x,https://d.com https://e.com,f.com` → six domains, nothing
   rejected; the Maps URL case still gives `maps.example.com`. Harness 51/51 ok.
+- **R14. Stored domains are normalized once at launch, not on every read** (finding 6, which
+  reshapes R5). R5's getter re-parsed the whole list — `URLComponents` per entry plus a quadratic
+  dedupe — on every render of the Routing page, keystrokes included. `AppState.init` now calls
+  `normalizeStoredBypassDomains()`, which rewrites the key only when it changes, reads a stored
+  bare label as the TLD it was meant to be (R12's leading-dot rule is for typed input), and logs
+  the entries it drops; `bypassDomains` is a plain split again. `parseDomains` dedupes through a
+  `Set`. Checked with a copy of the loop: `*.YouTube.com`, `https://Example.org/path`, `10.0.0.1`,
+  `example.org`, `  ru  `, `рф`, `.su`, `youtube.com` → `youtube.com, example.org, ru, xn--p1ai, su`,
+  `10.0.0.1` dropped; a second pass changes nothing.

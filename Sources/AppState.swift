@@ -33,6 +33,7 @@ final class AppState {
 
     init() {
         selectedServerID = defaults.string(forKey: "selectedServerID") ?? ""
+        normalizeStoredBypassDomains()
         observeReconnects()
     }
 
@@ -46,10 +47,33 @@ final class AppState {
         subs.subscriptions.lazy.flatMap(\.servers).first { $0.id == selectedServerID }
     }
 
-    // Normalized on read: an older build stored entries as typed ("*.foo.com", a URL, uppercase),
-    // and those reach domain_suffix verbatim and match nothing.
     var bypassDomains: [String] {
-        BypassService.parseDomains(defaults.string(forKey: "bypassDomains") ?? "").domains
+        (defaults.string(forKey: "bypassDomains") ?? "").split(separator: "\n").map(String.init)
+    }
+
+    // An older build stored entries as typed ("*.foo.com", a URL, uppercase), which reach
+    // domain_suffix verbatim and match nothing; a bare label there was meant as a TLD. Rewritten
+    // once at launch, so reading the list stays a plain split.
+    private func normalizeStoredBypassDomains() {
+        guard let raw = defaults.string(forKey: "bypassDomains") else { return }
+        var normalized: [String] = []
+        var dropped: [String] = []
+        for line in raw.split(separator: "\n") {
+            let entry = line.trimmingCharacters(in: .whitespaces)
+            guard !entry.isEmpty else { continue }
+            let asSuffix = entry.contains(".") || entry.contains("://") ? entry : "." + entry
+            guard let domain = BypassService.normalizeDomain(asSuffix) else {
+                dropped.append(entry)
+                continue
+            }
+            if !normalized.contains(domain) { normalized.append(domain) }
+        }
+        let rewritten = normalized.joined(separator: "\n")
+        guard rewritten != raw else { return }
+        defaults.set(rewritten, forKey: "bypassDomains")
+        if !dropped.isEmpty {
+            pm.logs.append("[Bypass] dropped entries no domain rule can match: \(dropped.joined(separator: ", "))")
+        }
     }
 
     private var selectedSubscription: Subscription? {
