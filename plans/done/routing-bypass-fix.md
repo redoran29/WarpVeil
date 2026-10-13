@@ -563,6 +563,9 @@ check(tunAddresses(BypassService.fitTunToHost(old, hostHasIPv6: true)) == [["172
 check(tunAddresses(BypassService.fitTunToHost(v4, hostHasIPv6: false)) == [["172.19.0.1/30"]], "IPv4-only stays")
 check(((parse(BypassService.fitTunToHost(old, hostHasIPv6: false))["inbounds"] as! [[String: Any]])[1]["type"] as? String) == "mixed", "other inbounds untouched")
 check(BypassService.fitTunToHost("nope", hostHasIPv6: true) == "nope", "invalid json unchanged")
+let single = json(["inbounds": [["type": "tun", "tag": "tun-in", "address": "172.19.0.1/30"] as [String: Any]]])
+check(tunAddresses(BypassService.fitTunToHost(single, hostHasIPv6: false)) == [["172.19.0.1/30"]], "single-string address kept")
+check(tunAddresses(BypassService.fitTunToHost(single, hostHasIPv6: true)) == [["172.19.0.1/30", "fdfe:dcba:9876::1/126"]], "single-string address + ULA")
 print(failures == 0 ? "ALL OK" : "\(failures) FAILURE(S)"); exit(failures == 0 ? 0 : 1)
 ```
 
@@ -810,3 +813,7 @@ Not fixed, with the reason:
   while subscribing returns true), and no network change was made here.
 - **R10. An unreadable configd answers "IPv6 present"** (finding 10): the wrong guess then costs
   bypass on IPv6, not an IPv6 leak.
+- **R11. A TUN address given as one string is read** (finding 1). sing-box accepts
+  `"address": "172.19.0.1/30"`; the `[String]` cast dropped it and wrote `[]`, which `sing-box
+  check` accepts and which leaves IPv4 outside the tunnel. The `fitTunToHost` harness gained two
+  cases, 8/8 ok.

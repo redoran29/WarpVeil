@@ -56,7 +56,9 @@ enum BypassService {
         guard var root = parseJSON(json),
               var inbounds = root["inbounds"] as? [[String: Any]] else { return json }
         for i in inbounds.indices where (inbounds[i]["type"] as? String) == "tun" {
-            var addresses = (inbounds[i]["address"] as? [String] ?? []).filter { !$0.contains(":") }
+            // sing-box takes a single string here as well as a list.
+            let stored = inbounds[i]["address"] as? [String] ?? (inbounds[i]["address"] as? String).map { [$0] } ?? []
+            var addresses = stored.filter { !$0.contains(":") }
             if hostHasIPv6 { addresses.append("fdfe:dcba:9876::1/126") }
             inbounds[i]["address"] = addresses
         }
