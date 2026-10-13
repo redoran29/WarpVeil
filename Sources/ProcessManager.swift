@@ -424,10 +424,12 @@ final class ProcessManager {
             process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(cmd)) with administrator privileges"]
         }
 
+        // A helper torn down by a restart can exit after its successor started; only the
+        // current one speaks for the connection.
         process.terminationHandler = { [weak self] p in
             let status = p.terminationStatus
             Task { @MainActor in
-                guard let self, self.isRunning else { return }
+                guard let self, self.isRunning, p === self.helperProcess else { return }
                 self.isRunning = false
                 self.stopLogTail()
                 self.logs.append("[Disconnected (exit \(status))]")

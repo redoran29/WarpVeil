@@ -883,3 +883,8 @@ passes had already reworked twice — domain input and the restart machinery. Pe
   `activeBypassDomains` hands the engine `BypassService.storedDomains(raw)`, which splits on
   whitespace and commas and reads a stored bare label as a TLD; `bypassDomains` is the display
   split it was before this plan. A legacy entry shows as typed and works. Harness 56/56 ok.
+- **R18. Only the current helper reports a disconnect** (finding 3). A restart terminates
+  `sudo run.sh` and connects again a second later; when the old helper's trap outlived that
+  second, its `terminationHandler` set `isRunning = false` over the new, live connection. The
+  handler now also requires `p === self.helperProcess`. The race predates this plan (the wake and
+  routing reconnects had it); R9 made restarts more frequent.
