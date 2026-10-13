@@ -508,6 +508,9 @@ check(actions(of: midOut) == ["sniff", "route", "hijack-dns", "route", "sniff", 
 var timed = parse(serverConfig()); r = timed["route"] as! [String: Any]
 r["rules"] = [["action": "hijack-dns", "protocol": "dns"] as [String: Any], ["action": "sniff", "timeout": "1s"] as [String: Any]]; timed["route"] = r
 check(actions(of: BypassService.injectSingBox(json(timed), domains: domains)) == ["hijack-dns", "sniff", "route"], "sniff with only a timeout counts as unconditional")
+var typed = parse(serverConfig()); r = typed["route"] as! [String: Any]
+r["rules"] = [["action": "hijack-dns", "protocol": "dns"] as [String: Any], ["type": "default", "action": "sniff"] as [String: Any]]; typed["route"] = r
+check(actions(of: BypassService.injectSingBox(json(typed), domains: domains)) == ["hijack-dns", "sniff", "route"], "type: default sniff counts as unconditional")
 
 check(BypassService.injectSingBox(serverConfig(), domains: []) == serverConfig(), "empty domains: unchanged")
 check(BypassService.injectSingBox("not json", domains: domains) == "not json", "invalid json: unchanged")
@@ -518,7 +521,7 @@ let cases: [(String, String?)] = [
     ("госуслуги.рф", "xn--c1aapkosapc.xn--p1ai"), ("https://госуслуги.рф/", "xn--c1aapkosapc.xn--p1ai"),
     ("*.example.com", "example.com"), (".example.com", "example.com"), ("example.com.", "example.com"),
     ("example.com:8443", "example.com"), ("user@example.com", "example.com"), ("sub.domain.example.co.uk", "sub.domain.example.co.uk"),
-    ("a b.com", nil), ("1.2.3.4", nil), ("[::1]", nil), ("::1", nil), ("localhost", "localhost"), ("ru", "ru"), (".ru", "ru"), ("рф", "xn--p1ai"), ("a", nil), ("1234", nil),
+    ("a b.com", nil), ("1.2.3.4", nil), ("[::1]", nil), ("::1", nil), ("localhost", nil), ("ru", nil), ("youtubecom", nil), (".ru", "ru"), ("*.ru", "ru"), (".рф", "xn--p1ai"), ("рф", nil), (".a", nil), (".1234", nil),
     ("", nil), ("   ", nil), ("-bad.com", nil), ("bad-.com", nil), ("ex_ample.com", nil),
     (String(repeating: "a", count: 64) + ".com", nil),
 ]
@@ -528,10 +531,14 @@ for (input, expected) in cases {
 }
 
 let parsed = BypassService.parseDomains("Example.com, https://госуслуги.рф/x  foo\nbar.org,1.2.3.4 example.com")
-check(parsed.domains == ["example.com", "xn--c1aapkosapc.xn--p1ai", "foo", "bar.org"], "parseDomains: order kept, duplicates dropped")
-check(parsed.rejected == ["1.2.3.4"], "parseDomains: rejected tokens verbatim")
+check(parsed.domains == ["example.com", "xn--c1aapkosapc.xn--p1ai", "bar.org"], "parseDomains: order kept, duplicates dropped")
+check(parsed.rejected == ["foo", "1.2.3.4"], "parseDomains: rejected tokens verbatim")
+let sentence = BypassService.parseDomains("bypass google.com and .me")
+check(sentence.domains == ["google.com", "me"] && sentence.rejected == ["bypass", "and"], "parseDomains: words stay out, .me is a TLD")
 let commaURL = BypassService.parseDomains("https://maps.example.com/@55.7,37.6,12z")
 check(commaURL.domains == ["maps.example.com"] && commaURL.rejected.isEmpty, "parseDomains: a URL keeps its commas")
+let mixed = BypassService.parseDomains("a.com,https://b.com https://c.com/x,https://d.com https://e.com,f.com")
+check(mixed.domains == ["a.com", "b.com", "c.com", "d.com", "e.com", "f.com"] && mixed.rejected.isEmpty, "parseDomains: comma lists mixing URLs and domains")
 let single = BypassService.parseDomains("a b.com")
 check(single.domains == ["b.com"] && single.rejected == ["a"], "parseDomains: 'a b.com'")
 let none = BypassService.parseDomains("  ,  ")
@@ -544,7 +551,7 @@ swiftc -target arm64-apple-macosx14.0 main.swift \
   "/Users/lortan29/Documents/Home Projects/vpn-swift/Sources/BypassService.swift" -o harness && ./harness
 ```
 
-Expect every line `ok` and `ALL OK` (46 checks after the review fixes). `fitTunToHost` has its
+Expect every line `ok` and `ALL OK` (52 checks after both review passes). `fitTunToHost` has its
 own harness, compiled the same way:
 
 ```swift
@@ -842,3 +849,17 @@ Not fixed, with the reason:
   is the explicit spelling of a plain rule. A sniff limited by `inbound` still counts as
   conditional even when it names the TUN — the cost is one extra sniff at the top, not a dead rule.
   The canon now states the criterion the code uses.
+
+Not fixed, with the reason:
+
+- **Finding 7, the plan sits in `done/` with findings open.** The four left open after the first
+  pass are dispositioned above, not forgotten: 6 and 12 are declined on the merits, 4 is a bug
+  that predates this plan and was listed under "found in passing" from its first draft, 10 cannot
+  be checked on this machine. Finding 4 goes to the owner as an open decision.
+- **Finding 9, one TUN builder instead of a connect-time patch.** The address list is the only
+  TUN property that depends on the moment of connecting; the rest is the same in every config.
+  Rebuilding the whole inbound at connect would also overwrite a feed's own TUN options (MTU,
+  stack). The architecture line in the canon now names what `BypassService` does.
+- **Finding 11, `833ff88` bundles the TLD rule and the comma handling.** True; it is pushed to
+  `main`, and history is not rewritten. Both parts were reworked since in separate commits
+  (`9080cef`, `a22c134`).

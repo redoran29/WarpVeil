@@ -69,7 +69,7 @@ Sources/
 ├── LocationService.swift      # Public IP & geolocation via ipwho.is (HTTPS)
 ├── NetworkMonitor.swift       # Real-time upload/download speed
 ├── PingService.swift          # Proxy delay via a user-space sing-box and its Clash API
-├── BypassService.swift        # Bypass rule injection and domain input normalization
+├── BypassService.swift        # Connect-time sing-box fitting: bypass rule, TUN IP families; domain input
 └── Models.swift               # Server, Subscription, Engine types
 ```
 
