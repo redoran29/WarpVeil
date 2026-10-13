@@ -977,3 +977,20 @@ reconnect; the stored list is empty.
   timer on every notification, so a key re-published every few seconds postponed it for good and
   the TUN stayed IPv4-only on a network that had gained IPv6. Later notifications now leave a
   pending check alone; it compares host and TUN when it fires.
+
+Not fixed, with the reason:
+
+- **Finding 3, a dark wake or a late wake notification can let a pending restart fire first.**
+  The suspending clock covers a full sleep; ordering against Power Nap and a delayed
+  `didWakeNotification` would need the wake path rebuilt around power events. Worst case is one
+  extra restart, the state the wake path had before this plan.
+- **Finding 4, no UI path reaches `disconnect` during a pending restart.** True: the page reads
+  "Disconnected" for the delay, as it did after wake before this plan, and offers Connect, which
+  now cancels the pending restart (R19). A "Reconnecting…" state with its own cancel is UI work
+  outside bypass. `disconnect` cancelling a pending restart stays — it is right for any caller.
+- **Finding 11, the `WeakManager` box is never released on success.** Intended: the store keeps
+  firing for the manager's whole life, which is the app's; giving the context retain/release
+  callbacks would only move the same lifetime into configd's hands.
+- **Finding 13, the plan sits in `done/` with two findings open.** Both open items — the
+  hostname-server loop (first pass, finding 4) and the server config captured for a pending
+  restart (third pass, finding 11) — predate this plan and go to the owner as decisions.
