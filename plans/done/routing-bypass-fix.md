@@ -894,3 +894,12 @@ passes had already reworked twice — domain input and the restart machinery. Pe
   `connect` now cancels `reconnectTask` first — the restart's own connect cancels only itself,
   after its sleep — and `disconnect` cancels it before its `isRunning` guard. The window still
   reads "Disconnected" for up to 5 s, as it did after wake before this plan.
+- **R20. The IPv6 watcher waits for a change to hold, and its plumbing is checked** (findings 1,
+  4, 10, 12, 15). A notification now arms `ipv6CheckTask`: 5 s on `.suspending` (stops during
+  sleep, so after wake `handleWake`'s restart runs first and the check finds `isRunning` false),
+  then a re-check of host against `tunHasIPv6`, and only then `restart` after 1 s — configd's drop
+  and re-add between two dual-stack networks costs nothing. The callback gets a retained
+  `WeakManager` box instead of an unretained `self`; a failed `SCDynamicStoreSetNotificationKeys`
+  or `SetDispatchQueue` releases it and logs a line. `hostHasGlobalIPv6()` reads through the
+  watcher's session, opening one only when there is none. The canon says "gains or loses", not
+  "a change of that key".

@@ -152,8 +152,9 @@ final class ProcessManager {
     private var reconnectTask: Task<Void, Never>?
     var reconnectCount = 0
     private var ipv6Watcher: SCDynamicStore?
+    private var ipv6CheckTask: Task<Void, Never>?
     private var tunHasIPv6 = false
-    private nonisolated static let globalIPv6Key = "State:/Network/Global/IPv6"
+    private static let globalIPv6Key = "State:/Network/Global/IPv6"
 
     // MARK: - Passwordless mode
 
@@ -306,21 +307,40 @@ final class ProcessManager {
     // would send it past the VPN, one that loses it would leave bypassed domains with AAAA
     // records the host cannot reach — either way the engines start again.
     private func watchHostIPv6() {
-        var context = SCDynamicStoreContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
+        let box = Unmanaged.passRetained(WeakManager(self))
+        var context = SCDynamicStoreContext(version: 0, info: box.toOpaque(),
                                             retain: nil, release: nil, copyDescription: nil)
         guard let store = SCDynamicStoreCreate(nil, "WarpVeil" as CFString, { _, _, info in
             guard let info else { return }
-            let manager = Unmanaged<ProcessManager>.fromOpaque(info).takeUnretainedValue()
-            Task { @MainActor in manager.hostIPv6Changed() }
-        }, &context) else { return }
-        SCDynamicStoreSetNotificationKeys(store, [Self.globalIPv6Key] as CFArray, nil)
-        SCDynamicStoreSetDispatchQueue(store, .main)
+            let box = Unmanaged<WeakManager>.fromOpaque(info).takeUnretainedValue()
+            Task { @MainActor in box.manager?.hostIPv6Changed() }
+        }, &context),
+              SCDynamicStoreSetNotificationKeys(store, [Self.globalIPv6Key] as CFArray, nil),
+              SCDynamicStoreSetDispatchQueue(store, .main)
+        else {
+            box.release()
+            logs.append("[Cannot watch the network's IPv6 — reconnect after switching networks]")
+            return
+        }
         ipv6Watcher = store
     }
 
+    // configd's callback gets a raw pointer; the box keeps it valid without keeping the manager.
+    private final class WeakManager {
+        weak var manager: ProcessManager?
+        init(_ manager: ProcessManager) { self.manager = manager }
+    }
+
+    // configd drops and re-adds the key while a network settles, so only a change that holds for
+    // 5 s restarts — on a clock that stops during sleep, so that after wake handleWake's restart
+    // is the one that runs.
     private func hostIPv6Changed() {
-        guard isRunning, Self.hostHasGlobalIPv6() != tunHasIPv6 else { return }
-        restart("[Network IPv6 changed — reconnecting...]", after: .seconds(5))
+        ipv6CheckTask?.cancel()
+        ipv6CheckTask = Task {
+            try? await Task.sleep(for: .seconds(5), clock: .suspending)
+            guard !Task.isCancelled, isRunning, hostHasGlobalIPv6() != tunHasIPv6 else { return }
+            restart("[Network IPv6 changed — reconnecting...]", after: .seconds(1))
+        }
     }
 
     // Starts the engines again from lastConnection as it is when the delay ends, so a routing
@@ -368,7 +388,7 @@ final class ProcessManager {
         lastConnection = (config, engine, binaryPath, singBoxPath, bypassDomains)
 
         // Whichever sing-box holds the TUN gets the bypass rule and the host's IP families.
-        let hostHasIPv6 = Self.hostHasGlobalIPv6()
+        let hostHasIPv6 = hostHasGlobalIPv6()
         tunHasIPv6 = hostHasIPv6
         func prepareTunConfig(_ json: String) -> String {
             let injected = BypassService.injectSingBox(json, domains: bypassDomains)
@@ -497,9 +517,9 @@ final class ProcessManager {
     // configd publishes State:/Network/Global/IPv6 only while a physical service has a routable
     // IPv6; sing-box's TUN registers no configd service, so the answer is the host's. Unknown
     // reads as yes: an IPv6 address on the TUN costs bypass at worst, a missing one leaks IPv6.
-    private nonisolated static func hostHasGlobalIPv6() -> Bool {
-        guard let store = SCDynamicStoreCreate(nil, "WarpVeil" as CFString, nil, nil) else { return true }
-        return SCDynamicStoreCopyValue(store, globalIPv6Key as CFString) != nil
+    private func hostHasGlobalIPv6() -> Bool {
+        guard let store = ipv6Watcher ?? SCDynamicStoreCreate(nil, "WarpVeil" as CFString, nil, nil) else { return true }
+        return SCDynamicStoreCopyValue(store, Self.globalIPv6Key as CFString) != nil
     }
 
     private nonisolated static func extractServerIP(from config: String) -> String? {
