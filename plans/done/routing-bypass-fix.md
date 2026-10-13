@@ -1003,3 +1003,7 @@ Not fixed, with the reason:
   itself, when `teardownProcess` is still running, logs `[Waiting for the previous engines to
   stop...]` and parks the connect in `reconnectTask` until the stop exits — cancellable like any
   pending restart. The quit path keeps `awaitTeardown(timeout: 30)`.
+- **R28. An unreadable configd is "no change" to the IPv6 check** (finding 4). R25 made a failed
+  read answer "IPv6 present", which is right at connect but made the periodic check restart a v4-only
+  host into an IPv6 TUN on a configd hiccup. `hostIPv6State()` returns `Bool?`; connect reads nil as
+  yes, the check skips on nil.

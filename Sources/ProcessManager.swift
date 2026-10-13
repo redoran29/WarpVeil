@@ -342,7 +342,7 @@ final class ProcessManager {
         ipv6CheckTask = Task {
             try? await Task.sleep(for: .seconds(5), clock: .suspending)
             ipv6CheckTask = nil
-            guard isRunning, hostHasGlobalIPv6() != tunHasIPv6 else { return }
+            guard isRunning, let hostHasIPv6 = hostIPv6State(), hostHasIPv6 != tunHasIPv6 else { return }
             restart("[Network IPv6 changed — reconnecting...]", after: .seconds(1))
         }
     }
@@ -405,7 +405,7 @@ final class ProcessManager {
         lastConnection = (config, engine, binaryPath, singBoxPath, bypassDomains)
 
         // Whichever sing-box holds the TUN gets the bypass rule and the host's IP families.
-        let hostHasIPv6 = hostHasGlobalIPv6()
+        let hostHasIPv6 = hostIPv6State() ?? true
         tunHasIPv6 = hostHasIPv6
         func prepareTunConfig(_ json: String) -> String {
             let injected = BypassService.injectSingBox(json, domains: bypassDomains)
@@ -532,13 +532,14 @@ final class ProcessManager {
     }
 
     // configd publishes State:/Network/Global/IPv6 only while a physical service has a routable
-    // IPv6; sing-box's TUN registers no configd service, so the answer is the host's. Unknown
-    // reads as yes: an IPv6 address on the TUN costs bypass at worst, a missing one leaks IPv6.
-    private func hostHasGlobalIPv6() -> Bool {
-        guard let store = ipv6Watcher ?? SCDynamicStoreCreate(nil, "WarpVeil" as CFString, nil, nil) else { return true }
+    // IPv6; sing-box's TUN registers no configd service, so the answer is the host's. nil when
+    // configd cannot say: connect then reads it as yes — an IPv6 address on the TUN costs bypass
+    // at worst, a missing one leaks IPv6 — and the change check as no change.
+    private func hostIPv6State() -> Bool? {
+        guard let store = ipv6Watcher ?? SCDynamicStoreCreate(nil, "WarpVeil" as CFString, nil, nil) else { return nil }
         guard SCDynamicStoreCopyValue(store, Self.globalIPv6Key as CFString) == nil else { return true }
         // nil is also what a failed call returns; only "no such key" means no IPv6.
-        return SCError() != kSCStatusNoKey
+        return SCError() == kSCStatusNoKey ? false : nil
     }
 
     private nonisolated static func extractServerIP(from config: String) -> String? {
