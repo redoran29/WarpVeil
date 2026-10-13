@@ -921,3 +921,27 @@ Not fixed, with the reason:
 - **Finding 14, `9080cef`–`a22c134` dropped stored bare labels from reads.** True of those two
   commits; no build of them ran against the real defaults domain (the only dev copy run used
   `com.warpveil.app.dev`, and it ran before them). R17 removed the read path that lost them.
+
+## Deploy and live checks (2026-10-13, after R21)
+
+`./install.sh` over the Xcode-launched copy, which was quit first by path through its own quit
+path; the test list (`ifconfig.me`) was written to `com.warpveil.app` before the installed copy
+auto-connected and restored afterwards. Tunnel back on the new build in ~8 s. On the real TUN,
+xray topology (New Jersey):
+
+- `https://ifconfig.me/ip` (bypassed) → the home IP; `https://api.ipify.org` → the VPN exit.
+- The live wrapper's rules: `[route ip_cidr → direct, hijack-dns, sniff, route(ifconfig.me) → direct]`;
+  TUN `address`: `["172.19.0.1/30"]` — configd has no `State:/Network/Global/IPv6` here.
+- `utun4` (ours) has no inet6 address and no inet6 route; `route -n get -inet6 2a02:6b8::2:242` →
+  not in table. `getaddrinfo` — what apps call — returns only `AF_INET` for `mail.ru`,
+  `www.cloudflare.com`, `ya.ru`, with and without `AI_ADDRCONFIG`; `curl` connects over IPv4.
+  `dscacheutil -q host` still prints `ipv6_address` lines: it does not filter as apps' resolution
+  does, so it is not the check to use (Verification 4 named it — wrong tool).
+
+Not exercised live: the Routing page → debounce → `restart` path on the installed app. Driving it
+needs the window in front, and the owner was working in other windows — `orca computer
+set-value` found no on-screen window between two commands; nothing was changed (stored list
+empty, no reconnect). The sing-box-server topology on the TUN, the dual-stack branch and the
+IPv6 watcher's callback are not exercised either (no dual-stack network here, no admin to
+change one). Left behind: `ifconfig.me` stays bypassed in the running tunnel until its next
+reconnect; the stored list is empty.
