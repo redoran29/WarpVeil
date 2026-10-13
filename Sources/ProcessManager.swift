@@ -294,8 +294,15 @@ final class ProcessManager {
     }
 
     private func handleWake() {
-        guard let params = lastConnection, isRunning else { return }
-        logs.append("[System woke up — reconnecting...]")
+        guard isRunning else { return }
+        restart("[System woke up — reconnecting...]", after: .seconds(5))
+    }
+
+    // Starts the engines again from lastConnection as it is when the delay ends, so a routing
+    // edit made while the reconnect is pending is not lost.
+    private func restart(_ message: String, after delay: Duration) {
+        guard lastConnection != nil else { return }
+        logs.append(message)
         reconnectTask?.cancel()
         helperProcess?.terminate()
         helperProcess = nil
@@ -304,8 +311,8 @@ final class ProcessManager {
         isRunning = false
 
         reconnectTask = Task {
-            try? await Task.sleep(for: .seconds(5))
-            guard !Task.isCancelled else { return }
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let params = lastConnection else { return }
             connect(config: params.config, engine: params.engine,
                     binaryPath: params.binaryPath, singBoxPath: params.singBoxPath,
                     bypassDomains: params.bypassDomains)
@@ -553,26 +560,12 @@ final class ProcessManager {
 
     // Toggling bypass with an empty list, editing the list while bypass is off, or removing and
     // re-adding a domain changes nothing in the routing; without passwordless a reconnect is two
-    // admin prompts.
+    // admin prompts. While a reconnect is pending, recording the list is enough: it reads it.
     func reconnect(bypassDomains: [String]) {
-        guard isRunning, let params = lastConnection,
-              Set(bypassDomains) != Set(params.bypassDomains) else { return }
-        logs.append("[Routing changed — reconnecting...]")
-        reconnectTask?.cancel()
-        helperProcess?.terminate()
-        helperProcess = nil
-        stopLogTail()
-        killVPNProcesses()
-        isRunning = false
-
-        reconnectTask = Task {
-            try? await Task.sleep(for: .seconds(1))
-            guard !Task.isCancelled else { return }
-            connect(config: params.config, engine: params.engine,
-                    binaryPath: params.binaryPath, singBoxPath: params.singBoxPath,
-                    bypassDomains: bypassDomains)
-            reconnectCount += 1
-        }
+        guard let params = lastConnection, Set(bypassDomains) != Set(params.bypassDomains) else { return }
+        lastConnection?.bypassDomains = bypassDomains
+        guard isRunning else { return }
+        restart("[Routing changed — reconnecting...]", after: .seconds(1))
     }
 
     func disconnect() {

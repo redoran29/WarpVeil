@@ -120,8 +120,8 @@ final class AppState {
         })
     }
 
+    // Not gated on isRunning: a reconnect pending after wake has to pick the change up too.
     func routingChanged() {
-        guard pm.isRunning else { return }
         pm.reconnect(bypassDomains: activeBypassDomains)
     }
 

@@ -790,3 +790,11 @@ Not fixed, with the reason:
   wrong; a hand-written punycode encoder is not worth it before someone hits this.
 - **Finding 12, the wrapper's serialize → parse → serialize round trip** — one extra pass per
   connect on a small dictionary; the `"{}"` failure path cannot happen for a literal.
+
+`/code-review e3a7fa4..HEAD` (second pass, over the fixes above) found 11. Fixed:
+
+- **R8. A routing edit made while a reconnect is pending is kept** (finding 5). `handleWake` and
+  `reconnect(bypassDomains:)` share `ProcessManager.restart(_:after:)`, whose delayed connect reads
+  `lastConnection` when it fires. `reconnect` records a changed list in `lastConnection` first and
+  restarts only while running; `AppState.routingChanged()` no longer gates on `isRunning`, so a
+  domain removed during the 5 s after wake is not connected with the old list.
