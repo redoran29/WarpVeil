@@ -3,6 +3,16 @@
 Status: proposed. Written against `52ea455`, macOS 26.6 (Darwin 25.6), Xcode 26.5 SDK, bundled
 sing-box 1.14.0 and Xray 26.3.27, deployment target 14.0.
 
+> **Rebase before implementing.** `plans/done/routing-bypass-fix.md` (2026-10-13) changed code this
+> plan names: `BypassService.injectXray` is deleted (the xray config is written as produced, so
+> item 1's "stays as is" is moot); `ProcessManager.buildTunWrapperConfig(serverIP:)` lost
+> `bypassDomains` and `connect` runs the wrapper through `injectSingBox`; `injectSingBox` puts the
+> bypass rule after the first unconditional `sniff` and no longer appends one (D5's order holds);
+> the builders' TUN is IPv4-only and `BypassService.fitTunToHost` adds the ULA at connect time only
+> when configd has `State:/Network/Global/IPv6` — item 2's IPv6 policy starts from that, and the
+> fact at `:54` about `fdfe:…` on the TUN is no longer true; `AppState.bypassDomains` is normalized
+> on read.
+
 ## Owner's ask
 
 "What is a VPN client expected to have in 2026?" — the research is done; this plan turns the
