@@ -823,3 +823,9 @@ Not fixed, with the reason:
   `youtubecom`. `.ru` and `*.ru` still give `ru`; `ru`, `рф`, `youtubecom` stay in the field. The
   `*.`/`.` prefix is stripped from the raw input before URL parsing — IDNA rejects a host that
   starts with a dot, so `.рф` came back nil. The footer says `.ru`. Harness 50/50 ok.
+- **R13. Comma lists that mix URLs and domains** (finding 3). R3 kept a whole word with `://`
+  together, so `a.com,https://b.com` was rejected entirely and `https://a.com/x,https://b.com` lost
+  `b.com` silently. Now a comma before a scheme always splits (`#/,(?=[A-Za-z][A-Za-z0-9+.-]*://)/#`),
+  a URL segment that normalizes whole keeps its commas, and one that does not is split on commas.
+  `a.com,https://b.com https://c.com/x,https://d.com https://e.com,f.com` → six domains, nothing
+  rejected; the Maps URL case still gives `maps.example.com`. Harness 51/51 ok.

@@ -87,19 +87,28 @@ enum BypassService {
         return host
     }
 
-    // Splits pasted text on whitespace, and on commas outside a URL — its path or query may carry
-    // them. The tokens that do not normalize come back so the caller can leave them in the field.
+    // Splits pasted text on whitespace and commas. A URL that parses whole keeps its commas — its
+    // path or query may carry them — and a comma before a scheme always starts the next URL. The
+    // tokens that do not normalize come back so the caller can leave them in the field.
     static func parseDomains(_ text: String) -> (domains: [String], rejected: [String]) {
         var domains: [String] = []
         var rejected: [String] = []
+        func add(_ domain: String) {
+            if !domains.contains(domain) { domains.append(domain) }
+        }
         for word in text.components(separatedBy: .whitespacesAndNewlines) {
-            let tokens = word.contains("://") ? [word] : word.components(separatedBy: ",")
-            for token in tokens where !token.isEmpty {
-                guard let domain = normalizeDomain(token) else {
-                    rejected.append(token)
+            for segment in word.split(separator: #/,(?=[A-Za-z][A-Za-z0-9+.-]*://)/#) {
+                if segment.contains("://"), let domain = normalizeDomain(String(segment)) {
+                    add(domain)
                     continue
                 }
-                if !domains.contains(domain) { domains.append(domain) }
+                for token in segment.split(separator: ",") {
+                    guard let domain = normalizeDomain(String(token)) else {
+                        rejected.append(String(token))
+                        continue
+                    }
+                    add(domain)
+                }
             }
         }
         return (domains, rejected)
