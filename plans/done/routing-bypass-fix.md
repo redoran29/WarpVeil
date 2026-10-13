@@ -969,3 +969,7 @@ reconnect; the stored list is empty.
   `teardownProcess`, so a re-armed restart waits on the same stop. The race predates this plan —
   the wake and routing reconnects had it. The teardown sequence shared by `disconnect` and
   `restart` is `tearDownEngines()`.
+- **R25. A failed configd read is told apart from an absent key** (finding 6).
+  `SCDynamicStoreCopyValue` returns nil for both; `hostHasGlobalIPv6()` now answers "no IPv6" only
+  when `SCError()` is `kSCStatusNoKey` (checked here: 1004 for the absent IPv6 key, 0 after the
+  IPv4 read), so a configd restart reads as "IPv6 present", per R10.

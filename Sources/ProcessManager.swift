@@ -523,7 +523,9 @@ final class ProcessManager {
     // reads as yes: an IPv6 address on the TUN costs bypass at worst, a missing one leaks IPv6.
     private func hostHasGlobalIPv6() -> Bool {
         guard let store = ipv6Watcher ?? SCDynamicStoreCreate(nil, "WarpVeil" as CFString, nil, nil) else { return true }
-        return SCDynamicStoreCopyValue(store, Self.globalIPv6Key as CFString) != nil
+        guard SCDynamicStoreCopyValue(store, Self.globalIPv6Key as CFString) == nil else { return true }
+        // nil is also what a failed call returns; only "no such key" means no IPv6.
+        return SCError() != kSCStatusNoKey
     }
 
     private nonisolated static func extractServerIP(from config: String) -> String? {
