@@ -353,6 +353,9 @@ final class ProcessManager {
         bypassDomains: [String] = []
     ) {
         guard !isRunning else { return }
+        // A connect supersedes a pending restart: left alone it would connect a second time,
+        // and without passwordless ask for the password again.
+        reconnectTask?.cancel()
         guard !config.isEmpty else {
             logs.append("[Error: no config provided]")
             return
@@ -598,9 +601,9 @@ final class ProcessManager {
     }
 
     func disconnect() {
-        guard isRunning else { return }
         reconnectTask?.cancel()
         reconnectTask = nil
+        guard isRunning else { return }
         logs.append("[Disconnecting...]")
         helperProcess?.terminate()
         helperProcess = nil

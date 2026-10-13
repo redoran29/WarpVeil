@@ -888,3 +888,9 @@ passes had already reworked twice — domain input and the restart machinery. Pe
   second, its `terminationHandler` set `isRunning = false` over the new, live connection. The
   handler now also requires `p === self.helperProcess`. The race predates this plan (the wake and
   routing reconnects had it); R9 made restarts more frequent.
+- **R19. A connect or disconnect cancels a pending restart** (finding 5). During a restart's delay
+  the UI reads "Disconnected"; a Connect pressed then connected, and the pending task connected
+  again on top (a second password prompt without passwordless, a second `reconnectCount` bump).
+  `connect` now cancels `reconnectTask` first — the restart's own connect cancels only itself,
+  after its sleep — and `disconnect` cancels it before its `isRunning` guard. The window still
+  reads "Disconnected" for up to 5 s, as it did after wake before this plan.
