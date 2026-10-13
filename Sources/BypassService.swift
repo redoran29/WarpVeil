@@ -71,16 +71,20 @@ enum BypassService {
     // Accepts a bare domain or a pasted URL and returns what a sniffed SNI looks like:
     // lowercase ASCII (punycode for IDN), no scheme, port, path, wildcard or trailing dot.
     // nil for anything that is not a DNS name — IP literals included, which `domain_suffix`
-    // cannot match. A bare TLD counts: `ru` covers every .ru site.
+    // cannot match. A whole TLD has to say so (`.ru`, `*.ru`): a bare word from pasted text, or a
+    // typo like `youtubecom`, would otherwise route a whole zone past the VPN.
     static func normalizeDomain(_ input: String) -> String? {
-        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Stripped before parsing: IDNA rejects a host that starts with a dot.
+        let namesSuffix = trimmed.hasPrefix(".") || trimmed.hasPrefix("*.")
+        if trimmed.hasPrefix("*.") { trimmed.removeFirst(2) }
+        while trimmed.hasPrefix(".") { trimmed.removeFirst() }
         guard !trimmed.isEmpty else { return nil }
         let url = trimmed.contains("://") ? trimmed : "https://" + trimmed
         guard var host = URLComponents(string: url)?.encodedHost?.lowercased() else { return nil }
-        if host.hasPrefix("*.") { host.removeFirst(2) }
-        while host.hasPrefix(".") { host.removeFirst() }
         while host.hasSuffix(".") { host.removeLast() }
-        return isDomainName(host) ? host : nil
+        guard host.contains(".") || namesSuffix, isDomainName(host) else { return nil }
+        return host
     }
 
     // Splits pasted text on whitespace, and on commas outside a URL — its path or query may carry

@@ -817,3 +817,9 @@ Not fixed, with the reason:
   `"address": "172.19.0.1/30"`; the `[String]` cast dropped it and wrote `[]`, which `sing-box
   check` accepts and which leaves IPv4 outside the tunnel. The `fitTunToHost` harness gained two
   cases, 8/8 ok.
+- **R12. A whole TLD needs a leading dot** (finding 4, which reverses part of R3). Accepting any
+  single label turned pasted words into bypass rules (`bypass google.com and youtube.com` stored
+  `bypass` and `and`; a stray `me` would send every .me site past the VPN) and stored typos like
+  `youtubecom`. `.ru` and `*.ru` still give `ru`; `ru`, `рф`, `youtubecom` stay in the field. The
+  `*.`/`.` prefix is stripped from the raw input before URL parsing — IDNA rejects a host that
+  starts with a dot, so `.рф` came back nil. The footer says `.ru`. Harness 50/50 ok.
