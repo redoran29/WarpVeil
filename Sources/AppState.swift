@@ -153,7 +153,7 @@ final class AppState {
     private func observeReconnects() {
         withObservationTracking {
             _ = pm.reconnectCount
-        } onChange: {
+        } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 connectedAt = Date()
