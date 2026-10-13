@@ -286,12 +286,13 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - The TUN's IP families follow the host's, set at connect time (`BypassService.fitTunToHost`,
   configd's `State:/Network/Global/IPv6`). While connected, a change of that key schedules one
   comparison 5 s later; if the host has gained or lost global IPv6 by then, the engines restart.
-  A ULA on the TUN of a host with no
-  global IPv6 makes
-  macOS hand out AAAA records, and a bypassed destination dials direct over IPv6 into `no route
-  to host` — `dns.strategy` does not help, apps with their own DoH never pass through sing-box.
-  No IPv6 on the TUN of a dual-stack host leaks every IPv6 connection past the VPN: sing-tun
-  routes IPv6 only for a TUN with an IPv6 address, and `strict_route` does nothing on macOS
+  A ULA on the TUN of a host with no global IPv6 makes macOS hand out AAAA records, and a
+  bypassed destination dials direct over IPv6 into `no route to host` — `dns.strategy` does not
+  help, apps with their own DoH never pass through sing-box. No IPv6 on the TUN of a dual-stack
+  host leaks every IPv6 connection past the VPN: sing-tun routes IPv6 only for a TUN with an IPv6
+  address, and `strict_route` does nothing on macOS
+- `dscacheutil -q host` prints AAAA records the system resolver will not hand to apps; what an
+  app gets is `getaddrinfo` — check IPv6 behaviour with that
 
 ---
 
