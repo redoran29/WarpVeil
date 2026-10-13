@@ -87,32 +87,26 @@ enum BypassService {
         return host
     }
 
-    // Splits pasted text on whitespace and commas. A URL that parses whole keeps its commas — its
-    // path or query may carry them — and a comma before a scheme always starts the next URL. The
-    // tokens that do not normalize come back so the caller can leave them in the field.
+    // Splits pasted text on whitespace and commas; the tokens that do not normalize come back
+    // so the caller can leave them in the field. A URL with commas in its path leaves its tail
+    // there too — visible, where a smarter split lost or invented domains silently.
     static func parseDomains(_ text: String) -> (domains: [String], rejected: [String]) {
         var domains: [String] = []
         var rejected: [String] = []
         var seen = Set<String>()
-        func add(_ domain: String) {
+        for token in tokens(in: text) {
+            guard let domain = normalizeDomain(token) else {
+                rejected.append(token)
+                continue
+            }
             if seen.insert(domain).inserted { domains.append(domain) }
         }
-        for word in text.components(separatedBy: .whitespacesAndNewlines) {
-            for segment in word.split(separator: #/,(?=[A-Za-z][A-Za-z0-9+.-]*://)/#) {
-                if segment.contains("://"), let domain = normalizeDomain(String(segment)) {
-                    add(domain)
-                    continue
-                }
-                for token in segment.split(separator: ",") {
-                    guard let domain = normalizeDomain(String(token)) else {
-                        rejected.append(String(token))
-                        continue
-                    }
-                    add(domain)
-                }
-            }
-        }
         return (domains, rejected)
+    }
+
+    private static func tokens(in text: String) -> [String] {
+        let separators = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ","))
+        return text.components(separatedBy: separators).filter { !$0.isEmpty }
     }
 
     private static func isDomainName(_ host: String) -> Bool {

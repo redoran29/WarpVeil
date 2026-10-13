@@ -863,3 +863,13 @@ Not fixed, with the reason:
 - **Finding 11, `833ff88` bundles the TLD rule and the comma handling.** True; it is pushed to
   `main`, and history is not rewritten. Both parts were reworked since in separate commits
   (`9080cef`, `a22c134`).
+
+`/code-review ff1895a..HEAD` (third pass) found 15, most of them in the two places the earlier
+passes had already reworked twice — domain input and the restart machinery. Per the canon's
+"third fix" rule the constructions were reconsidered instead of patched again:
+
+- **R16. Every comma splits again** (findings 6, 7's URL half, 8 — reverses R3's and R13's comma
+  handling). Keeping a URL's commas took three attempts, and each one lost or invented domains
+  silently: an IP-host URL handed pieces of its query to the list, a domain after `https://x/,`
+  vanished. Plain whitespace-and-comma splitting leaves a URL's comma tail in the field, visible,
+  and never drops a token. Harness 53/53 ok.
