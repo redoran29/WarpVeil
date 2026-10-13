@@ -356,6 +356,10 @@ final class ProcessManager {
 
         reconnectTask = Task {
             try? await Task.sleep(for: delay, clock: .suspending)
+            // A stop still running would read the PID file the new run.sh writes, and kill the
+            // fresh engine or delete its only handle. Without passwordless it is the first of the
+            // two password dialogs, so the run dialog waits for the answer to it.
+            await awaitTeardown(timeout: 30)
             guard !Task.isCancelled, let params = lastConnection else { return }
             connect(config: params.config, engine: params.engine,
                     binaryPath: params.binaryPath, singBoxPath: params.singBoxPath,
@@ -636,17 +640,16 @@ final class ProcessManager {
         isRunning = false
     }
 
-    // Quit needs to know when the engines are actually gone. The non-passwordless path puts up
-    // a password dialog, so the wait is however long the user takes, not a fixed delay.
+    // Quit and restart need to know when the engines are actually gone. The non-passwordless
+    // path puts up a password dialog, so the wait is however long the user takes.
     private var teardownProcess: Process?
 
     func awaitTeardown(timeout: TimeInterval) async {
         guard let process = teardownProcess else { return }
         let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning, Date() < deadline {
+        while process.isRunning, Date() < deadline, !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(100))
         }
-        teardownProcess = nil
     }
 
     private func killVPNProcesses() {

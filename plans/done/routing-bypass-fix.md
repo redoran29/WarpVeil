@@ -960,3 +960,12 @@ reconnect; the stored list is empty.
   55/55 ok, including the legacy rows above → `youtube.com, example.org, .su, .ru`.
 - **R23. A wildcard URL host names a zone too** (finding 8): `https://*.ru` gives `.ru`, as `*.ru`
   does; `https://*.рф/` gives `.xn--p1ai`. Harness 57/57 ok.
+- **R24. A restart waits for its teardown before it connects** (findings 2, 10). `restart` slept
+  its delay and connected while the `stop.sh` that `killVPNProcesses` launched could still be
+  running; that stop then read the PID file the new `run.sh` wrote and killed the fresh engine, or
+  removed the file — the only handle on it. Without passwordless the two password dialogs could
+  be answered in the wrong order. The task now `await`s `awaitTeardown(timeout: 30)` (the quit
+  path's wait) after the delay; `awaitTeardown` stops on cancellation and no longer clears
+  `teardownProcess`, so a re-armed restart waits on the same stop. The race predates this plan —
+  the wake and routing reconnects had it. The teardown sequence shared by `disconnect` and
+  `restart` is `tearDownEngines()`.
