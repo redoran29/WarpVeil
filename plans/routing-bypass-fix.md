@@ -668,6 +668,11 @@ footer caption renders under the card. Only then add the grouped-`Form` gotcha o
   `buildTunWrapperConfig(serverIP:bypassDomains:)` and records the IPv6 TUN address as a fact;
   after this plan its item 1 and item 2 need re-basing. Its D5 rule order already puts the bypass
   after `sniff` — consistent.
+- A sing-box server's config is generated once and stored in `subscriptions.json`, TUN inbound
+  included. Feed servers are rebuilt by `refreshAll` on every launch, before auto-connect, so
+  they lose the IPv6 address on the first launch of the new build; a manual `vless://` server
+  keeps it until it is removed and re-added, and so does a feed whose refresh fails. The owner
+  has no manual servers today (checked: all eight are feed servers).
 - Entries stored before this change are not re-normalized: a `*.foo.com` or an IP literal that an
   older build accepted sits in the list and matches nothing until removed and re-added. The
   owner's list is empty today.

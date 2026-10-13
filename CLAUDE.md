@@ -269,6 +269,10 @@ Write the simplest code that works. Prioritize readability over cleverness.
   tag reads ~800 ms for every server and never moves between runs
 - `kill -0` on a root-owned engine from the user's shell fails with "not permitted", which reads
   as "dead" — the scripts read `ps -o comm=` instead, which also keeps them off a recycled PID
+- The TUN inbound carries an IPv4 address only. A ULA next to it makes `auto_route` install an
+  IPv6 default route and macOS hand out AAAA records on a host with no global IPv6; a bypassed
+  destination then dials direct over IPv6 and fails with `no route to host`. `dns.strategy` does
+  not help — apps with their own DoH never pass through sing-box
 
 ---
 
