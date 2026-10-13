@@ -255,7 +255,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - Sleep/wake reconnects after a 5 second delay to let the network settle
 - A domain rule placed before `sniff` never matches a TUN connection: it arrives as an IP
   destination and the domain exists only after the sniff action. `injectSingBox` puts the bypass
-  rule right after the first `sniff`, inserting one at the top when the config has none
+  rule right after the first unconditional `sniff` (no `inbound`, no `sniffer` list), inserting
+  one at the top when the config has none
 - A sniffed SNI is lowercase punycode, so bypass domains are stored that way
   (`BypassService.normalizeDomain`); `domain_suffix` covers subdomains and never an IP literal
 - The Clash API silently drops a test URL that starts with `http://` and substitutes its own

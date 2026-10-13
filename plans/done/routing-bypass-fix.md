@@ -722,3 +722,9 @@ app's started or stopped:
   `?format=singbox` feeds) are covered too — that was review finding 5, and the literal now lives
   once (finding 13). Residual: a network that gains or loses IPv6 mid-session keeps the TUN shape
   until the next reconnect (sleep/wake reconnects).
+- **R2. The bypass rule anchors on the first unconditional `sniff`** (finding 3). A `sniff` with an
+  `inbound` or a `sniffer` list — possible in a `?format=singbox` feed or a pasted config — may
+  never run for TUN connections or never read their SNI. `isUnconditionalSniff` accepts only
+  `action` and `timeout`; with none, `{"action":"sniff"}` goes to index 0 as before. Harness:
+  the conditioned-sniff case now expects `[sniff, route, hijack-dns, route, sniff, route]`, plus a
+  timeout-only case; 41/41 ok.

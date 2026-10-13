@@ -7,7 +7,8 @@ enum BypassService {
     // Goes into whichever sing-box holds the TUN: the server config, or the wrapper in front
     // of xray. A TUN connection arrives as an IP destination and its domain exists only after
     // the sniff action, so the rule has to sit after the first `sniff` — before it, it never
-    // matches.
+    // matches. Only an unconditional one counts: a sniff limited to an inbound or a protocol may
+    // never run for the TUN's connections, or never read their SNI.
     static func injectSingBox(_ json: String, domains: [String]) -> String {
         guard !domains.isEmpty,
               var root = parseJSON(json) else { return json }
@@ -22,7 +23,7 @@ enum BypassService {
         var route = root["route"] as? [String: Any] ?? [:]
         var rules = route["rules"] as? [[String: Any]] ?? []
         let sniffIndex: Int
-        if let existing = rules.firstIndex(where: { ($0["action"] as? String) == "sniff" }) {
+        if let existing = rules.firstIndex(where: isUnconditionalSniff) {
             sniffIndex = existing
         } else {
             rules.insert(["action": "sniff"], at: 0)
@@ -38,6 +39,10 @@ enum BypassService {
         root["route"] = route
 
         return serializeJSON(root) ?? json
+    }
+
+    private static func isUnconditionalSniff(_ rule: [String: Any]) -> Bool {
+        (rule["action"] as? String) == "sniff" && Set(rule.keys).isSubset(of: ["action", "timeout"])
     }
 
     // MARK: - TUN address families
