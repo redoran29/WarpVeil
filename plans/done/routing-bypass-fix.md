@@ -909,3 +909,15 @@ passes had already reworked twice — domain input and the restart machinery. Pe
   now; `handleWake` also runs while a restart is pending (`reconnectTask != nil` — `connect`
   clears it), and `restart` tears the engines down only when they run, so the re-arm costs no
   second teardown or password prompt.
+
+Not fixed, with the reason:
+
+- **Finding 11, a pending restart reuses the server config captured at connect.** True, and true
+  of the wake reconnect before this plan; only the bypass list is re-read (R8). Resolving every
+  input from `AppState` when the restart fires is a change to the connect flow, not to bypass.
+- **Finding 13, the plan in `done/` with finding 4 open.** Finding 4 (an xray server given by
+  hostname loops in the wrapper) predates this plan, is listed under "found in passing" since its
+  first draft, and needs a choice of mechanism the owner makes; it is reported to him as open.
+- **Finding 14, `9080cef`–`a22c134` dropped stored bare labels from reads.** True of those two
+  commits; no build of them ran against the real defaults domain (the only dev copy run used
+  `com.warpveil.app.dev`, and it ran before them). R17 removed the read path that lost them.
