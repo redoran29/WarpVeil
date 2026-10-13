@@ -736,3 +736,11 @@ app's started or stopped:
   on whitespace, and on commas only outside a token with `://`, so
   `https://maps.example.com/@55.7,37.6,12z` adds `maps.example.com` and leaves nothing behind.
   The footer says `ru covers every .ru site`. Harness 46/46 ok.
+- **R4. The prompt is `Text(verbatim:)` too** (finding 11), per the canon rule this plan added.
+- **R5. Stored domains are normalized on read** (finding 8). `AppState.bypassDomains` is
+  `BypassService.parseDomains(raw).domains`, so an entry an older build stored as typed
+  (`*.YouTube.com`, a URL, an IP) reaches `domain_suffix` normalized or not at all, and the list
+  is deduplicated; the raw string is rewritten from the normalized list at the next edit. Checked:
+  `"*.YouTube.com\nhttps://Example.org/path\n10.0.0.1\nexample.org\n  ru  "` →
+  `["youtube.com", "example.org", "ru"]`. This replaces "Not chosen: re-normalizing entries already
+  stored" above. `addDomains` reads `app.bypassDomains` once instead of per element.

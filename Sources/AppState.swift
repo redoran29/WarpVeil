@@ -46,11 +46,10 @@ final class AppState {
         subs.subscriptions.lazy.flatMap(\.servers).first { $0.id == selectedServerID }
     }
 
+    // Normalized on read: an older build stored entries as typed ("*.foo.com", a URL, uppercase),
+    // and those reach domain_suffix verbatim and match nothing.
     var bypassDomains: [String] {
-        (defaults.string(forKey: "bypassDomains") ?? "")
-            .split(separator: "\n")
-            .map { String($0).trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        BypassService.parseDomains(defaults.string(forKey: "bypassDomains") ?? "").domains
     }
 
     private var selectedSubscription: Subscription? {

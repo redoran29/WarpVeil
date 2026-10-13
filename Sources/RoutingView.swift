@@ -75,9 +75,10 @@ struct RoutingView: View {
     // normalize stay in the field so the user sees what was not accepted.
     private func addDomains() {
         let parsed = BypassService.parseDomains(newDomain)
-        let fresh = parsed.domains.filter { !app.bypassDomains.contains($0) }
+        let current = app.bypassDomains
+        let fresh = parsed.domains.filter { !current.contains($0) }
         if !fresh.isEmpty {
-            bypassDomainsRaw = (app.bypassDomains + fresh).joined(separator: "\n")
+            bypassDomainsRaw = (current + fresh).joined(separator: "\n")
         }
         newDomain = parsed.rejected.joined(separator: " ")
     }
