@@ -69,7 +69,7 @@ Sources/
 ├── LocationService.swift      # Public IP & geolocation via ipwho.is (HTTPS)
 ├── NetworkMonitor.swift       # Real-time upload/download speed
 ├── PingService.swift          # Proxy delay via a user-space sing-box and its Clash API
-├── BypassService.swift        # JSON config injection for domain bypass routing
+├── BypassService.swift        # Bypass rule injection and domain input normalization
 └── Models.swift               # Server, Subscription, Engine types
 ```
 
@@ -97,7 +97,9 @@ committed to `Binaries/` and copied in by the Xcode "Bundle VPN Binaries" build 
 **Two connection topologies.** A sing-box server runs as a single process. An xray server
 (needed for `xhttp`/`splithttp`, which sing-box does not implement) runs as a SOCKS proxy on
 port 10808 with a sing-box TUN wrapper in front of it; all routing decisions then live in that
-wrapper, because it is the only sing-box in the topology.
+wrapper, because it is the only sing-box in the topology. The bypass rule goes into it through
+the same `BypassService.injectSingBox` that handles a sing-box server config; the xray config is
+written as the subscription produced it.
 
 ---
 
@@ -241,7 +243,7 @@ Write the simplest code that works. Prioritize readability over cleverness.
 
 - `$TMPDIR/warpveil-<tag>.log` — VPN process log, tailed by a 0.25s polling timer
 - `$TMPDIR/warpveil-singbox-<pid>.json` — injected sing-box config
-- `$TMPDIR/warpveil-xray-<pid>.json` — injected xray config
+- `$TMPDIR/warpveil-xray-<pid>.json` — xray config, as the subscription produced it
 - `$TMPDIR/warpveil-ping-{singbox,xray}-<pid>.json` — ping configs, present only during a run
 - `/tmp/warpveil-<tag>-{singbox,xray}.pid` — engine PIDs
 - `~/.config/warpveil/subscriptions.json` — subscriptions, shared across all builds
@@ -251,7 +253,11 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - TUN comes up with a delay — location detection retries at 3, 5 and 10 seconds after connect
 - `which` is unreliable inside `.app` bundles (no shell profile) — resolve paths explicitly
 - Sleep/wake reconnects after a 5 second delay to let the network settle
-- sing-box and xray have different config formats — `BypassService` handles each separately
+- A domain rule placed before `sniff` never matches a TUN connection: it arrives as an IP
+  destination and the domain exists only after the sniff action. `injectSingBox` puts the bypass
+  rule right after the first `sniff`, inserting one at the top when the config has none
+- A sniffed SNI is lowercase punycode, so bypass domains are stored that way
+  (`BypassService.normalizeDomain`); `domain_suffix` covers subdomains and never an IP literal
 - The Clash API silently drops a test URL that starts with `http://` and substitutes its own
   default, and it rejects a delay request with no `timeout` — the URL must be HTTPS
 - sing-box prints nothing at `log.level: warn`, so a ping's readiness is `GET /` answering,
@@ -265,6 +271,10 @@ Write the simplest code that works. Prioritize readability over cleverness.
   are no-ops and `listSectionSpacing` does not exist — draw row state on the row's own content
 - A grouped `Section` with a header and no rows renders the header alone and the next section's
   header in footer style — keep every section non-empty
+- In a grouped `Form` a `TextField` title renders as the row's label, not as a placeholder — put
+  the example in `prompt:` and hide the label
+- A `Text` literal is a `LocalizedStringKey`, and a bare `www.` domain in it renders as a clickable
+  link — UI copy that names a domain is `Text(verbatim:)`
 - A single Clash delay test is a cold one: it pays the handshake to the proxy, so one request per
   tag reads ~800 ms for every server and never moves between runs
 - `kill -0` on a root-owned engine from the user's shell fails with "not permitted", which reads

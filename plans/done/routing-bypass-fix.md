@@ -1,6 +1,6 @@
 # Routing bypass: a rule that matches, an Add button, input the sniffer can use
 
-Status: proposed. Written against `d9a5856`, macOS 27.0.1 (Darwin 27.0.0), Xcode 27.0, bundled
+Status: implemented — steps 1–5 committed; live checks of Verification 4 run after deploy. Written against `d9a5856`, macOS 27.0.1 (Darwin 27.0.0), Xcode 27.0, bundled
 sing-box 1.14.0 and Xray 26.3.27, deployment target 14.0, `CFBundleShortVersionString` = `1.2`.
 
 ## Owner's ask
@@ -381,16 +381,16 @@ Commit: `Record the bypass fix in the canon`.
 
 `CLAUDE.md`:
 
-- `:72` → `├── BypassService.swift        # Bypass rule injection into the sing-box that holds the TUN; domain input normalization`
+- `:72` → `├── BypassService.swift        # Bypass rule injection and domain input normalization` (the
+  longer wording broke the tree's column)
 - `:97-100`, append to the "Two connection topologies" paragraph: `The bypass rule is injected
   into the wrapper by the same `BypassService.injectSingBox` that handles a sing-box server
   config; the xray config is written as the subscription produced it.`
 - `:245` Runtime Files → `` `$TMPDIR/warpveil-xray-<pid>.json` — xray config, as the subscription produced it ``
-- `:254` replace the gotcha with these three:
+- `:254` replace the gotcha with these two (a third, "the bypass rule goes into the sing-box that
+  holds the TUN", was dropped while implementing: the topology paragraph above already says it):
 
 ```
-- The bypass rule goes into the sing-box that holds the TUN — the server config or the xray
-  wrapper; xray receives IP destinations over SOCKS, never a domain, so its routing is left alone
 - A domain rule placed before `sniff` never matches a TUN connection: it arrives as an IP
   destination and the domain exists only after the sniff action. `injectSingBox` puts the bypass
   rule right after the first `sniff`, inserting one at the top when the config has none
@@ -399,7 +399,7 @@ Commit: `Record the bypass fix in the canon`.
 ```
 
 - Gotchas, next to the two grouped-`Form` entries (`:264-267`), after the visual check in
-  Verification 5 confirms it:
+  Verification 5 confirms it (it did, and also surfaced the `Text` autolink):
 
 ```
 - In a grouped `Form` a `TextField` title renders as the row's label, not as a placeholder — put
