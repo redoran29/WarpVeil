@@ -42,7 +42,7 @@ enum BypassService {
     }
 
     private static func isUnconditionalSniff(_ rule: [String: Any]) -> Bool {
-        (rule["action"] as? String) == "sniff" && Set(rule.keys).isSubset(of: ["action", "timeout"])
+        (rule["action"] as? String) == "sniff" && Set(rule.keys).isSubset(of: ["type", "action", "timeout"])
     }
 
     // MARK: - TUN address families

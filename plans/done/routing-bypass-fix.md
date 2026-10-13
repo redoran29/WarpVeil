@@ -838,3 +838,7 @@ Not fixed, with the reason:
   `Set`. Checked with a copy of the loop: `*.YouTube.com`, `https://Example.org/path`, `10.0.0.1`,
   `example.org`, `  ru  `, `рф`, `.su`, `youtube.com` → `youtube.com, example.org, ru, xn--p1ai, su`,
   `10.0.0.1` dropped; a second pass changes nothing.
+- **R15. `type` does not make a sniff conditional** (finding 8): `{"type":"default","action":"sniff"}`
+  is the explicit spelling of a plain rule. A sniff limited by `inbound` still counts as
+  conditional even when it names the TUN — the cost is one extra sniff at the top, not a dead rule.
+  The canon now states the criterion the code uses.
