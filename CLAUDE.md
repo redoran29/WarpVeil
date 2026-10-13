@@ -284,8 +284,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - `kill -0` on a root-owned engine from the user's shell fails with "not permitted", which reads
   as "dead" — the scripts read `ps -o comm=` instead, which also keeps them off a recycled PID
 - The TUN's IP families follow the host's, set at connect time (`BypassService.fitTunToHost`,
-  configd's `State:/Network/Global/IPv6`). When the host gains or loses global IPv6 while
-  connected and the change holds for 5 s, the engines restart. A ULA on the TUN of a host with no
+  configd's `State:/Network/Global/IPv6`). While connected, a change of that key schedules one
+  comparison 5 s later; if the host has gained or lost global IPv6 by then, the engines restart.
+  A ULA on the TUN of a host with no
   global IPv6 makes
   macOS hand out AAAA records, and a bypassed destination dials direct over IPv6 into `no route
   to host` — `dns.strategy` does not help, apps with their own DoH never pass through sing-box.

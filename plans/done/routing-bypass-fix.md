@@ -973,3 +973,7 @@ reconnect; the stored list is empty.
   `SCDynamicStoreCopyValue` returns nil for both; `hostHasGlobalIPv6()` now answers "no IPv6" only
   when `SCError()` is `kSCStatusNoKey` (checked here: 1004 for the absent IPv6 key, 0 after the
   IPv4 read), so a configd restart reads as "IPv6 present", per R10.
+- **R26. The IPv6 check runs 5 s after the first change** (finding 7). R20's check restarted its
+  timer on every notification, so a key re-published every few seconds postponed it for good and
+  the TUN stayed IPv4-only on a network that had gained IPv6. Later notifications now leave a
+  pending check alone; it compares host and TUN when it fires.

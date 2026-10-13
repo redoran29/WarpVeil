@@ -333,14 +333,16 @@ final class ProcessManager {
         init(_ manager: ProcessManager) { self.manager = manager }
     }
 
-    // configd drops and re-adds the key while a network settles, so only a change that holds for
-    // 5 s restarts — on a clock that stops during sleep, so that after wake handleWake's restart
-    // is the one that runs.
+    // configd drops and re-adds the key while a network settles, so the host is compared with
+    // the TUN 5 s after the first change; later notifications do not move that check, or a
+    // flapping key would postpone it for good. The clock stops during sleep, so after wake
+    // handleWake's restart is the one that runs.
     private func hostIPv6Changed() {
-        ipv6CheckTask?.cancel()
+        guard ipv6CheckTask == nil else { return }
         ipv6CheckTask = Task {
             try? await Task.sleep(for: .seconds(5), clock: .suspending)
-            guard !Task.isCancelled, isRunning, hostHasGlobalIPv6() != tunHasIPv6 else { return }
+            ipv6CheckTask = nil
+            guard isRunning, hostHasGlobalIPv6() != tunHasIPv6 else { return }
             restart("[Network IPv6 changed — reconnecting...]", after: .seconds(1))
         }
     }
