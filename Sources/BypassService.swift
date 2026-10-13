@@ -4,11 +4,14 @@ enum BypassService {
 
     // MARK: - sing-box config injection
 
+    // Goes into whichever sing-box holds the TUN: the server config, or the wrapper in front
+    // of xray. A TUN connection arrives as an IP destination and its domain exists only after
+    // the sniff action, so the rule has to sit after the first `sniff` — before it, it never
+    // matches.
     static func injectSingBox(_ json: String, domains: [String]) -> String {
         guard !domains.isEmpty,
               var root = parseJSON(json) else { return json }
 
-        // 1. Ensure "direct" outbound exists
         var outbounds = root["outbounds"] as? [[String: Any]] ?? []
         let hasDirectOutbound = outbounds.contains { ($0["tag"] as? String) == "direct" }
         if !hasDirectOutbound {
@@ -16,64 +19,23 @@ enum BypassService {
             root["outbounds"] = outbounds
         }
 
-        // 2. Add bypass routing rule at the top
         var route = root["route"] as? [String: Any] ?? [:]
         var rules = route["rules"] as? [[String: Any]] ?? []
+        let sniffIndex: Int
+        if let existing = rules.firstIndex(where: { ($0["action"] as? String) == "sniff" }) {
+            sniffIndex = existing
+        } else {
+            rules.insert(["action": "sniff"], at: 0)
+            sniffIndex = 0
+        }
         let bypassRule: [String: Any] = [
             "action": "route",
             "outbound": "direct",
             "domain_suffix": domains
         ]
-        rules.insert(bypassRule, at: 0)
+        rules.insert(bypassRule, at: sniffIndex + 1)
         route["rules"] = rules
         root["route"] = route
-
-        // 3. Ensure sniff is in route rules (sing-box 1.13 removed legacy inbound sniff fields)
-        let hasSniffAction = rules.contains { ($0["action"] as? String) == "sniff" }
-        if !hasSniffAction {
-            rules.append(["action": "sniff"])
-            route["rules"] = rules
-            root["route"] = route
-        }
-
-        return serializeJSON(root) ?? json
-    }
-
-    // MARK: - xray config injection
-
-    static func injectXray(_ json: String, domains: [String]) -> String {
-        guard !domains.isEmpty,
-              var root = parseJSON(json) else { return json }
-
-        // 1. Ensure "direct" outbound exists
-        var outbounds = root["outbounds"] as? [[String: Any]] ?? []
-        let hasDirectOutbound = outbounds.contains {
-            ($0["tag"] as? String) == "direct" || ($0["protocol"] as? String) == "freedom"
-        }
-        if !hasDirectOutbound {
-            outbounds.append(["protocol": "freedom", "tag": "direct"])
-            root["outbounds"] = outbounds
-        }
-
-        // 2. Add bypass routing rule at the top
-        var routing = root["routing"] as? [String: Any] ?? [:]
-        var rules = routing["rules"] as? [[String: Any]] ?? []
-        let bypassRule: [String: Any] = [
-            "type": "field",
-            "domain": domains,
-            "outboundTag": "direct"
-        ]
-        rules.insert(bypassRule, at: 0)
-        routing["rules"] = rules
-        root["routing"] = routing
-
-        // 3. Set log level to at least "info"
-        var log = root["log"] as? [String: Any] ?? [:]
-        let currentLevel = log["loglevel"] as? String ?? ""
-        if currentLevel != "debug" {
-            log["loglevel"] = "info"
-        }
-        root["log"] = log
 
         return serializeJSON(root) ?? json
     }

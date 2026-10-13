@@ -338,18 +338,19 @@ final class ProcessManager {
             finalConfig = BypassService.injectSingBox(config, domains: bypassDomains)
             configFile = singboxConfigFile
         case .xray:
-            finalConfig = BypassService.injectXray(config, domains: bypassDomains)
+            finalConfig = config
             configFile = xrayConfigFile
         }
 
         FileManager.default.createFile(atPath: configFile, contents: finalConfig.data(using: .utf8),
                                         attributes: [.posixPermissions: 0o600])
 
-        // For xray: generate a sing-box TUN wrapper that routes through xray's SOCKS proxy
+        // The wrapper is the only sing-box in the xray topology, so the bypass rule goes there:
+        // xray gets IP destinations over SOCKS and never sees a domain.
         if engine == .xray {
-            let serverIP = Self.extractServerIP(from: config)
-            let tunWrapper = Self.buildTunWrapperConfig(serverIP: serverIP, bypassDomains: bypassDomains)
-            FileManager.default.createFile(atPath: singboxConfigFile, contents: tunWrapper.data(using: .utf8),
+            let wrapper = Self.buildTunWrapperConfig(serverIP: Self.extractServerIP(from: config))
+            let finalWrapper = BypassService.injectSingBox(wrapper, domains: bypassDomains)
+            FileManager.default.createFile(atPath: singboxConfigFile, contents: finalWrapper.data(using: .utf8),
                                             attributes: [.posixPermissions: 0o600])
         }
 
@@ -469,7 +470,7 @@ final class ProcessManager {
         return nil
     }
 
-    private nonisolated static func buildTunWrapperConfig(serverIP: String?, bypassDomains: [String]) -> String {
+    private nonisolated static func buildTunWrapperConfig(serverIP: String?) -> String {
         var rules: [[String: Any]] = [
             ["action": "hijack-dns", "protocol": "dns"] as [String: Any],
             ["action": "sniff"] as [String: Any]
@@ -491,14 +492,6 @@ final class ProcessManager {
                     "domain_suffix": [addr]
                 ] as [String: Any], at: 0)
             }
-        }
-
-        if !bypassDomains.isEmpty {
-            rules.insert([
-                "action": "route",
-                "outbound": "direct",
-                "domain_suffix": bypassDomains
-            ] as [String: Any], at: 0)
         }
 
         let config: [String: Any] = [
