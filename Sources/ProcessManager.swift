@@ -352,13 +352,7 @@ final class ProcessManager {
         guard lastConnection != nil else { return }
         logs.append(message)
         reconnectTask?.cancel()
-        if isRunning {
-            helperProcess?.terminate()
-            helperProcess = nil
-            stopLogTail()
-            killVPNProcesses()
-            isRunning = false
-        }
+        if isRunning { tearDownEngines() }
 
         reconnectTask = Task {
             try? await Task.sleep(for: delay, clock: .suspending)
@@ -631,6 +625,10 @@ final class ProcessManager {
         reconnectTask = nil
         guard isRunning else { return }
         logs.append("[Disconnecting...]")
+        tearDownEngines()
+    }
+
+    private func tearDownEngines() {
         helperProcess?.terminate()
         helperProcess = nil
         stopLogTail()
