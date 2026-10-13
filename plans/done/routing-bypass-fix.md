@@ -873,3 +873,13 @@ passes had already reworked twice — domain input and the restart machinery. Pe
   silently: an IP-host URL handed pieces of its query to the list, a domain after `https://x/,`
   vanished. Plain whitespace-and-comma splitting leaves a URL's comma tail in the field, visible,
   and never drops a token. Harness 53/53 ok.
+- **R17. A whole TLD is stored with its dot; the stored list is normalized on its way to the
+  engine, never rewritten** (findings 2, 7's wildcard half, 9, 14 — replaces R5 and R14). The list
+  showed `ru` while the field only took `.ru`, the launch migration deleted a legacy line holding
+  two domains, and the intermediate commits between R12 and R14 dropped stored bare labels from
+  reads. Now `normalizeDomain` returns `.ru` for a zone (sing-box: `domain_suffix: [".ru"]` sends
+  `ya.ru` direct and `example.com` to the proxy) and strips a wildcard from a parsed URL host
+  again (`https://*.foo.com` → `foo.com`); `AppState.normalizeStoredBypassDomains` is gone;
+  `activeBypassDomains` hands the engine `BypassService.storedDomains(raw)`, which splits on
+  whitespace and commas and reads a stored bare label as a TLD; `bypassDomains` is the display
+  split it was before this plan. A legacy entry shows as typed and works. Harness 56/56 ok.

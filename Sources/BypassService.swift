@@ -68,23 +68,26 @@ enum BypassService {
 
     // MARK: - Domain input
 
-    // Accepts a bare domain or a pasted URL and returns what a sniffed SNI looks like:
-    // lowercase ASCII (punycode for IDN), no scheme, port, path, wildcard or trailing dot.
-    // nil for anything that is not a DNS name — IP literals included, which `domain_suffix`
-    // cannot match. A whole TLD has to say so (`.ru`, `*.ru`): a bare word from pasted text, or a
-    // typo like `youtubecom`, would otherwise route a whole zone past the VPN.
+    // Accepts a bare domain or a pasted URL and returns the entry as stored and as handed to
+    // `domain_suffix`, in the form a sniffed SNI takes: lowercase ASCII (punycode for IDN), no
+    // scheme, port, path, wildcard or trailing dot. A whole TLD keeps its dot (`.ru`) and has to
+    // be typed with it: a bare word from pasted text, or a typo like `youtubecom`, would
+    // otherwise route a whole zone past the VPN. nil for anything that is not a DNS name — IP
+    // literals included, which `domain_suffix` cannot match.
     static func normalizeDomain(_ input: String) -> String? {
         var trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         // Stripped before parsing: IDNA rejects a host that starts with a dot.
-        let namesSuffix = trimmed.hasPrefix(".") || trimmed.hasPrefix("*.")
+        let namesZone = trimmed.hasPrefix(".") || trimmed.hasPrefix("*.")
         if trimmed.hasPrefix("*.") { trimmed.removeFirst(2) }
         while trimmed.hasPrefix(".") { trimmed.removeFirst() }
         guard !trimmed.isEmpty else { return nil }
         let url = trimmed.contains("://") ? trimmed : "https://" + trimmed
         guard var host = URLComponents(string: url)?.encodedHost?.lowercased() else { return nil }
+        if host.hasPrefix("*.") { host.removeFirst(2) }
         while host.hasSuffix(".") { host.removeLast() }
-        guard host.contains(".") || namesSuffix, isDomainName(host) else { return nil }
-        return host
+        guard isDomainName(host) else { return nil }
+        if host.contains(".") { return host }
+        return namesZone ? "." + host : nil
     }
 
     // Splits pasted text on whitespace and commas; the tokens that do not normalize come back
@@ -102,6 +105,15 @@ enum BypassService {
             if seen.insert(domain).inserted { domains.append(domain) }
         }
         return (domains, rejected)
+    }
+
+    // The stored list as the engine gets it. Normalized again because an older build stored
+    // entries as typed: several on a line, `*.foo.com`, a URL, a bare `ru` meant as a TLD.
+    static func storedDomains(_ raw: String) -> [String] {
+        var seen = Set<String>()
+        return tokens(in: raw)
+            .compactMap { normalizeDomain($0.contains(".") ? $0 : "." + $0) }
+            .filter { seen.insert($0).inserted }
     }
 
     private static func tokens(in text: String) -> [String] {
