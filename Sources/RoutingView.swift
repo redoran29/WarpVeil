@@ -21,7 +21,7 @@ struct RoutingView: View {
             }
 
             if bypassEnabled {
-                Section("Domains") {
+                Section {
                     ForEach(app.bypassDomains, id: \.self) { domain in
                         LabeledContent(domain) {
                             Button {
@@ -35,8 +35,19 @@ struct RoutingView: View {
                         }
                     }
 
-                    TextField("example.com", text: $newDomain)
-                        .onSubmit(addDomain)
+                    // A TextField's title is a row label in a grouped Form, so the example
+                    // goes in the prompt and the label is hidden.
+                    HStack {
+                        TextField("Domain", text: $newDomain, prompt: Text("example.com"))
+                            .labelsHidden()
+                            .onSubmit(addDomains)
+                        Button("Add", action: addDomains)
+                            .disabled(!canAdd)
+                    }
+                } header: {
+                    Text("Domains")
+                } footer: {
+                    Text(verbatim: "Subdomains are included: example.com also covers www.example.com. A URL or several domains at once are accepted.")
                 }
             }
         }
@@ -56,11 +67,19 @@ struct RoutingView: View {
         }
     }
 
-    private func addDomain() {
-        let domain = newDomain.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !domain.isEmpty, !app.bypassDomains.contains(domain) else { return }
-        bypassDomainsRaw += (bypassDomainsRaw.isEmpty ? "" : "\n") + domain
-        newDomain = ""
+    private var canAdd: Bool {
+        !BypassService.parseDomains(newDomain).domains.isEmpty
+    }
+
+    // Enter reaches here without passing the button's disabled state. Tokens that did not
+    // normalize stay in the field so the user sees what was not accepted.
+    private func addDomains() {
+        let parsed = BypassService.parseDomains(newDomain)
+        let fresh = parsed.domains.filter { !app.bypassDomains.contains($0) }
+        if !fresh.isEmpty {
+            bypassDomainsRaw = (app.bypassDomains + fresh).joined(separator: "\n")
+        }
+        newDomain = parsed.rejected.joined(separator: " ")
     }
 
     private func removeDomain(_ domain: String) {

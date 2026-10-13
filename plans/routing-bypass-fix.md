@@ -129,7 +129,9 @@ the last row of the Domains section, so the section is never empty (canon gotcha
 if every token is a duplicate, Add consumes them and adds nothing. Enter calls the same function
 and reaches it without passing the button's disabled state, so `addDomains` has to be correct on
 empty input (it is: nothing added, the field keeps its rejected tokens). The section gets a
-footer caption: subdomains are included, a URL or several domains at once are accepted. The
+footer caption: subdomains are included, a URL or several domains at once are accepted. The caption
+is `Text(verbatim:)`: as a literal it is parsed as a `LocalizedStringKey` and macOS turns the bare
+`www.example.com` into a clickable link (seen on the dev build, reproduced with `ImageRenderer`). The
 `Section("Domains")` becomes `Section { } header: { Text("Domains") } footer: { … }`.
 
 **D5. Reconnect only when the effective list changed.** The guard goes into
@@ -307,7 +309,7 @@ Commit: `Add an Add button and domain normalization to the Routing page`.
                 } header: {
                     Text("Domains")
                 } footer: {
-                    Text("Subdomains are included: example.com also covers www.example.com. A URL or several domains at once are accepted.")
+                    Text(verbatim: "Subdomains are included: example.com also covers www.example.com. A URL or several domains at once are accepted.")
                 }
 ```
 
@@ -402,6 +404,8 @@ Commit: `Record the bypass fix in the canon`.
 ```
 - In a grouped `Form` a `TextField` title renders as the row's label, not as a placeholder — put
   the example in `prompt:` and hide the label
+- A `Text` literal is a `LocalizedStringKey`, and a bare `www.` domain in it renders as a clickable
+  link — UI copy that names a domain is `Text(verbatim:)`
 ```
 
 `README.md:75` → `├── BypassService.swift        # Bypass rule injection and domain input normalization`.
