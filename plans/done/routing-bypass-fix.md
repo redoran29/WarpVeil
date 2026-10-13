@@ -744,3 +744,5 @@ app's started or stopped:
   `"*.YouTube.com\nhttps://Example.org/path\n10.0.0.1\nexample.org\n  ru  "` →
   `["youtube.com", "example.org", "ru"]`. This replaces "Not chosen: re-normalizing entries already
   stored" above. `addDomains` reads `app.bypassDomains` once instead of per element.
+- **R6. The reconnect guard compares sets** (finding 7): removing and re-adding a domain inside the
+  debounce reorders the list without changing the routing.
