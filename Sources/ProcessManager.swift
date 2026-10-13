@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import Network
+import SystemConfiguration
 
 @Observable
 @MainActor
@@ -331,11 +332,18 @@ final class ProcessManager {
 
         lastConnection = (config, engine, binaryPath, singBoxPath, bypassDomains)
 
+        // Whichever sing-box holds the TUN gets the bypass rule and the host's IP families.
+        let hostHasIPv6 = Self.hostHasGlobalIPv6()
+        func prepareTunConfig(_ json: String) -> String {
+            let injected = BypassService.injectSingBox(json, domains: bypassDomains)
+            return BypassService.fitTunToHost(injected, hostHasIPv6: hostHasIPv6)
+        }
+
         let finalConfig: String
         let configFile: String
         switch engine {
         case .singBox:
-            finalConfig = BypassService.injectSingBox(config, domains: bypassDomains)
+            finalConfig = prepareTunConfig(config)
             configFile = singboxConfigFile
         case .xray:
             finalConfig = config
@@ -349,7 +357,7 @@ final class ProcessManager {
         // xray gets IP destinations over SOCKS and never sees a domain.
         if engine == .xray {
             let wrapper = Self.buildTunWrapperConfig(serverIP: Self.extractServerIP(from: config))
-            let finalWrapper = BypassService.injectSingBox(wrapper, domains: bypassDomains)
+            let finalWrapper = prepareTunConfig(wrapper)
             FileManager.default.createFile(atPath: singboxConfigFile, contents: finalWrapper.data(using: .utf8),
                                             attributes: [.posixPermissions: 0o600])
         }
@@ -448,6 +456,13 @@ final class ProcessManager {
         return cmds.joined(separator: "\n")
     }
 
+    // configd publishes State:/Network/Global/IPv6 only while a physical service has a routable
+    // IPv6; sing-box's TUN registers no configd service, so the answer is the host's.
+    private nonisolated static func hostHasGlobalIPv6() -> Bool {
+        guard let store = SCDynamicStoreCreate(nil, "WarpVeil" as CFString, nil, nil) else { return false }
+        return SCDynamicStoreCopyValue(store, "State:/Network/Global/IPv6" as CFString) != nil
+    }
+
     private nonisolated static func extractServerIP(from config: String) -> String? {
         guard let data = config.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -500,9 +515,7 @@ final class ProcessManager {
                 [
                     "type": "tun",
                     "tag": "tun-in",
-                    // IPv4 only: a ULA here makes macOS hand out AAAA records on a host with no
-                    // global IPv6, and a bypassed destination then dials direct over IPv6 and
-                    // fails with "no route to host".
+                    // IPv6 joins at connect time, only when the host has it (fitTunToHost).
                     "address": ["172.19.0.1/30"],
                     "auto_route": true,
                     "strict_route": true

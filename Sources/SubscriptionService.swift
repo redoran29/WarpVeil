@@ -497,9 +497,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
                 [
                     "type": "tun",
                     "tag": "tun-in",
-                    // IPv4 only: a ULA here makes macOS hand out AAAA records on a host with no
-                    // global IPv6, and a bypassed destination then dials direct over IPv6 and
-                    // fails with "no route to host".
+                    // IPv6 joins at connect time, only when the host has it (fitTunToHost).
                     "address": ["172.19.0.1/30"],
                     "auto_route": true,
                     "strict_route": true

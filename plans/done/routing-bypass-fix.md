@@ -354,6 +354,9 @@ replays `params.bypassDomains` and is unaffected.
 
 ### 4. IPv4-only TUN address
 
+> Superseded by review fix R1 below: an unconditional IPv4-only TUN leaks IPv6 on a dual-stack
+> host. What was built is R1.
+
 Commit: `Give the TUN an IPv4 address only`.
 
 In both `Sources/SubscriptionService.swift:501` and `Sources/ProcessManager.swift:510` (the
@@ -702,3 +705,20 @@ app's started or stopped:
   VPN exit; control (old shape) → both via `outbound/socks[xray-proxy]` to the VPN exit. The
   user-space engine was killed by its own PID; `ps` shows no user-owned sing-box afterwards.
 - Every symbol named above was read in the source at the cited lines.
+
+## Review fixes
+
+`/code-review d9a5856..HEAD` found 14 issues. Fixed:
+
+- **R1. The TUN's IP families follow the host's, at connect time** (replaces step 4). Step 4 made
+  every TUN IPv4-only. sing-tun's `BuildAutoRouteRanges` (v0.9.0-beta.4, the one sing-box 1.14.0
+  pins) builds IPv6 routes only when the TUN has an IPv6 address, and `tun_darwin.go` never reads
+  `StrictRoute` — so on a dual-stack host every IPv6 connection would leave past the VPN. Now
+  `BypassService.fitTunToHost(_:hostHasIPv6:)` rewrites each `tun` inbound's `address` in
+  `ProcessManager.connect`: IPv4 entries as given, plus `fdfe:dcba:9876::1/126` only when
+  `ProcessManager.hostHasGlobalIPv6()` finds configd's `State:/Network/Global/IPv6` (absent on
+  this host, which has only a link-local IPv6; the live TUN does not register it). The builders
+  stay IPv4-only. Because it runs at connect, stored configs (manual servers, failed refreshes,
+  `?format=singbox` feeds) are covered too — that was review finding 5, and the literal now lives
+  once (finding 13). Residual: a network that gains or loses IPv6 mid-session keeps the TUN shape
+  until the next reconnect (sleep/wake reconnects).

@@ -40,6 +40,25 @@ enum BypassService {
         return serializeJSON(root) ?? json
     }
 
+    // MARK: - TUN address families
+
+    // The TUN mirrors the host's IP families, whatever the stored config says. With no global
+    // IPv6 on the host, an IPv6 address here makes macOS hand out AAAA records and a bypassed
+    // destination dials direct over IPv6 into "no route to host". With one, the TUN needs it:
+    // sing-tun routes IPv6 into the tunnel only when the TUN has an IPv6 address, and without
+    // that IPv6 leaves past the VPN.
+    static func fitTunToHost(_ json: String, hostHasIPv6: Bool) -> String {
+        guard var root = parseJSON(json),
+              var inbounds = root["inbounds"] as? [[String: Any]] else { return json }
+        for i in inbounds.indices where (inbounds[i]["type"] as? String) == "tun" {
+            var addresses = (inbounds[i]["address"] as? [String] ?? []).filter { !$0.contains(":") }
+            if hostHasIPv6 { addresses.append("fdfe:dcba:9876::1/126") }
+            inbounds[i]["address"] = addresses
+        }
+        root["inbounds"] = inbounds
+        return serializeJSON(root) ?? json
+    }
+
     // MARK: - Domain input
 
     // Accepts a bare domain or a pasted URL and returns what a sniffed SNI looks like:
