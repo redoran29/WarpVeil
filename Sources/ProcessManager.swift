@@ -151,6 +151,9 @@ final class ProcessManager {
     private var wakeObserver: Any?
     private var reconnectTask: Task<Void, Never>?
     var reconnectCount = 0
+    private var ipv6Watcher: SCDynamicStore?
+    private var tunHasIPv6 = false
+    private nonisolated static let globalIPv6Key = "State:/Network/Global/IPv6"
 
     // MARK: - Passwordless mode
 
@@ -291,11 +294,33 @@ final class ProcessManager {
                 }
             }
         }
+        watchHostIPv6()
     }
 
     private func handleWake() {
         guard isRunning else { return }
         restart("[System woke up — reconnecting...]", after: .seconds(5))
+    }
+
+    // The TUN's IP families are fixed when it starts. A network that gains IPv6 mid-session
+    // would send it past the VPN, one that loses it would leave bypassed domains with AAAA
+    // records the host cannot reach — either way the engines start again.
+    private func watchHostIPv6() {
+        var context = SCDynamicStoreContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
+                                            retain: nil, release: nil, copyDescription: nil)
+        guard let store = SCDynamicStoreCreate(nil, "WarpVeil" as CFString, { _, _, info in
+            guard let info else { return }
+            let manager = Unmanaged<ProcessManager>.fromOpaque(info).takeUnretainedValue()
+            Task { @MainActor in manager.hostIPv6Changed() }
+        }, &context) else { return }
+        SCDynamicStoreSetNotificationKeys(store, [Self.globalIPv6Key] as CFArray, nil)
+        SCDynamicStoreSetDispatchQueue(store, .main)
+        ipv6Watcher = store
+    }
+
+    private func hostIPv6Changed() {
+        guard isRunning, Self.hostHasGlobalIPv6() != tunHasIPv6 else { return }
+        restart("[Network IPv6 changed — reconnecting...]", after: .seconds(5))
     }
 
     // Starts the engines again from lastConnection as it is when the delay ends, so a routing
@@ -341,6 +366,7 @@ final class ProcessManager {
 
         // Whichever sing-box holds the TUN gets the bypass rule and the host's IP families.
         let hostHasIPv6 = Self.hostHasGlobalIPv6()
+        tunHasIPv6 = hostHasIPv6
         func prepareTunConfig(_ json: String) -> String {
             let injected = BypassService.injectSingBox(json, domains: bypassDomains)
             return BypassService.fitTunToHost(injected, hostHasIPv6: hostHasIPv6)
@@ -467,7 +493,7 @@ final class ProcessManager {
     // IPv6; sing-box's TUN registers no configd service, so the answer is the host's.
     private nonisolated static func hostHasGlobalIPv6() -> Bool {
         guard let store = SCDynamicStoreCreate(nil, "WarpVeil" as CFString, nil, nil) else { return false }
-        return SCDynamicStoreCopyValue(store, "State:/Network/Global/IPv6" as CFString) != nil
+        return SCDynamicStoreCopyValue(store, globalIPv6Key as CFString) != nil
     }
 
     private nonisolated static func extractServerIP(from config: String) -> String? {

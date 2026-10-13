@@ -798,3 +798,13 @@ Not fixed, with the reason:
   `lastConnection` when it fires. `reconnect` records a changed list in `lastConnection` first and
   restarts only while running; `AppState.routingChanged()` no longer gates on `isRunning`, so a
   domain removed during the 5 s after wake is not connected with the old list.
+- **R9. A change of the host's IPv6 restarts the engines** (finding 2). R1 fixed the TUN's families
+  at connect, so a network that gained IPv6 mid-session leaked it and one that lost it kept the
+  AAAA problem. `ProcessManager.watchHostIPv6()` subscribes to configd's
+  `State:/Network/Global/IPv6` (`SCDynamicStoreSetNotificationKeys` on the main queue); when the
+  host's answer stops matching `tunHasIPv6`, `restart` runs with the wake path's 5 s settle delay.
+  sing-box 1.14 has no rule action that re-resolves a sniffed domain (`resolve` needs a domain
+  destination, `route-options.override_address` is fixed), so "ULA always, bypassed traffic
+  re-resolved to IPv4" was not an option. Not exercised: a non-root process cannot write a
+  dynamic-store key to trigger the callback (a scratch test: `SCDynamicStoreSetValue` → false,
+  while subscribing returns true), and no network change was made here.
