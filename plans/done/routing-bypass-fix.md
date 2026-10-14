@@ -1029,3 +1029,13 @@ to the owner as decisions, with the rest that is open:
   one-time migration; with that, whether a typed domain already covered by a legacy row is added
   as its own row.
 - Finding 11 (this pass) and finding 13 (fourth pass): the plan in `done/` with these open.
+
+Owner decision, 2026-10-14: every item above stays as built, as recommended.
+
+- The IPv6 check keeps the first-change shape.
+- Legacy rows stay flagged and left out: no split, no migration, and a typed domain that a legacy
+  row covers is added as its own row. The owner's stored list is empty.
+- The hostname-server loop is planned separately in `plans/xray-hostname-server.md`.
+- A pending restart reconnects the server config it captured, which is what was connected.
+- No "Reconnecting…" UI state and no dark-wake reordering.
+- The plan stays in `done/`; nothing above is open.
