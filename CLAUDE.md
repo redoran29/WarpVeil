@@ -41,6 +41,9 @@ deviation — the file must never describe something that was not built.
 - Move the plan to `plans/done/` once every step is implemented.
 - Then run `/code-review` over the finished work and fix everything it surfaces.
   Work on a plan is not over while review findings are open.
+- A finding that would undo what an earlier pass asked for is not fixed: it goes to the owner
+  with both positions and is recorded in the plan as an owner decision. Two passes that disagree
+  mark a question the plan never settled, and fixing each in turn is a loop.
 
 ### The third fix is a signal
 
