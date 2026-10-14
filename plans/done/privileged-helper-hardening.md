@@ -1,6 +1,7 @@
 # Privileged helper hardening: root runs only its own copy of sing-box, on a config it checked
 
-Status: proposed. Written against `2dd58cc`, macOS 27.0.1 (Darwin 27.0.0), Xcode 27.0, bundled
+Status: done — built in `4c275f5`, `fb4bfb8`, `6bb3017`, verified live on 2026-10-14 (see "Live
+results"). Written against `2dd58cc`, macOS 27.0.1 (Darwin 27.0.0), Xcode 27.0, bundled
 sing-box 1.14.0 and Xray 26.3.27, deployment target 14.0, `CFBundleShortVersionString` = `1.2`,
 sudo 1.9.17p2, `/usr/bin/jq` 1.7.1-apple, `/bin/bash` 3.2.57.
 
@@ -1038,7 +1039,7 @@ JSON
     ps -axo comm= | grep -q "Resources/xray$" && bad "xray survived the quit" || ok "xray stopped with the app"
     open -n "$APP"
     wait_tunnel 90 || { bad "no tunnel after relaunch (a password dialog would mean passwordless is not in effect)"; exit 1; }
-    ps -axo args= | grep -q "^sudo $RUN_SH " && ok "connected through sudo run.sh (passwordless in effect)" || bad "no 'sudo run.sh' helper in ps — did it go through osascript?"
+    ps -axo args= | grep -q "^/usr/bin/sudo $RUN_SH " && ok "connected through sudo run.sh (passwordless in effect)" || bad "no 'sudo run.sh' helper in ps — did it go through osascript?"
     ps -axo user=,comm= | grep -q "^root  *$LIBEXEC/sing-box$" && ok "sing-box is the root-owned copy, running as root" || bad "root sing-box is not $LIBEXEC/sing-box: $(ps -axo user=,comm= | grep sing-box)"
     if ps -axo user=,comm= | grep "Resources/xray$" | grep -qv "^root"; then ok "xray runs as the user"; else log "note: no user xray (sing-box topology?)"; fi
     grep -q "\[error\]" "$LOG" && bad "errors in the engine log: $(grep '\[error\]' "$LOG" | tail -2)" || ok "no [error] lines in $LOG"
@@ -1129,3 +1130,32 @@ nothing under `/usr/local/libexec`, `/etc/sudoers.d` or `/var/run` touched; no s
   `a40843b` had the `/private/tmp/vpnswift-run.sh` sudoers line.
 - Every symbol named above was read in the source at the cited lines; the parity and hostname
   plans were read for the `connect` regions they touch.
+
+## Live results
+
+Run on 2026-10-14 against the installed build, xray topology (New Jersey).
+
+- Steps 1–3 were deployed once, after step 3, not after each step: every deploy that changes
+  `run.sh` costs the owner two password prompts (the connect, then the toggle), and step 1 alone
+  would have cost them twice. The deploy ran `helper-live.sh deploy` in the background with
+  `wait_tunnel 1800` instead of 480, so the wait was not bound by the tool's 10-minute limit.
+- `deploy`: 0 failures. The password dialog was answered, the tunnel came back on the new build
+  through the osascript path (root sing-box from the bundle), xray ran as the user with its
+  `$TMPDIR` PID file, and no root xray was left behind.
+- The owner turned Passwordless on again at 18:25. `/etc/sudoers.d/` then held only `warpveil-1-2`;
+  `/etc/sudoers.d/vpnswift` was gone. `/usr/local/libexec/warpveil-1-2/` held `run.sh`, `stop.sh`,
+  `sing-box` and `sing-box.sha256`, all root:wheel.
+- `probe`: every check passed except one, which was a bug in the check itself. All six
+  `sudo -n run.sh` calls were refused: `/bin/sh` → not valid JSON; the old two-argument call →
+  usage; `log.OUTPUT` → key output; `external_ui` + `cache_file`; a Unicode-folded key →
+  non-ASCII; a symlink → not a regular file. After each one the sing-box PID was unchanged, the
+  TUN was still up and the exit IP was the same. Nothing was written to `/etc`. The stage
+  directory was root 0700 and the user could not list it. On quit and relaunch, the TUN and xray
+  went away with the app and came back in 5 s with no password prompt.
+- The failing check was `"^sudo $RUN_SH "`. `Process` passes the executable's full path as
+  `argv[0]`, so `ps` shows `/usr/bin/sudo /usr/local/libexec/warpveil-1-2/run.sh
+  $TMPDIR/warpveil-singbox-<pid>.json`. The pattern is fixed above. Run by hand, `ps` showed the
+  chain `/usr/bin/sudo run.sh` → `/bin/bash run.sh` → `/usr/local/libexec/warpveil-1-2/sing-box run -c
+  /var/run/warpveil-1-2/singbox.XXXXXX` (root), with xray as the user.
+- Not exercised live: the sing-box topology, `killOrphanedXray` after a crash, and a connect on
+  macOS 14.
