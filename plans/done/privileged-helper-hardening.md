@@ -1159,3 +1159,176 @@ Run on 2026-10-14 against the installed build, xray topology (New Jersey).
   /var/run/warpveil-1-2/singbox.XXXXXX` (root), with xray as the user.
 - Not exercised live: the sing-box topology, `killOrphanedXray` after a crash, and a connect on
   macOS 14.
+
+## Review
+
+`/code-review 526a3d4..HEAD` (first pass) found 14. Fixed:
+
+- **R1. jq ran with the caller's `HOME`** (finding 1). macOS sudoers keeps `HOME` in `env_keep`,
+  and jq loads `~/.jq` on start, which can redefine builtins: a user file turned the policy into
+  `ok` (reproduced). Every root shell now pins `HOME=/var/empty`, and jq runs under `env -i`.
+  The harness repeats the case with a `~/.jq` in the caller's `HOME`. Commit `3375371`.
+- **R2. Root wrote sing-box's PID file in `/tmp`** (finding 2), where the write follows a symlink
+  planted at its name. The file is now `/var/run/warpveil-<tag>/singbox.pid` (root, 0755
+  directory, still readable for `install.sh`/`dev-run.sh`), and the staged configs moved one
+  level down into `stage/` (0700). `3375371`.
+- **R3. Root opened a path the caller chose** (finding 7). `run.sh` takes no arguments now and
+  reads the config on stdin; the app passes the file as the helper's standard input. The
+  osascript path redirects the app's own file, a path baked into a command the user authorises
+  with the password. `3375371`.
+- **R4. The staged config outlived its shell** (finding 5). The osascript shell never gets a TERM,
+  and an engine that exits by itself skipped the TERM trap. An EXIT trap now removes the copy
+  however the shell ends, and the PID file once it is ours — unless a newer `run.sh` already
+  wrote its own. `3375371`.
+- **R5. Provider templates were refused** (finding 3). `BypassService.dropUnneededFileKeys` drops
+  from a sing-box server config what such templates carry by default and the tunnel does not
+  need: extra top-level sections, `log.output`, `experimental.cache_file`, the
+  `clash_api.external_ui*` keys and `route.geoip`/`geosite`. It logs a line naming them.
+  Anything else that touches a file still fails the connect, by name. `97c9855`. This also
+  settles the parity plan's item 2 rebase note: the dashboard keys are now stripped.
+- **R6. macOS 14 could not connect** (finding 4). The deployment target is 15.0, where
+  `/usr/bin/jq` ships. `ef0e0a0`.
+- **R7. Nothing waited for xray's port** (finding 9). **An xray that died left the TUN up**
+  (finding 8). **The orphan wait blocked the main actor and dropped a survivor's handle**
+  (finding 11). The xray start now runs in `reconnectTask`. `stopOrphanedXray` waits
+  asynchronously, and a survivor keeps its PID file and stops the connect. The wrapper starts
+  once `127.0.0.1:10808` accepts a TCP connect. xray's termination handler tears the engines
+  down while connected. The start task releases `reconnectTask` when it finishes, because wake
+  reads a non-nil one as "a restart is pending". `8c616da`.
+- **R8. Another build's toggle left this build's cached state stale** (finding 10).
+  `refreshPasswordless()` re-reads the install before every connect and disconnect, but not
+  during an install, where the toggle is flipped optimistically. `dfa3acc`.
+- **R9. The manifest was unneeded** (finding 13). `FileManager.contentsEqual` compares the root
+  copy with the bundle. `sing-box.sha256`, CryptoKit and the root `shasum` step are gone.
+  `dfa3acc`.
+- **R10. `${TMPDIR%/}` is empty outside a login shell** (finding 12). Both scripts use
+  `getconf DARWIN_USER_TEMP_DIR`, verified equal to the app's `$TMPDIR` with `TMPDIR` unset.
+  `a942e74`.
+- **R11. The plan's closing commit carried only the rename** (finding 14). Fixed by `3bd033a`.
+
+Argued, not changed:
+
+- **Finding 6: the root copy is taken from a bundle the user can write.** True. The copy pins
+  what the bundle held when the password was typed, and code already running as the user before
+  that rides the prompt, as it can ride any admin prompt. A hash pinned at build time would live
+  in the same user-writable bundle — in the app's executable or its `Info.plist` — and a swap
+  of the engine could swap the pin with it. The canon now says this in "Passwordless mode",
+  instead of claiming a swapped bundle can never run as root.
+
+Verified before deploying:
+
+- `xcodebuild` is green after every commit.
+- The rendered-script harness (`harness3.sh`, built like Verification 2 but for the stdin shape)
+  passed 21 of 21. It covered: an argument refused; a binary on stdin; a hostile config; empty
+  stdin; a caller `HOME` with `~/.jq` (refused, and confirmed to print `ok` without `env -i`);
+  the previous engine alive with nothing staged after every refusal; replacement; cleanup on
+  TERM; cleanup after the engine exits by itself; a newer PID file left alone; a `PATH` hijack
+  neutralised; `stop.sh`; and the osascript body cleaning up after a stop it never gets a TERM
+  for.
+- `dropUnneededFileKeys` with the real policy: a provider template with `$schema`, `log.Output`,
+  `cache_file`, `external_ui*` and `route.geoip` comes out `ok`, keeping `external_controller`
+  and the transport `path`. A clean config comes back byte-for-byte. A local rule-set is still
+  refused.
+
+The live check for this round is `helper-live2.sh` below. It is the same `deploy`/`probe` flow,
+with stdin calls and the new paths:
+
+```bash
+#!/bin/bash
+# Live check for the hardening's first review round.
+#   helper-live2.sh deploy   build + install.sh, wait for the tunnel (password dialog: answer it)
+#   helper-live2.sh probe    after Passwordless is turned on again: every refusal leaves the tunnel up
+set -uo pipefail
+REPO="/Users/lortan29/Documents/Home Projects/vpn-swift"
+APP="/Applications/WarpVeil.app"; BIN="$APP/Contents/MacOS/WarpVeil"
+TAG="1-2"; LIBEXEC="/usr/local/libexec/warpveil-$TAG"; RUN_SH="$LIBEXEC/run.sh"
+RUN_DIR="/var/run/warpveil-$TAG"; PID_FILE="$RUN_DIR/singbox.pid"
+HOME_IP="198.51.100.10"; LOG="$(getconf DARWIN_USER_TEMP_DIR)warpveil-$TAG.log"
+W="$(getconf DARWIN_USER_TEMP_DIR)helper-live2"; mkdir -p "$W/home"; umask 077
+fails=0
+log() { printf '%s %s\n' "$(date +%T)" "$*"; }
+ok()  { log "ok   $*"; }
+bad() { log "FAIL $*"; fails=$((fails + 1)); }
+exit_ip() { curl -s --max-time 10 https://api.ipify.org || true; }
+tun_up() { ifconfig 2>/dev/null | grep -q "inet 172.19.0.1"; }
+app_pid() { pgrep -f "^${BIN}$" | head -1; }
+wait_tunnel() {
+    local deadline=$((SECONDS + $1)) ip
+    while [ $SECONDS -lt $deadline ]; do
+        if tun_up; then ip=$(exit_ip); [ -n "$ip" ] && [ "$ip" != "$HOME_IP" ] && { log "tunnel up, exit $ip"; return 0; }; fi
+        sleep 3
+    done
+    log "tunnel NOT up within $1 s (exit now: $(exit_ip))"; return 1
+}
+
+case "${1:-}" in
+deploy)
+    [ -n "$(app_pid)" ] || { bad "installed app not running"; exit 1; }
+    [ "$(defaults read com.warpveil.app autoConnect 2>/dev/null)" = 1 ] || { bad "autoConnect is off"; exit 1; }
+    (cd "$REPO" && ./install.sh) || { bad "install.sh failed"; exit 1; }
+    wait_tunnel 1800 || { bad "tunnel did not come back on the new build"; exit 1; }
+    ok "tunnel back on the new build through the password path"
+    ps -axo user=,comm= | grep -q "^root .*Resources/sing-box$" && ok "root sing-box from the bundle (osascript path)" || log "note: no root sing-box from the bundle"
+    if ps -axo user=,comm= | grep "Resources/xray$" | grep -qv "^root"; then ok "xray runs as the user"; else bad "no user-owned xray"; fi
+    [ -f "$PID_FILE" ] && ok "sing-box PID file in $RUN_DIR" || bad "no $PID_FILE"
+    [ -e "/tmp/warpveil-$TAG-singbox.pid" ] && log "note: old /tmp PID file still there" || ok "no PID file in /tmp"
+    [ "$(stat -f '%Su %Lp' "$RUN_DIR" 2>/dev/null)" = "root 755" ] && ok "run dir root 0755" || bad "run dir: $(stat -f '%Su %Lp' "$RUN_DIR" 2>&1)"
+    ;;
+probe)
+    if ! { [ -f "/etc/sudoers.d/warpveil-$TAG" ] && [ -x "$LIBEXEC/sing-box" ] && grep -q 'env -i /usr/bin/jq' "$RUN_SH" 2>/dev/null; }; then
+        log "passwordless is not re-installed on the new build yet — Advanced → Passwordless on, then: $0 probe"; exit 2
+    fi
+    tun_up || { bad "tunnel is down"; exit 1; }
+    BEFORE=$(exit_ip); [ -n "$BEFORE" ] && [ "$BEFORE" != "$HOME_IP" ] || { bad "not on the VPN (exit $BEFORE)"; exit 1; }
+    SB_PID=$(cat "$PID_FILE" 2>/dev/null || true)
+    log "exit IP $BEFORE, sing-box pid ${SB_PID:-?}"
+    [ -e "$LIBEXEC/sing-box.sha256" ] && bad "old manifest still installed" || ok "no manifest file"
+    cmp -s "$LIBEXEC/sing-box" "$APP/Contents/Resources/sing-box" && ok "root copy equals the bundled sing-box" || bad "root copy differs from the bundle"
+    others=$(ls /usr/local/libexec | grep '^warpveil' | grep -v "^warpveil-$TAG$" || true); [ -z "$others" ] && ok "no other libexec dirs" || bad "other libexec dirs: $others"
+    ls /etc/sudoers.d | grep -qv "^warpveil-$TAG$" && bad "other sudoers entries: $(ls /etc/sudoers.d)" || ok "only warpveil-$TAG in sudoers.d"
+
+    echo '{"log":{"level":"info","OUTPUT":"/etc/warpveil-pwned"},"inbounds":[],"outbounds":[{"type":"direct"}]}' > "$W/hostile.json"
+    echo '{"experimental":{"clash_api":{"external_ui":"/"},"cache_file":{"enabled":true}},"inbounds":[],"outbounds":[]}' > "$W/hostile2.json"
+    printf '{"log":{"timeſtamp":true},"inbounds":[],"outbounds":[]}' > "$W/hostile3.json"
+    echo '{"log":{"output":"/etc/warpveil-pwned"},"zzz":1,"inbounds":[],"outbounds":[]}' > "$W/hostile4.json"
+    printf 'def keys: []; def has($k): false;\n' > "$W/home/.jq"
+    probe() {   # $1 label, $2 expected fragment, $3 stdin file, rest: extra args / env prefix handled by caller
+        local label="$1" expect="$2" input="$3"; shift 3
+        local out rc; out=$("$@" < "$input" 2>&1); rc=$?
+        if [ $rc -ne 0 ] && echo "$out" | grep -q "$expect"; then ok "$label refused: $(echo "$out" | tail -1)"; else bad "$label rc=$rc: $out"; fi
+        sleep 1
+        [ -n "$SB_PID" ] && { ps -p "$SB_PID" -o comm= 2>/dev/null | grep -q sing-box && ok "  sing-box $SB_PID still running" || bad "  sing-box $SB_PID gone after $label"; }
+        tun_up && ok "  TUN still up" || bad "  TUN down after $label"
+    }
+    probe "an argument"                "usage"          "$W/hostile.json"  sudo -n "$RUN_SH" /bin/sh
+    probe "a binary on stdin"          "not valid JSON" /bin/sh            sudo -n "$RUN_SH"
+    probe "empty stdin"                "no config"      /dev/null          sudo -n "$RUN_SH"
+    probe "hostile log.OUTPUT"         "key output"     "$W/hostile.json"  sudo -n "$RUN_SH"
+    probe "hostile external_ui"        "external_ui"    "$W/hostile2.json" sudo -n "$RUN_SH"
+    probe "Unicode-folded key"         "non-ASCII"      "$W/hostile3.json" sudo -n "$RUN_SH"
+    probe "caller HOME with ~/.jq"     "key output"     "$W/hostile4.json" env HOME="$W/home" sudo -n "$RUN_SH"
+    [ -e /etc/warpveil-pwned ] && bad "/etc/warpveil-pwned was written" || ok "nothing written to /etc"
+    AFTER=$(exit_ip); [ "$AFTER" = "$BEFORE" ] && ok "exit IP unchanged ($AFTER)" || bad "exit IP changed: $BEFORE -> $AFTER"
+    [ "$(stat -f '%Su %Lp' "$RUN_DIR/stage" 2>/dev/null)" = "root 700" ] && ok "stage dir root 0700" || bad "stage dir: $(stat -f '%Su %Lp' "$RUN_DIR/stage" 2>&1)"
+    ls "$RUN_DIR/stage" >/dev/null 2>&1 && bad "stage dir listable by the user" || ok "stage dir not readable by the user"
+
+    log "quitting the app through its own quit path and relaunching"
+    osascript -e "tell application \"$APP\" to quit" >/dev/null 2>&1 || true
+    for _ in $(seq 1 200); do [ -n "$(app_pid)" ] || break; sleep 0.2; done
+    [ -z "$(app_pid)" ] && ok "app quit" || { bad "app did not quit in 40 s"; exit 1; }
+    for _ in $(seq 1 50); do tun_up || break; sleep 0.2; done
+    tun_up && bad "TUN still up after quit" || ok "TUN released on quit"
+    [ -e "$PID_FILE" ] && bad "PID file left after quit" || ok "PID file removed on quit"
+    ps -axo comm= | grep -q "Resources/xray$" && bad "xray survived the quit" || ok "xray stopped with the app"
+    open -n "$APP"
+    wait_tunnel 90 || { bad "no tunnel after relaunch"; exit 1; }
+    ps -axo args= | grep -q "^/usr/bin/sudo $RUN_SH$" && ok "connected through sudo run.sh, no arguments" || bad "no 'sudo run.sh' helper: $(ps -axo args= | grep run.sh)"
+    ps -axo user=,args= | grep -q "^root  *$LIBEXEC/sing-box run -c $RUN_DIR/stage/singbox\." && ok "root copy runs the staged config" || bad "sing-box: $(ps -axo user=,args= | grep 'sing-box run')"
+    if ps -axo user=,comm= | grep "Resources/xray$" | grep -qv "^root"; then ok "xray runs as the user"; else bad "no user xray"; fi
+    grep -q "\[error\]" "$LOG" && bad "errors in the engine log: $(grep '\[error\]' "$LOG" | tail -2)" || ok "no [error] lines in the engine log"
+    for h in ifconfig.me api.ipify.org; do log "  $h -> $(curl -s --max-time 10 https://$h 2>/dev/null)"; done
+    ;;
+*) echo "usage: $0 deploy | probe" >&2; exit 1 ;;
+esac
+log "finished with $fails failure(s)"; exit $((fails > 0))
+```
