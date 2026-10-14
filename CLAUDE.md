@@ -38,12 +38,15 @@ deviation — the file must never describe something that was not built.
 
 ### 3. Close
 
-- Move the plan to `plans/done/` once every step is implemented.
-- Then run `/code-review` over the finished work and fix everything it surfaces.
-  Work on a plan is not over while review findings are open.
+- Once every step is implemented, run `/code-review` over the finished work and fix everything
+  it surfaces; each round is recorded in the plan. Work on a plan is not over while review
+  findings are open.
 - A finding that would undo what an earlier pass asked for is not fixed: it goes to the owner
-  with both positions and is recorded in the plan as an owner decision. Two passes that disagree
-  mark a question the plan never settled, and fixing each in turn is a loop.
+  with both positions. Two passes that disagree mark a question the plan never settled, and
+  fixing each in turn is a loop.
+- Then delete the plan. `plans/` holds only work that is ahead or under way; a finished plan
+  lives in git history. Whatever has to outlive the work — a decision, a convention, a gotcha —
+  is written into this file before the plan goes.
 
 ### The third fix is a signal
 

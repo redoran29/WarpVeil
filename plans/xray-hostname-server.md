@@ -12,7 +12,7 @@ sing-box 1.14.0 and Xray 26.3.27, deployment target 14.0, `CFBundleShortVersionS
 
 ## Owner's ask
 
-Fix the latent loop found by the bypass review (`plans/done/routing-bypass-fix.md`, first-pass
+Fix the latent loop found by the bypass review (`git show dfcdc31:plans/done/routing-bypass-fix.md`, first-pass
 finding 4): in the xray topology the wrapper routes xray's own connection to the VPN server
 `direct` by `ip_cidr` when the server is an IP literal, but by `domain_suffix` when it is a
 hostname — and that rule can never match. Compare a `process_path` rule, resolving the name at
@@ -416,7 +416,7 @@ xray config is written as the subscription produced it.
 
 `README.md:75` → `├── BypassService.swift        # Bypass rule, TUN IP families, xray server pin, domain input normalization`.
 
-Then move this file to `plans/done/` and run `/code-review` (canon workflow, step 3).
+Then run `/code-review`, fix what it surfaces, and delete this file (canon workflow, step 3).
 
 ## Verification
 

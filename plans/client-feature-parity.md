@@ -1,7 +1,7 @@
 # Client feature parity: fifteen gaps, one build order
 
 Status: proposed. Written against `5de6c1c` (rebased on 2026-10-13 from `52ea455`, after
-`plans/done/routing-bypass-fix.md`), macOS 27.0.1 (Darwin 27.0.0), Xcode 27.0, bundled sing-box
+`git show dfcdc31:plans/done/routing-bypass-fix.md`), macOS 27.0.1 (Darwin 27.0.0), Xcode 27.0, bundled sing-box
 1.14.0 (pins sing-tun v0.9.0-beta.4) and Xray 26.3.27, deployment target 14.0,
 `CFBundleShortVersionString` = `1.2`.
 
@@ -1188,7 +1188,7 @@ swiftc -target arm64-apple-macosx14.0 main.swift "$REPO/Sources/BypassService.sw
 ```
 
 Expect every line `ok` and `ALL OK` (57 checks). The `fitTunToHost` harness from
-`plans/done/routing-bypass-fix.md` (Verification 2) still applies unchanged.
+`git show dfcdc31:plans/done/routing-bypass-fix.md` (Verification 2) still applies unchanged.
 
 #### 3. The kernel routes, from sing-tun's own builder (no root, no engine)
 
