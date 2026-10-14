@@ -238,13 +238,17 @@ Write the simplest code that works. Prioritize readability over cleverness.
   `/etc/sudoers.d/vpnswift` and every `/usr/local/libexec/warpveil*` — an older tag's `run.sh`
   is the old hole for as long as its entry exists. The install reads as on only while the two
   scripts match byte-for-byte what this build would install and the root copy is byte-for-byte
-  the bundled sing-box (`contentsEqual`); a script change or an engine bump reads as off, the
-  log says so, and switching the toggle on re-installs with one prompt. It is re-read before
-  every connect and disconnect, because another build's toggle removes it while this one runs
+  the bundled sing-box (mapped pages compared at launch and after an install or removal — the
+  83 MB comparison is too slow for every call); a script change or an engine bump reads as off,
+  the log says so, and switching the toggle on re-installs with one prompt. The sudoers entry and
+  the scripts are re-read before every connect and disconnect, because another build's toggle
+  removes them while this one runs
 - **Config policy**: every root sing-box — passwordless or not — runs a copy of its config that
-  `run.sh` (or the osascript command) made from stdin in the root-owned 0700
+  `run.sh` (or the osascript command) made from stdin — at most 4 MiB — in the root-owned 0700
   `/var/run/warpveil-<tag>/stage/`, removed by an EXIT trap however the shell ends, and only
-  after `/usr/bin/jq` (macOS 15+, run under `env -i`) accepted that copy: top-level keys limited to `log`,
+  after `/usr/bin/jq` (macOS 15+, run under `env -i`) accepted that copy. Root never opens a
+  path a caller chose: `run.sh` gets the config on stdin from the app, and the osascript command
+  reads the app's file with a `cat` running as the user (`sudo -u '#<uid>'`). The policy: top-level keys limited to `log`,
   `dns`, `ntp`, `inbounds`, `outbounds`, `endpoints`, `route`, `experimental`; any key ending in
   `_path`/`_directory`/`_file` (except `process_path`) or starting with `output`, `external_ui`,
   `cache_file`, `acme`, `write_to_system`, `download_url`, `geoip`, `geosite` refused; `path`
@@ -264,9 +268,12 @@ Write the simplest code that works. Prioritize readability over cleverness.
   write would follow a symlink planted at its name. xray's file is the app's own
   (`$TMPDIR/warpveil-<tag>-xray.pid`), read by `ProcessManager.stopOrphanedXray` at the next
   connect under the same rule (`proc_pidpath` ends in `/xray`; one that outlives the wait keeps
-  its file and stops the connect) and by `install.sh`/`dev-run.sh`. The wrapper starts only once
-  xray's port accepts connections, and an xray that exits while connected tears the engines
-  down. A sing-box with no PID file at our path (another build's tag, a
+  its file and stops the connect) and by `install.sh`/`dev-run.sh`. A connect is a session from
+  its first line: `isRunning` is true while xray starts, so disconnect, restart, wake and quit
+  tear a pending start down, and a cancelled start touches nothing. A port 10808 that is
+  already taken is refused before xray starts; the wrapper starts only once xray's port accepts
+  connections; a session that never reached the helper skips the root stop; and an xray that
+  exits while connected disconnects. A sing-box with no PID file at our path (another build's tag, a
   hand-started one) survives, and the next connect fails with sing-box's own error in Logs. PID
   files are not deleted at launch: they are the handle on an engine a crash orphaned
 - **JSONSerialization, not Codable**: bypass injection rewrites arbitrary user configs and needs untyped JSON
