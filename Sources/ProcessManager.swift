@@ -1,6 +1,5 @@
 import Foundation
 import AppKit
-import CryptoKit
 import Network
 import SystemConfiguration
 
@@ -35,12 +34,10 @@ final class ProcessManager {
     private static let stopScriptPath = "/usr/local/libexec/warpveil-\(versionTag)/stop.sh"
     private static let sudoersFile = "/etc/sudoers.d/warpveil-\(versionTag)"
 
-    // The sing-box run.sh starts is a root-owned copy taken while the user typed the password:
-    // the .app is the user's, so a swapped bundle binary must never be what sudoers lets
-    // through. The manifest next to it is root's `shasum` of that copy; the bundle binary
-    // hashing to the same value is what "installed" means after an engine bump.
+    // The sing-box run.sh starts is a root-owned copy taken while the user typed the password,
+    // so a bundle binary swapped later is never what sudoers lets through. "Installed" means
+    // the copy is still byte-for-byte the bundled one — an engine bump reads as stale.
     private static let rootSingBoxPath = "/usr/local/libexec/warpveil-\(versionTag)/sing-box"
-    private static let rootManifestPath = "/usr/local/libexec/warpveil-\(versionTag)/sing-box.sha256"
 
     // Root-owned, 0700. A config is copied here before anything reads it, and the engine runs
     // the copy: what passed the policy is what runs, whatever happens to the app's file.
@@ -187,20 +184,14 @@ final class ProcessManager {
     // and the root-owned sing-box is the bundled one. Only an explicit install writes to
     // /usr/local/libexec, so after a script change or an engine bump an existing install would
     // keep running the old files indefinitely; instead it reads as off, the log says why, and
-    // the toggle re-installs. The hash is ~30 ms warm and runs only once the cheap checks pass.
+    // the toggle re-installs.
     private static func passwordlessInstalled() -> Bool {
         guard FileManager.default.fileExists(atPath: sudoersFile),
               (try? String(contentsOfFile: runScriptPath, encoding: .utf8)) == runShContent,
               (try? String(contentsOfFile: stopScriptPath, encoding: .utf8)) == stopShContent,
-              let manifest = try? String(contentsOfFile: rootManifestPath, encoding: .utf8),
-              let bundled = findBinary("sing-box"), let hash = sha256(ofFile: bundled)
+              let bundled = findBinary("sing-box")
         else { return false }
-        return manifest.hasPrefix(hash + " ")
-    }
-
-    private static func sha256(ofFile path: String) -> String? {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path), options: .mappedIfSafe) else { return nil }
-        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return FileManager.default.contentsEqual(atPath: rootSingBoxPath, andPath: bundled)
     }
 
     func installPasswordless() {
@@ -244,14 +235,12 @@ final class ProcessManager {
 
         // One osascript call. Every other build's entry goes first — an older run.sh with the
         // hole stays exploitable for as long as its sudoers line exists, and the pre-rename
-        // `vpnswift` entry pointed at a script in /private/tmp that anyone can create. The
-        // engine is copied and then hashed as root, so the manifest describes the copy itself.
+        // `vpnswift` entry pointed at a script in /private/tmp that anyone can create.
         let shellCmd = """
             rm -f /etc/sudoers.d/warpveil* /etc/sudoers.d/vpnswift && \
             rm -rf /usr/local/libexec/warpveil* && \
             mkdir -p '\(Self.libexecDir)' && \
             install -m 0755 -o root -g wheel \(Self.shellEscape(bundledSingBox)) '\(Self.rootSingBoxPath)' && \
-            (cd '\(Self.libexecDir)' && shasum -a 256 sing-box > sing-box.sha256) && \
             install -m 0755 -o root -g wheel \(Self.shellEscape(tmpRun)) '\(Self.runScriptPath)' && \
             install -m 0755 -o root -g wheel \(Self.shellEscape(tmpStop)) '\(Self.stopScriptPath)' && \
             rm -f \(Self.shellEscape(tmpRun)) \(Self.shellEscape(tmpStop)) && \
@@ -309,6 +298,13 @@ final class ProcessManager {
             logs.append("[Error: \(error.localizedDescription)]")
             passwordlessOperationFinished()
         }
+    }
+
+    // Enabling passwordless in another build removes this one's install while it runs, so every
+    // privileged call re-reads it. Not during an install: the toggle is flipped optimistically.
+    private func refreshPasswordless() {
+        guard !isPasswordlessBusy else { return }
+        isPasswordless = Self.passwordlessInstalled()
     }
 
     // Called on both success and failure of install/remove — reconciles isPasswordless
@@ -482,6 +478,7 @@ final class ProcessManager {
             logs.append("[Bypass] \(bypassDomains.count) domain(s) will route direct")
         }
 
+        refreshPasswordless()
         logs.append(isPasswordless ? "[Connecting...]" : "[Connecting (password prompt)...]")
 
         // 0600: other local users shouldn't read VPN logs. One append-mode handle for everything
@@ -738,6 +735,7 @@ final class ProcessManager {
     }
 
     private func killVPNProcesses() {
+        refreshPasswordless()
         if isPasswordless {
             let kill = Process()
             kill.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
