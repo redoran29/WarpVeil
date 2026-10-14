@@ -52,6 +52,9 @@ final class ProcessManager {
     private static let singboxPidFile = "/var/run/warpveil-\(versionTag)/singbox.pid"
     private static let xrayPidFile = FileManager.default.temporaryDirectory.path + "/warpveil-\(versionTag)-xray.pid"
 
+    // xray's SOCKS inbound, which the TUN wrapper forwards everything to.
+    nonisolated static let xraySocksPort = 10808
+
     // Shared by run.sh, stop.sh and the osascript fallbacks. Kills only a process the PID file
     // names whose executable is the given engine, then waits for it to be gone — up to 5 s — so
     // the next sing-box never races the old one for the TUN. A stale or foreign PID is dropped.
@@ -505,12 +508,26 @@ final class ProcessManager {
 
         startLogTail()
 
-        if engine == .xray, !startXray(binaryPath: binaryPath, configFile: configFile, log: engineLog) {
-            stopLogTail()
+        guard engine == .xray else {
+            startHelper(singBoxPath: binaryPath, log: engineLog)
             return
         }
+        // The wrapper sends everything to xray's port, so it starts once xray listens. The start
+        // waits in reconnectTask: a connect, a disconnect or a wake meanwhile cancels it.
+        // Done, it lets go of reconnectTask, which wake reads as "a restart is pending".
+        reconnectTask = Task {
+            let started = await startXray(binaryPath: binaryPath, configFile: configFile, log: engineLog)
+            if !Task.isCancelled { reconnectTask = nil }
+            guard started, !Task.isCancelled else {
+                xrayProcess?.terminate()
+                stopLogTail()
+                return
+            }
+            startHelper(singBoxPath: singBoxPath, log: engineLog)
+        }
+    }
 
-        let singBox = engine == .xray ? singBoxPath : binaryPath
+    private func startHelper(singBoxPath: String, log engineLog: FileHandle) {
         let process = Process()
         if isPasswordless {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
@@ -519,7 +536,7 @@ final class ProcessManager {
             process.standardOutput = engineLog
             process.standardError = engineLog
         } else {
-            let cmd = buildNonPrivilegedShellCommand(singBoxPath: singBox, configFile: singboxConfigFile)
+            let cmd = buildNonPrivilegedShellCommand(singBoxPath: singBoxPath, configFile: singboxConfigFile)
             process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
             process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(cmd)) with administrator privileges"]
         }
@@ -562,9 +579,12 @@ final class ProcessManager {
     // xray is a SOCKS proxy on loopback and needs no root: it runs as the user, from the bundle.
     // Its dial to the server enters the TUN like any other connection, and the wrapper routes it
     // direct by address — that rule never looks at who dialed. The PID file is the handle on an
-    // xray a crashed app left holding the port.
-    private func startXray(binaryPath: String, configFile: String, log: FileHandle) -> Bool {
-        killOrphanedXray()
+    // xray a crashed app left holding the port. True once the port accepts connections.
+    private func startXray(binaryPath: String, configFile: String, log: FileHandle) async -> Bool {
+        guard await stopOrphanedXray() else {
+            logs.append("[Error: an xray from an earlier run is still running — quit it and connect again]")
+            return false
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binaryPath)
         process.arguments = ["run", "-config", configFile]
@@ -576,7 +596,10 @@ final class ProcessManager {
                 guard let self, p === self.xrayProcess else { return }
                 self.xrayProcess = nil
                 try? FileManager.default.removeItem(atPath: Self.xrayPidFile)
-                if self.isRunning { self.logs.append("[xray exited (exit \(status))]") }
+                // The wrapper would keep the TUN and send everything to a dead port.
+                guard self.isRunning else { return }
+                self.logs.append("[xray exited (exit \(status)) — disconnecting]")
+                self.tearDownEngines()
             }
         }
         do {
@@ -588,23 +611,56 @@ final class ProcessManager {
         xrayProcess = process
         try? String(process.processIdentifier).write(toFile: Self.xrayPidFile, atomically: true, encoding: .utf8)
         logs.append("[xray] started pid=\(process.processIdentifier)")
-        return true
+
+        for _ in 0..<50 {
+            guard !Task.isCancelled else { return false }
+            guard process.isRunning else {
+                logs.append("[Error: xray exited before opening port \(Self.xraySocksPort)]")
+                return false
+            }
+            if Self.acceptsConnections(port: Self.xraySocksPort) { return true }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        logs.append("[Error: xray did not open port \(Self.xraySocksPort) in 5 s]")
+        return false
     }
 
     // Mirrors kill_pid_file: only a live process whose executable is xray is signalled, then
-    // given up to 5 s to let go of the port before the next xray binds it.
-    private func killOrphanedXray() {
-        guard let text = try? String(contentsOfFile: Self.xrayPidFile, encoding: .utf8) else { return }
-        defer { try? FileManager.default.removeItem(atPath: Self.xrayPidFile) }
-        guard let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
+    // given up to 5 s to let go of the port. One that outlives the wait keeps its PID file —
+    // the only handle on it — and the connect stops, since the new xray could not bind.
+    private func stopOrphanedXray() async -> Bool {
+        guard let text = try? String(contentsOfFile: Self.xrayPidFile, encoding: .utf8) else { return true }
+        if let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)), Self.isXray(pid) {
+            kill(pid, SIGTERM)
+            var waited = 0
+            while Self.isXray(pid), waited < 50 {
+                try? await Task.sleep(for: .milliseconds(100))
+                waited += 1
+            }
+            guard !Self.isXray(pid) else { return false }
+        }
+        try? FileManager.default.removeItem(atPath: Self.xrayPidFile)
+        return true
+    }
+
+    private nonisolated static func isXray(_ pid: pid_t) -> Bool {
         var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        guard proc_pidpath(pid, &path, UInt32(path.count)) > 0,
-              String(cString: path).hasSuffix("/xray") else { return }
-        kill(pid, SIGTERM)
-        var waited = 0
-        while kill(pid, 0) == 0, waited < 50 {
-            usleep(100_000)
-            waited += 1
+        return proc_pidpath(pid, &path, UInt32(path.count)) > 0 && String(cString: path).hasSuffix("/xray")
+    }
+
+    // A TCP connect to loopback answers at once: refused until the port is bound.
+    private nonisolated static func acceptsConnections(port: Int) -> Bool {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(UInt16(port).bigEndian)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        return withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0
+            }
         }
     }
 
@@ -682,7 +738,7 @@ final class ProcessManager {
                     "type": "socks",
                     "tag": "xray-proxy",
                     "server": "127.0.0.1",
-                    "server_port": 10808
+                    "server_port": xraySocksPort
                 ] as [String: Any],
                 ["type": "direct", "tag": "direct"] as [String: Any]
             ],

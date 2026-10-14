@@ -611,7 +611,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             "inbounds": [
                 [
                     "tag": "socks-in",
-                    "port": 10808,
+                    "port": ProcessManager.xraySocksPort,
                     "listen": "127.0.0.1",
                     "protocol": "socks",
                     "settings": ["udp": true]
