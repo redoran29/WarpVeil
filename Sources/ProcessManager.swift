@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CryptoKit
 import Network
 import SystemConfiguration
 
@@ -34,6 +35,17 @@ final class ProcessManager {
     private static let stopScriptPath = "/usr/local/libexec/warpveil-\(versionTag)/stop.sh"
     private static let sudoersFile = "/etc/sudoers.d/warpveil-\(versionTag)"
 
+    // The sing-box run.sh starts is a root-owned copy taken while the user typed the password:
+    // the .app is the user's, so a swapped bundle binary must never be what sudoers lets
+    // through. The manifest next to it is root's `shasum` of that copy; the bundle binary
+    // hashing to the same value is what "installed" means after an engine bump.
+    private static let rootSingBoxPath = "/usr/local/libexec/warpveil-\(versionTag)/sing-box"
+    private static let rootManifestPath = "/usr/local/libexec/warpveil-\(versionTag)/sing-box.sha256"
+
+    // Root-owned, 0700. A config is copied here before anything reads it, and the engine runs
+    // the copy: what passed the policy is what runs, whatever happens to the app's file.
+    private static let stageDir = "/var/run/warpveil-\(versionTag)"
+
     // PID files: run.sh and stop.sh kill exactly our sing-box, nothing else on the machine. xray
     // runs as the user, so its file is the app's own, in $TMPDIR — the next connect and the
     // sweeps in install.sh and dev-run.sh read it.
@@ -64,54 +76,93 @@ final class ProcessManager {
         }
         """
 
-    // run.sh: validates argv, launches sing-box, writes its PID file
-    // argv: run.sh <singbox_path> <singbox_config>
-    private static let runShContent: String = """
-        #!/bin/bash
-        set -euo pipefail
+    // What a config may ask of a root sing-box. Out: everything that names a file or a
+    // directory (sing-box reads and writes them as root), what changes the system
+    // (ntp.write_to_system) and what runs a program (tor). Keys are compared lowercased and a
+    // non-ASCII key is refused outright: the engine's JSON decoder matches field names
+    // case-insensitively with Unicode folding, so "OUTPUT" and "timeſtamp" land on the same
+    // fields (probed on the bundled build). A `path` is a transport or DoH path, except under
+    // a local rule-set or a hosts server, where it is a file. One line per finding, or "ok".
+    private static let configPolicy = """
+        def lower: with_entries(.key |= ascii_downcase);
+        [ if type != "object" then "root is not an object" else
+            (keys[] | select(IN("log", "dns", "ntp", "inbounds", "outbounds", "endpoints", "route", "experimental") | not) | "top-level key " + .),
+            (.. | objects |
+              (keys[] | select(test("[^ -~]")) | "non-ASCII key"),
+              (lower |
+                (keys[] | select(test("(_path|_directory|_file)$|^(output|external_ui|cache_file|acme|write_to_system|download_url|geoip|geosite)") and . != "process_path") | "key " + .),
+                (select(has("path") and ((.type | strings | ascii_downcase) | IN("local", "hosts"))) | "path in a " + .type + " object"),
+                (.type | strings | ascii_downcase | select(IN("tor", "tailscale")) | "type " + .)))
+          end
+        ] | if length == 0 then "ok" else .[] end
+        """
 
-        validate_arg() {
-            local p="$1"
-            [[ "$p" == /* ]] || { echo "[error] not absolute: $p"; exit 1; }
-            [[ -e "$p" ]] || { echo "[error] not found: $p"; exit 1; }
-            [[ -f "$p" ]] || { echo "[error] not a regular file: $p"; exit 1; }
-            [[ ! -L "$p" ]] || { echo "[error] symlink not allowed: $p"; exit 1; }
+    // Shared by run.sh and the osascript fallback. stage_config copies the app's config into
+    // the stage directory and prints the copy's path; check_config runs the policy on that
+    // copy. Both exit before any engine is touched, so a refused connect leaves a running
+    // tunnel up. Error lines name the path and the finding, never the file's contents. jq
+    // ships with macOS 15.
+    private static let configFunctions = """
+        stage_config() {
+            local src="$1" dst
+            [[ "$src" == /* && -f "$src" && ! -L "$src" ]] || { echo "[error] not a regular file: $src" >&2; exit 1; }
+            mkdir -p -m 0700 '\(stageDir)' && chmod 0700 '\(stageDir)'
+            [[ ! -L '\(stageDir)' && "$(stat -f %u '\(stageDir)')" == 0 ]] || { echo '[error] stage directory is not root-owned' >&2; exit 1; }
+            dst=$(mktemp '\(stageDir)/singbox.XXXXXX') || exit 1
+            cp "$src" "$dst" && chmod 0600 "$dst" || { rm -f "$dst"; echo "[error] cannot copy $src" >&2; exit 1; }
+            echo "$dst"
         }
+        check_config() {
+            local verdict
+            [[ -x /usr/bin/jq ]] || { echo '[error] /usr/bin/jq not found: macOS 15 or newer is required' >&2; exit 1; }
+            verdict=$(/usr/bin/jq -r '\(configPolicy)' "$1" 2>&1) || { rm -f "$1"; echo "[error] config is not valid JSON: $verdict" >&2; exit 1; }
+            [[ "$verdict" == ok ]] || { rm -f "$1"; echo "[error] config rejected: $verdict" >&2; exit 1; }
+        }
+        """
 
-        if [[ $# -ne 2 ]]; then
-            echo "[error] usage: run.sh <singbox> <singbox_cfg>"
-            exit 1
-        fi
-
-        SINGBOX="$1"; SINGBOX_CFG="$2"
-        validate_arg "$SINGBOX"
-        validate_arg "$SINGBOX_CFG"
-
+    // The engine start shared by run.sh (the root-owned copy, config from argv) and the
+    // osascript fallback (the bundled binary, config path baked in). PATH is pinned first:
+    // sudo passes the caller's through, and every name below would resolve against it as
+    // root. Then stage, check, and only then kill the previous engine.
+    private static func engineShell(binary: String, config: String) -> String {
+        """
+        export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+        \(configFunctions)
         \(killPidFileFunction)
-
+        CFG=$(stage_config \(config)) || exit 1
+        check_config "$CFG"
         kill_pid_file \(singboxPidFile) sing-box || { echo '[error] previous sing-box still running'; exit 1; }
-
+        cd '\(stageDir)'
         echo '[sing-box] starting...'
-        "$SINGBOX" run -c "$SINGBOX_CFG" &
+        \(binary) run -c "$CFG" &
         VPN_PID=$!
         echo $VPN_PID > \(singboxPidFile)
         echo "[sing-box] started pid=$VPN_PID"
-
         cleanup() {
             echo '[stopping...]'
             kill $VPN_PID 2>/dev/null || true
             wait
-            rm -f \(singboxPidFile)
+            rm -f \(singboxPidFile) "$CFG"
             echo '[stopped]'
             exit 0
         }
         trap cleanup TERM INT
         wait
         """
+    }
+
+    // run.sh: the only argument is the sing-box config; the binary is the root-owned copy.
+    private static let runShContent: String = """
+        #!/bin/bash
+        set -euo pipefail
+        [[ $# -eq 1 ]] || { echo '[error] usage: run.sh <singbox_cfg>'; exit 1; }
+        \(engineShell(binary: "'\(rootSingBoxPath)'", config: "\"$1\""))
+        """
 
     // stop.sh: reads the PID file and kills only our sing-box
     private static let stopShContent: String = """
         #!/bin/bash
+        export PATH=/usr/bin:/bin:/usr/sbin:/sbin
         \(killPidFileFunction)
         kill_pid_file \(singboxPidFile) sing-box
         """
@@ -132,18 +183,32 @@ final class ProcessManager {
     var isPasswordless = ProcessManager.passwordlessInstalled()
     var isPasswordlessBusy = false
 
-    // Passwordless is on only while the installed scripts are the ones this build would install.
-    // Only an explicit install writes to /usr/local/libexec, so after a script change an existing
-    // install would keep running the old run.sh indefinitely; instead it reads as off, the log
-    // says why, and the toggle re-installs.
+    // Passwordless is on only while the installed scripts are the ones this build would install
+    // and the root-owned sing-box is the bundled one. Only an explicit install writes to
+    // /usr/local/libexec, so after a script change or an engine bump an existing install would
+    // keep running the old files indefinitely; instead it reads as off, the log says why, and
+    // the toggle re-installs. The hash is ~30 ms warm and runs only once the cheap checks pass.
     private static func passwordlessInstalled() -> Bool {
-        FileManager.default.fileExists(atPath: sudoersFile)
-            && (try? String(contentsOfFile: runScriptPath, encoding: .utf8)) == runShContent
-            && (try? String(contentsOfFile: stopScriptPath, encoding: .utf8)) == stopShContent
+        guard FileManager.default.fileExists(atPath: sudoersFile),
+              (try? String(contentsOfFile: runScriptPath, encoding: .utf8)) == runShContent,
+              (try? String(contentsOfFile: stopScriptPath, encoding: .utf8)) == stopShContent,
+              let manifest = try? String(contentsOfFile: rootManifestPath, encoding: .utf8),
+              let bundled = findBinary("sing-box"), let hash = sha256(ofFile: bundled)
+        else { return false }
+        return manifest.hasPrefix(hash + " ")
+    }
+
+    private static func sha256(ofFile path: String) -> String? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path), options: .mappedIfSafe) else { return nil }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     func installPasswordless() {
         guard !isPasswordlessBusy else { return }
+        guard let bundledSingBox = Self.findBinary("sing-box") else {
+            logs.append("[Error: bundled sing-box not found]")
+            return
+        }
         isPasswordlessBusy = true
         // Optimistic: flip the toggle visually right away so the click feels responsive.
         // terminationHandler reconciles with the real filesystem state.
@@ -177,18 +242,22 @@ final class ProcessManager {
             return
         }
 
-        // Single osascript call: purge v1.0 leftovers, create libexec dir, install scripts, install sudoers.
-        // tmpSudoers and helper script paths are hardcoded or system constants — no user input interpolated.
+        // One osascript call. Every other build's entry goes first — an older run.sh with the
+        // hole stays exploitable for as long as its sudoers line exists, and the pre-rename
+        // `vpnswift` entry pointed at a script in /private/tmp that anyone can create. The
+        // engine is copied and then hashed as root, so the manifest describes the copy itself.
         let shellCmd = """
-            rm -f /etc/sudoers.d/warpveil /etc/sudoers.d/warpveil-1-0 && \
-            rm -rf /usr/local/libexec/warpveil /usr/local/libexec/warpveil-1-0 && \
+            rm -f /etc/sudoers.d/warpveil* /etc/sudoers.d/vpnswift && \
+            rm -rf /usr/local/libexec/warpveil* && \
             mkdir -p '\(Self.libexecDir)' && \
-            install -m 0755 -o root -g wheel '\(Self.shellEscape(tmpRun))' '\(Self.runScriptPath)' && \
-            install -m 0755 -o root -g wheel '\(Self.shellEscape(tmpStop))' '\(Self.stopScriptPath)' && \
-            rm -f '\(Self.shellEscape(tmpRun))' '\(Self.shellEscape(tmpStop))' && \
-            visudo -cf '\(Self.shellEscape(tmpSudoers))' && \
-            install -m 0440 -o root -g wheel '\(Self.shellEscape(tmpSudoers))' '\(Self.sudoersFile)' && \
-            rm -f '\(Self.shellEscape(tmpSudoers))'
+            install -m 0755 -o root -g wheel \(Self.shellEscape(bundledSingBox)) '\(Self.rootSingBoxPath)' && \
+            (cd '\(Self.libexecDir)' && shasum -a 256 sing-box > sing-box.sha256) && \
+            install -m 0755 -o root -g wheel \(Self.shellEscape(tmpRun)) '\(Self.runScriptPath)' && \
+            install -m 0755 -o root -g wheel \(Self.shellEscape(tmpStop)) '\(Self.stopScriptPath)' && \
+            rm -f \(Self.shellEscape(tmpRun)) \(Self.shellEscape(tmpStop)) && \
+            visudo -cf \(Self.shellEscape(tmpSudoers)) && \
+            install -m 0440 -o root -g wheel \(Self.shellEscape(tmpSudoers)) '\(Self.sudoersFile)' && \
+            rm -f \(Self.shellEscape(tmpSudoers))
             """
 
         let process = Process()
@@ -219,7 +288,8 @@ final class ProcessManager {
         isPasswordlessBusy = true
         isPasswordless = false
 
-        let shellCmd = "rm -f '\(Self.sudoersFile)' '\(Self.runScriptPath)' '\(Self.stopScriptPath)'"
+        // Off means off for every build: the other tags' entries are the same hole.
+        let shellCmd = "rm -f /etc/sudoers.d/warpveil* /etc/sudoers.d/vpnswift && rm -rf /usr/local/libexec/warpveil*"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(shellCmd)) with administrator privileges"]
@@ -250,7 +320,7 @@ final class ProcessManager {
 
     init() {
         if FileManager.default.fileExists(atPath: Self.sudoersFile), !isPasswordless {
-            logs.append("[Passwordless scripts are from an older build — turn Passwordless on again in Advanced]")
+            logs.append("[Passwordless install is from another build — turn Passwordless on again in Advanced]")
         }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
@@ -436,7 +506,7 @@ final class ProcessManager {
         let process = Process()
         if isPasswordless {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-            process.arguments = [Self.runScriptPath, singBox, singboxConfigFile]
+            process.arguments = [Self.runScriptPath, singboxConfigFile]
             process.standardOutput = engineLog
             process.standardError = engineLog
         } else {
@@ -446,12 +516,14 @@ final class ProcessManager {
         }
 
         // A helper torn down by a restart can exit after its successor started; only the
-        // current one speaks for the connection.
+        // current one speaks for the connection. xray no longer dies with the helper, so a
+        // helper that exits on its own — a refused config, sudo saying no — takes it down here.
         process.terminationHandler = { [weak self] p in
             let status = p.terminationStatus
             Task { @MainActor in
                 guard let self, self.isRunning, p === self.helperProcess else { return }
                 self.isRunning = false
+                self.xrayProcess?.terminate()
                 self.stopLogTail()
                 self.logs.append("[Disconnected (exit \(status))]")
             }
@@ -463,29 +535,19 @@ final class ProcessManager {
             isRunning = true
         } catch {
             logs.append("[Error: \(error.localizedDescription)]")
+            xrayProcess?.terminate()
             stopLogTail()
         }
     }
 
-    // Builds the shell command used in the non-passwordless (osascript) path.
-    // The stable run.sh is only available after installPasswordless, so we
-    // replicate the essential logic inline here for the password-prompt flow.
+    // The non-passwordless path: the same engine shell, run by osascript as root with the
+    // bundled sing-box — the root-owned copy exists only in passwordless mode. `>>`: xray is
+    // already writing the log through the app's append-mode handle.
     private func buildNonPrivilegedShellCommand(singBoxPath: String, configFile: String) -> String {
-        // `>>`: in the xray topology xray is already writing the log through the app's handle.
-        var cmds = ["cd /tmp", "exec >> \(Self.shellEscape(logFile)) 2>&1"]
-        cmds.append(Self.killPidFileFunction)
-        cmds.append("kill_pid_file \(Self.shellEscape(Self.singboxPidFile)) sing-box || { echo '[error] previous sing-box still running'; exit 1; }")
-        cmds.append("echo '[sing-box] starting...'")
-        cmds.append("\(Self.shellEscape(singBoxPath)) run -c \(Self.shellEscape(configFile)) &")
-        cmds.append("VPN_PID=$!")
-        cmds.append("echo $VPN_PID > \(Self.shellEscape(Self.singboxPidFile))")
-        cmds.append("echo '[sing-box] started pid='$VPN_PID")
-        cmds.append("""
-            cleanup() { echo '[stopping...]'; kill $VPN_PID 2>/dev/null; wait; rm -f \(Self.shellEscape(Self.singboxPidFile)); echo '[stopped]'; exit 0; }
-            trap cleanup TERM INT
-            wait
-            """)
-        return cmds.joined(separator: "\n")
+        """
+        exec >> \(Self.shellEscape(logFile)) 2>&1
+        \(Self.engineShell(binary: Self.shellEscape(singBoxPath), config: Self.shellEscape(configFile)))
+        """
     }
 
     // xray is a SOCKS proxy on loopback and needs no root: it runs as the user, from the bundle.
@@ -689,6 +751,7 @@ final class ProcessManager {
         } else {
             // The helper stop.sh carries, inline: the libexec copy exists only in passwordless mode.
             let cmd = """
+                export PATH=/usr/bin:/bin:/usr/sbin:/sbin
                 \(Self.killPidFileFunction)
                 kill_pid_file \(Self.shellEscape(Self.singboxPidFile)) sing-box
                 """
