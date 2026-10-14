@@ -469,7 +469,11 @@ final class ProcessManager {
         let configFile: String
         switch engine {
         case .singBox:
-            finalConfig = prepareTunConfig(config)
+            let fitted = BypassService.dropUnneededFileKeys(config)
+            if !fitted.dropped.isEmpty {
+                logs.append("[Config] dropped \(fitted.dropped.joined(separator: ", ")) — the root engine touches no files")
+            }
+            finalConfig = prepareTunConfig(fitted.json)
             configFile = singboxConfigFile
         case .xray:
             finalConfig = config
