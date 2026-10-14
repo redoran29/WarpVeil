@@ -24,7 +24,7 @@ The power button, uptime, traffic stats and location sit in the right-hand colum
 
 ## Requirements
 
-- macOS 14+, Apple Silicon
+- macOS 15+, Apple Silicon
 
 `sing-box` and `xray` are bundled inside the `.app` — no separate installation needed.
 

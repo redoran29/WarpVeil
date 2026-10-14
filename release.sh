@@ -155,7 +155,7 @@ ${CHANGES}
 3. Drag ${APP_NAME}.app to /Applications
 4. Launch — the window opens and the icon appears in the menu bar
 
-> Requires macOS 14+"
+> Requires macOS 15+"
 
 # --- Replace existing tag/release only after a successful build ---
 if [ "$TAG_EXISTS" = "1" ]; then

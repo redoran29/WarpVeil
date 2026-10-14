@@ -1,7 +1,7 @@
 # WarpVeil
 
 macOS app for managing VPN connections via sing-box and xray.
-Swift 5.10, SwiftUI, macOS 14+, Apple Silicon. A three-column main window plus a menu-bar status item.
+Swift 5.10, SwiftUI, macOS 15+, Apple Silicon. A three-column main window plus a menu-bar status item.
 
 This file is the whole canon: workflow, architecture, conventions, decisions. Read it before
 changing anything.
@@ -344,8 +344,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
   `ps -o comm=` says `sudo`, so it cannot be tracked by PID file. xray is started by the app
 - Two `FileHandle(forWritingAtPath:)` on one log overwrite each other: they are separate open
   file descriptions at offset 0. Writers that share a log get one handle opened `O_APPEND`
-- `/usr/bin/jq` exists from macOS 15; the deployment target is still 14, and on 14 a connect
-  fails with `[error] /usr/bin/jq not found` in both modes
+- `/usr/bin/jq` exists from macOS 15, and every root connect needs it for the config policy —
+  that is why the deployment target is 15
 
 ---
 
