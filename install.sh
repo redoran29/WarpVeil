@@ -42,7 +42,7 @@ installed_tag() {
 
 INSTALLED_TAG=$(installed_tag)
 STOP_SH="/usr/local/libexec/warpveil-${INSTALLED_TAG}/stop.sh"
-PID_FILES=("/tmp/warpveil-${INSTALLED_TAG}-singbox.pid")
+PID_FILES=("/var/run/warpveil-${INSTALLED_TAG}/singbox.pid")
 XRAY_PID_FILE="${TMPDIR%/}/warpveil-${INSTALLED_TAG}-xray.pid"
 
 # Anchored to the installed binary path, so a dev-run.sh copy and an Xcode-launched copy are

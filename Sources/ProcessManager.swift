@@ -39,14 +39,17 @@ final class ProcessManager {
     // the copy is still byte-for-byte the bundled one — an engine bump reads as stale.
     private static let rootSingBoxPath = "/usr/local/libexec/warpveil-\(versionTag)/sing-box"
 
-    // Root-owned, 0700. A config is copied here before anything reads it, and the engine runs
-    // the copy: what passed the policy is what runs, whatever happens to the app's file.
-    private static let stageDir = "/var/run/warpveil-\(versionTag)"
+    // Root-owned. sing-box's PID file lives here, not in the world-writable /tmp, where root's
+    // write would follow a symlink planted at its name; it stays readable for install.sh. The
+    // configs go one level down, 0700: the engine runs root's copy of the config, so what
+    // passed the policy is what runs.
+    private static let runDir = "/var/run/warpveil-\(versionTag)"
+    private static let stageDir = "/var/run/warpveil-\(versionTag)/stage"
 
     // PID files: run.sh and stop.sh kill exactly our sing-box, nothing else on the machine. xray
     // runs as the user, so its file is the app's own, in $TMPDIR — the next connect and the
     // sweeps in install.sh and dev-run.sh read it.
-    private static let singboxPidFile = "/tmp/warpveil-\(versionTag)-singbox.pid"
+    private static let singboxPidFile = "/var/run/warpveil-\(versionTag)/singbox.pid"
     private static let xrayPidFile = FileManager.default.temporaryDirectory.path + "/warpveil-\(versionTag)-xray.pid"
 
     // Shared by run.sh, stop.sh and the osascript fallbacks. Kills only a process the PID file
@@ -94,39 +97,47 @@ final class ProcessManager {
         ] | if length == 0 then "ok" else .[] end
         """
 
-    // Shared by run.sh and the osascript fallback. stage_config copies the app's config into
-    // the stage directory and prints the copy's path; check_config runs the policy on that
-    // copy. Both exit before any engine is touched, so a refused connect leaves a running
-    // tunnel up. Error lines name the path and the finding, never the file's contents. jq
-    // ships with macOS 15.
+    // Shared by run.sh and the osascript fallback. stage_config copies the config from stdin
+    // into the stage directory and prints the copy's path — root never opens a path a caller
+    // chose; check_config runs the policy on that copy. Both exit before any engine is touched,
+    // so a refused connect leaves a running tunnel up. jq runs with an empty environment: it
+    // loads ~/.jq on start, and sudo passes the caller's HOME through. jq ships with macOS 15.
     private static let configFunctions = """
+        prepare_dir() {
+            mkdir -p -m "$2" "$1"
+            [[ ! -L "$1" && "$(stat -f %u "$1")" == 0 ]] || { echo "[error] $1 is not root-owned" >&2; exit 1; }
+            chmod "$2" "$1"
+        }
         stage_config() {
-            local src="$1" dst
-            [[ "$src" == /* && -f "$src" && ! -L "$src" ]] || { echo "[error] not a regular file: $src" >&2; exit 1; }
-            mkdir -p -m 0700 '\(stageDir)' && chmod 0700 '\(stageDir)'
-            [[ ! -L '\(stageDir)' && "$(stat -f %u '\(stageDir)')" == 0 ]] || { echo '[error] stage directory is not root-owned' >&2; exit 1; }
+            local dst
+            prepare_dir '\(runDir)' 0755
+            prepare_dir '\(stageDir)' 0700
             dst=$(mktemp '\(stageDir)/singbox.XXXXXX') || exit 1
-            cp "$src" "$dst" && chmod 0600 "$dst" || { rm -f "$dst"; echo "[error] cannot copy $src" >&2; exit 1; }
+            cat > "$dst" && [[ -s "$dst" ]] || { rm -f "$dst"; echo '[error] no config on stdin' >&2; exit 1; }
             echo "$dst"
         }
         check_config() {
             local verdict
             [[ -x /usr/bin/jq ]] || { echo '[error] /usr/bin/jq not found: macOS 15 or newer is required' >&2; exit 1; }
-            verdict=$(/usr/bin/jq -r '\(configPolicy)' "$1" 2>&1) || { rm -f "$1"; echo "[error] config is not valid JSON: $verdict" >&2; exit 1; }
-            [[ "$verdict" == ok ]] || { rm -f "$1"; echo "[error] config rejected: $verdict" >&2; exit 1; }
+            verdict=$(env -i /usr/bin/jq -r '\(configPolicy)' "$1" 2>&1) || { echo "[error] config is not valid JSON: $verdict" >&2; exit 1; }
+            [[ "$verdict" == ok ]] || { echo "[error] config rejected: $verdict" >&2; exit 1; }
         }
         """
 
-    // The engine start shared by run.sh (the root-owned copy, config from argv) and the
-    // osascript fallback (the bundled binary, config path baked in). PATH is pinned first:
-    // sudo passes the caller's through, and every name below would resolve against it as
-    // root. Then stage, check, and only then kill the previous engine.
-    private static func engineShell(binary: String, config: String) -> String {
+    // The engine start shared by run.sh (the root-owned copy, config on stdin) and the
+    // osascript fallback (the bundled binary, config redirected from the app's file). PATH and
+    // HOME are pinned first: sudo passes the caller's through, and every name below would
+    // resolve against them as root. Then stage, check, and only then kill the previous engine.
+    // The EXIT trap removes the staged copy however the shell ends — the osascript shell never
+    // sees a TERM — and the PID file once it is ours, unless a newer run.sh already wrote its own.
+    private static func engineShell(binary: String, configInput: String) -> String {
         """
         export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+        export HOME=/var/empty
         \(configFunctions)
         \(killPidFileFunction)
-        CFG=$(stage_config \(config)) || exit 1
+        CFG=$(stage_config\(configInput)) || exit 1
+        trap 'rm -f "$CFG"' EXIT
         check_config "$CFG"
         kill_pid_file \(singboxPidFile) sing-box || { echo '[error] previous sing-box still running'; exit 1; }
         cd '\(stageDir)'
@@ -135,11 +146,11 @@ final class ProcessManager {
         VPN_PID=$!
         echo $VPN_PID > \(singboxPidFile)
         echo "[sing-box] started pid=$VPN_PID"
+        trap 'rm -f "$CFG"; [[ "$(cat \(singboxPidFile) 2>/dev/null)" != "$VPN_PID" ]] || rm -f \(singboxPidFile)' EXIT
         cleanup() {
             echo '[stopping...]'
             kill $VPN_PID 2>/dev/null || true
             wait
-            rm -f \(singboxPidFile) "$CFG"
             echo '[stopped]'
             exit 0
         }
@@ -148,12 +159,12 @@ final class ProcessManager {
         """
     }
 
-    // run.sh: the only argument is the sing-box config; the binary is the root-owned copy.
+    // run.sh: the config comes on stdin; the binary is the root-owned copy.
     private static let runShContent: String = """
         #!/bin/bash
         set -euo pipefail
-        [[ $# -eq 1 ]] || { echo '[error] usage: run.sh <singbox_cfg>'; exit 1; }
-        \(engineShell(binary: "'\(rootSingBoxPath)'", config: "\"$1\""))
+        [[ $# -eq 0 ]] || { echo '[error] usage: run.sh < singbox_cfg'; exit 1; }
+        \(engineShell(binary: "'\(rootSingBoxPath)'", configInput: ""))
         """
 
     // stop.sh: reads the PID file and kills only our sing-box
@@ -503,7 +514,8 @@ final class ProcessManager {
         let process = Process()
         if isPasswordless {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-            process.arguments = [Self.runScriptPath, singboxConfigFile]
+            process.arguments = [Self.runScriptPath]
+            process.standardInput = FileHandle(forReadingAtPath: singboxConfigFile)
             process.standardOutput = engineLog
             process.standardError = engineLog
         } else {
@@ -543,7 +555,7 @@ final class ProcessManager {
     private func buildNonPrivilegedShellCommand(singBoxPath: String, configFile: String) -> String {
         """
         exec >> \(Self.shellEscape(logFile)) 2>&1
-        \(Self.engineShell(binary: Self.shellEscape(singBoxPath), config: Self.shellEscape(configFile)))
+        \(Self.engineShell(binary: Self.shellEscape(singBoxPath), configInput: " < " + Self.shellEscape(configFile)))
         """
     }
 

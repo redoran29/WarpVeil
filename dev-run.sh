@@ -32,7 +32,7 @@ DEV_VERSION="${BASE_VERSION}-${DEV_SUFFIX}"
 DEV_TAG="${DEV_VERSION//./-}"
 
 DEV_STOP_SH="/usr/local/libexec/warpveil-${DEV_TAG}/stop.sh"
-DEV_PID_FILES=("/tmp/warpveil-${DEV_TAG}-singbox.pid")
+DEV_PID_FILES=("/var/run/warpveil-${DEV_TAG}/singbox.pid")
 DEV_XRAY_PID_FILE="${TMPDIR%/}/warpveil-${DEV_TAG}-xray.pid"
 
 # Every match is anchored to the dev binary path, so the production build and
