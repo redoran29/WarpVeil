@@ -1529,3 +1529,18 @@ probe)
 esac
 log "finished with $fails failure(s)"; exit $((fails > 0))
 ```
+
+Live, 2026-10-14, xray topology — both runs `finished with 0 failure(s)`:
+
+- `deploy`: the tunnel came back at 19:59 through the osascript path. The config was read by the
+  user's `cat` (R16) and the root sing-box ran from the bundle. xray ran as the user, the PID file
+  was in `/var/run/warpveil-1-2` (root 0755), and there was none in `/tmp`.
+- `probe`, after the owner turned Passwordless on again:
+  - Eight `sudo -n run.sh` calls were refused: an argument, a binary on stdin, empty stdin,
+    `log.OUTPUT`, `external_ui`, a Unicode-folded key, a caller `HOME` with `~/.jq`, and
+    `/dev/zero` (refused at 4 MiB). After each one the sing-box PID and the TUN were unchanged.
+  - Nothing was written to `/etc`. The exit IP stayed `203.0.113.30`. `stage/` was root 0700
+    and not listable. The root copy equalled the bundle. `/etc/sudoers.d` held only `warpveil-1-2`.
+  - On quit, the TUN, the PID file and xray went away. On relaunch, the tunnel was back in 4 s
+    with no prompt, through `/usr/bin/sudo …/run.sh` with no arguments. The root copy ran
+    `stage/singbox.XXXXXX`, and the engine log had no `[error]` line.
