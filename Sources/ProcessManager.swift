@@ -53,7 +53,7 @@ final class ProcessManager {
     private static let xrayPidFile = FileManager.default.temporaryDirectory.path + "/warpveil-\(versionTag)-xray.pid"
 
     // xray's SOCKS inbound, which the TUN wrapper forwards everything to.
-    nonisolated static let xraySocksPort = 10808
+    nonisolated static let xraySocksPort: UInt16 = 10808
 
     // Shared by run.sh, stop.sh and the osascript fallbacks. Kills only a process the PID file
     // names whose executable is the given engine, then waits for it to be gone — up to 5 s — so
@@ -522,23 +522,33 @@ final class ProcessManager {
 
         startLogTail()
 
+        // The session starts here, before any engine is up, so disconnect, restart, wake and
+        // quit see it and a second connect is refused.
+        isRunning = true
         guard engine == .xray else {
             startHelper(singBoxPath: binaryPath, log: engineLog)
             return
         }
         // The wrapper sends everything to xray's port, so it starts once xray listens. The start
-        // waits in reconnectTask: a connect, a disconnect or a wake meanwhile cancels it.
-        // Done, it lets go of reconnectTask, which wake reads as "a restart is pending".
+        // waits in reconnectTask; whoever cancels it — disconnect, restart, wake — tears the
+        // session down itself, so a cancelled start touches nothing.
         reconnectTask = Task {
             let started = await startXray(binaryPath: binaryPath, configFile: configFile, log: engineLog)
-            if !Task.isCancelled { reconnectTask = nil }
-            guard started, !Task.isCancelled else {
-                xrayProcess?.terminate()
-                stopLogTail()
+            guard !Task.isCancelled else { return }
+            reconnectTask = nil
+            guard started else {
+                abandonStart()
                 return
             }
             startHelper(singBoxPath: singBoxPath, log: engineLog)
         }
+    }
+
+    // A start that failed before the helper ran leaves no root engine to stop.
+    private func abandonStart() {
+        xrayProcess?.terminate()
+        stopLogTail()
+        isRunning = false
     }
 
     private func startHelper(singBoxPath: String, log engineLog: FileHandle) {
@@ -572,11 +582,9 @@ final class ProcessManager {
         do {
             try process.run()
             helperProcess = process
-            isRunning = true
         } catch {
             logs.append("[Error: \(error.localizedDescription)]")
-            xrayProcess?.terminate()
-            stopLogTail()
+            abandonStart()
         }
     }
 
@@ -596,7 +604,15 @@ final class ProcessManager {
     // xray a crashed app left holding the port. True once the port accepts connections.
     private func startXray(binaryPath: String, configFile: String, log: FileHandle) async -> Bool {
         guard await stopOrphanedXray() else {
-            logs.append("[Error: an xray from an earlier run is still running — quit it and connect again]")
+            if !Task.isCancelled {
+                logs.append("[Error: an xray from an earlier run is still running — quit it and connect again]")
+            }
+            return false
+        }
+        guard !Task.isCancelled else { return false }
+        // Whatever else holds the port would take the wrapper's traffic, and our xray could not bind.
+        guard !PingService.isListening(Self.xraySocksPort) else {
+            logs.append("[Error: port \(Self.xraySocksPort) is already in use — quit whatever holds it and connect again]")
             return false
         }
         let process = Process()
@@ -610,10 +626,11 @@ final class ProcessManager {
                 guard let self, p === self.xrayProcess else { return }
                 self.xrayProcess = nil
                 try? FileManager.default.removeItem(atPath: Self.xrayPidFile)
-                // The wrapper would keep the TUN and send everything to a dead port.
+                // The wrapper would keep the TUN and send everything to a dead port. disconnect
+                // also cancels a start still waiting for the port.
                 guard self.isRunning else { return }
-                self.logs.append("[xray exited (exit \(status)) — disconnecting]")
-                self.tearDownEngines()
+                self.logs.append("[xray exited (exit \(status))]")
+                self.disconnect()
             }
         }
         do {
@@ -632,7 +649,7 @@ final class ProcessManager {
                 logs.append("[Error: xray exited before opening port \(Self.xraySocksPort)]")
                 return false
             }
-            if Self.acceptsConnections(port: Self.xraySocksPort) { return true }
+            if PingService.isListening(Self.xraySocksPort) { return true }
             try? await Task.sleep(for: .milliseconds(100))
         }
         logs.append("[Error: xray did not open port \(Self.xraySocksPort) in 5 s]")
@@ -647,12 +664,14 @@ final class ProcessManager {
         if let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)), Self.isXray(pid) {
             kill(pid, SIGTERM)
             var waited = 0
-            while Self.isXray(pid), waited < 50 {
+            while Self.isXray(pid), waited < 50, !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(100))
                 waited += 1
             }
             guard !Self.isXray(pid) else { return false }
         }
+        // Cancelled, the file may already be the next start's.
+        guard !Task.isCancelled else { return false }
         try? FileManager.default.removeItem(atPath: Self.xrayPidFile)
         return true
     }
@@ -660,22 +679,6 @@ final class ProcessManager {
     private nonisolated static func isXray(_ pid: pid_t) -> Bool {
         var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
         return proc_pidpath(pid, &path, UInt32(path.count)) > 0 && String(cString: path).hasSuffix("/xray")
-    }
-
-    // A TCP connect to loopback answers at once: refused until the port is bound.
-    private nonisolated static func acceptsConnections(port: Int) -> Bool {
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else { return false }
-        defer { close(fd) }
-        var address = sockaddr_in()
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_port = in_port_t(UInt16(port).bigEndian)
-        address.sin_addr.s_addr = inet_addr("127.0.0.1")
-        return withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0
-            }
-        }
     }
 
     // configd publishes State:/Network/Global/IPv6 only while a physical service has a routable
@@ -796,11 +799,14 @@ final class ProcessManager {
     }
 
     private func tearDownEngines() {
+        // A session still waiting for xray has no root engine yet: no stop, and no password
+        // dialog for one.
+        let helperStarted = helperProcess != nil
         helperProcess?.terminate()
         helperProcess = nil
         xrayProcess?.terminate()
         stopLogTail()
-        killVPNProcesses()
+        if helperStarted { killVPNProcesses() }
         isRunning = false
     }
 

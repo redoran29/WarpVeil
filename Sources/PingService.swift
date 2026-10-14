@@ -389,7 +389,8 @@ final class PingService {
         return lines.last ?? "exited without a message"
     }
 
-    private static func isListening(_ port: UInt16) -> Bool {
+    // A TCP connect to loopback answers at once: refused until the port is bound.
+    static func isListening(_ port: UInt16) -> Bool {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { return false }
         defer { close(fd) }
