@@ -191,21 +191,29 @@ final class ProcessManager {
 
     // MARK: - Passwordless mode
 
-    var isPasswordless = ProcessManager.passwordlessInstalled()
-    var isPasswordlessBusy = false
-
     // Passwordless is on only while the installed scripts are the ones this build would install
     // and the root-owned sing-box is the bundled one. Only an explicit install writes to
     // /usr/local/libexec, so after a script change or an engine bump an existing install would
     // keep running the old files indefinitely; instead it reads as off, the log says why, and
-    // the toggle re-installs.
-    private static func passwordlessInstalled() -> Bool {
-        guard FileManager.default.fileExists(atPath: sudoersFile),
-              (try? String(contentsOfFile: runScriptPath, encoding: .utf8)) == runShContent,
-              (try? String(contentsOfFile: stopScriptPath, encoding: .utf8)) == stopShContent,
-              let bundled = findBinary("sing-box")
+    // the toggle re-installs. The bundle cannot change under a running app and the root copy
+    // only through install/remove, so the 83 MB comparison runs at launch and after those.
+    private var rootCopyMatches = ProcessManager.rootCopyMatchesBundle()
+    var isPasswordless = false
+    var isPasswordlessBusy = false
+
+    private static func scriptsInstalled() -> Bool {
+        FileManager.default.fileExists(atPath: sudoersFile)
+            && (try? String(contentsOfFile: runScriptPath, encoding: .utf8)) == runShContent
+            && (try? String(contentsOfFile: stopScriptPath, encoding: .utf8)) == stopShContent
+    }
+
+    // Mapped pages compare in ~10 ms warm, against ~80 ms for contentsEqual's reads.
+    private static func rootCopyMatchesBundle() -> Bool {
+        guard let bundled = findBinary("sing-box"),
+              let root = try? Data(contentsOf: URL(fileURLWithPath: rootSingBoxPath), options: .alwaysMapped),
+              let bundle = try? Data(contentsOf: URL(fileURLWithPath: bundled), options: .alwaysMapped)
         else { return false }
-        return FileManager.default.contentsEqual(atPath: rootSingBoxPath, andPath: bundled)
+        return root == bundle
     }
 
     func installPasswordless() {
@@ -318,17 +326,19 @@ final class ProcessManager {
     // privileged call re-reads it. Not during an install: the toggle is flipped optimistically.
     private func refreshPasswordless() {
         guard !isPasswordlessBusy else { return }
-        isPasswordless = Self.passwordlessInstalled()
+        isPasswordless = rootCopyMatches && Self.scriptsInstalled()
     }
 
     // Called on both success and failure of install/remove — reconciles isPasswordless
     // with the actual filesystem state (in case optimistic flip was wrong) and clears busy.
     private func passwordlessOperationFinished() {
-        isPasswordless = Self.passwordlessInstalled()
+        rootCopyMatches = Self.rootCopyMatchesBundle()
         isPasswordlessBusy = false
+        refreshPasswordless()
     }
 
     init() {
+        refreshPasswordless()
         if FileManager.default.fileExists(atPath: Self.sudoersFile), !isPasswordless {
             logs.append("[Passwordless install is from another build — turn Passwordless on again in Advanced]")
         }
