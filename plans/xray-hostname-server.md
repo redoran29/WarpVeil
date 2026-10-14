@@ -544,11 +544,14 @@ print("pinned \(host) -> \(addresses)")
 EOF
 swiftc -target arm64-apple-macosx14.0 main.swift \
   "/Users/lortan29/Documents/Home Projects/vpn-swift/Sources/BypassService.swift" -o pin
+# The live server's address comes from the environment, never from this file: the repo is public.
+IP="${WARPVEIL_SERVER_IP:?export WARPVEIL_SERVER_IP=<the xray server's IP>}"
 python3 -I -c "
-import json,os
+import json,os,sys
+ip=sys.argv[1]
 s=json.load(open(os.path.expanduser('~/.config/warpveil/subscriptions.json')))
-srv=[x for sub in s for x in sub['servers'] if x['address']=='203.0.113.20:443'][0]
-open('live-named.json','w').write(srv['config'].replace('203.0.113.20','203-0-113-20.sslip.io'))"
+srv=[x for sub in s for x in sub['servers'] if x['address']==ip+':443'][0]
+open('live-named.json','w').write(srv['config'].replace(ip, ip.replace('.','-')+'.sslip.io'))" "$IP"
 ./pin live-named.json live-pinned.json
 "/Users/lortan29/Documents/Home Projects/vpn-swift/Binaries/xray" run -test -config live-pinned.json 2>&1 | tail -1
 python3 -I -c "
@@ -585,7 +588,7 @@ set -uo pipefail
 REPO="/Users/lortan29/Documents/Home Projects/vpn-swift"
 APP="/Applications/WarpVeil.app"; BIN="$APP/Contents/MacOS/WarpVeil"; DOMAIN="com.warpveil.app"
 SUBS="$HOME/.config/warpveil/subscriptions.json"
-HOST="203-0-113-20.sslip.io"; IP="203.0.113.20"; ADDRESS="$IP:443"
+IP="${WARPVEIL_SERVER_IP:?export WARPVEIL_SERVER_IP=<the xray server's IP>}"; HOST="${IP//./-}.sslip.io"; ADDRESS="$IP:443"
 W="$TMPDIR/hostname-live"; mkdir -p "$W"; umask 077
 log() { printf '%s %s\n' "$(date +%T)" "$*"; }
 

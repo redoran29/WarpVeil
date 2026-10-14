@@ -385,3 +385,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - Atomic commits — one logical change each, never bundle unrelated work
 - Every commit must leave the project compiling
 - Do not commit: `.app` bundles, build output, certificates, `.env` files
+- The repository is public. The owner's addresses, server IPs and hostnames, subscription URLs and
+  credentials never go into a commit — not in a plan, a script or a log pasted into one. A live
+  script reads them from the environment (`WARPVEIL_HOME_IP`, `WARPVEIL_SERVER_IP`); a plan quotes
+  results with documentation addresses (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`).
+  Taking one out of history means rewriting it and a force-push the owner runs by hand
