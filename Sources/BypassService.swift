@@ -68,14 +68,18 @@ enum BypassService {
 
     // MARK: - Root safety
 
+    // The top-level sections a root sing-box may get; ProcessManager.configPolicy refuses the rest.
+    static let configSections = ["log", "dns", "ntp", "inbounds", "outbounds", "endpoints", "route", "experimental"]
+
     // The root sing-box refuses a config that names a file (ProcessManager.configPolicy).
     // Provider templates often carry a few such keys the tunnel does not need — a cache file, a
     // dashboard, a log file — so those are dropped here instead of failing the connect. Anything
     // else that touches a file still fails it, by name, in Logs.
     static func dropUnneededFileKeys(_ json: String) -> (json: String, dropped: [String]) {
         guard var root = parseJSON(json) else { return (json, []) }
-        let sections: Set = ["log", "dns", "ntp", "inbounds", "outbounds", "endpoints", "route", "experimental"]
-        var dropped = root.keys.filter { !sections.contains($0) }.sorted()
+        // A section in another case is kept, not dropped: sing-box would read "Inbounds" as the
+        // inbounds, and the policy refuses it by name instead of a tunnel starting without them.
+        var dropped = root.keys.filter { !configSections.contains($0.lowercased()) }.sorted()
         dropped.forEach { root[$0] = nil }
         if var log = root["log"] as? [String: Any] {
             dropped += removeKeys(["output"], from: &log).map { "log." + $0 }

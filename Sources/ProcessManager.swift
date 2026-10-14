@@ -89,7 +89,7 @@ final class ProcessManager {
     private static let configPolicy = """
         def lower: with_entries(.key |= ascii_downcase);
         [ if type != "object" then "root is not an object" else
-            (keys[] | select(IN("log", "dns", "ntp", "inbounds", "outbounds", "endpoints", "route", "experimental") | not) | "top-level key " + .),
+            (keys[] | select(IN(\(BypassService.configSections.map { "\"\($0)\"" }.joined(separator: ", "))) | not) | "top-level key " + .),
             (.. | objects |
               (keys[] | select(test("[^ -~]")) | "non-ASCII key"),
               (lower |
