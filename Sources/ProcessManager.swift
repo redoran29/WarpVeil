@@ -101,10 +101,11 @@ final class ProcessManager {
         """
 
     // Shared by run.sh and the osascript fallback. stage_config copies the config from stdin
-    // into the stage directory and prints the copy's path — root never opens a path a caller
-    // chose; check_config runs the policy on that copy. Both exit before any engine is touched,
-    // so a refused connect leaves a running tunnel up. jq runs with an empty environment: it
-    // loads ~/.jq on start, and sudo passes the caller's HOME through. jq ships with macOS 15.
+    // into the stage directory, up to 4 MiB, and prints the copy's path — root never opens a
+    // path a caller chose; check_config runs the policy on that copy. Both exit before any
+    // engine is touched, so a refused connect leaves a running tunnel up. jq runs with an empty
+    // environment: it loads ~/.jq on start, and sudo passes the caller's HOME through. jq ships
+    // with macOS 15.
     private static let configFunctions = """
         prepare_dir() {
             mkdir -p -m "$2" "$1"
@@ -116,7 +117,11 @@ final class ProcessManager {
             prepare_dir '\(runDir)' 0755
             prepare_dir '\(stageDir)' 0700
             dst=$(mktemp '\(stageDir)/singbox.XXXXXX') || exit 1
-            cat > "$dst" && [[ -s "$dst" ]] || { rm -f "$dst"; echo '[error] no config on stdin' >&2; exit 1; }
+            trap 'rm -f "$dst"' EXIT
+            head -c 4194304 > "$dst"
+            [[ -s "$dst" ]] || { echo '[error] no config on stdin' >&2; exit 1; }
+            [[ $(wc -c < "$dst") -lt 4194304 ]] || { echo '[error] config is 4 MiB or larger' >&2; exit 1; }
+            trap - EXIT
             echo "$dst"
         }
         check_config() {
@@ -128,18 +133,18 @@ final class ProcessManager {
         """
 
     // The engine start shared by run.sh (the root-owned copy, config on stdin) and the
-    // osascript fallback (the bundled binary, config redirected from the app's file). PATH and
+    // osascript fallback (the bundled binary, the app's file read as the user). PATH and
     // HOME are pinned first: sudo passes the caller's through, and every name below would
     // resolve against them as root. Then stage, check, and only then kill the previous engine.
     // The EXIT trap removes the staged copy however the shell ends — the osascript shell never
     // sees a TERM — and the PID file once it is ours, unless a newer run.sh already wrote its own.
-    private static func engineShell(binary: String, configInput: String) -> String {
+    private static func engineShell(binary: String, configReader: String) -> String {
         """
         export PATH=/usr/bin:/bin:/usr/sbin:/sbin
         export HOME=/var/empty
         \(configFunctions)
         \(killPidFileFunction)
-        CFG=$(stage_config\(configInput)) || exit 1
+        CFG=$(\(configReader) | stage_config) || exit 1
         trap 'rm -f "$CFG"' EXIT
         check_config "$CFG"
         kill_pid_file \(singboxPidFile) sing-box || { echo '[error] previous sing-box still running'; exit 1; }
@@ -167,7 +172,7 @@ final class ProcessManager {
         #!/bin/bash
         set -euo pipefail
         [[ $# -eq 0 ]] || { echo '[error] usage: run.sh < singbox_cfg'; exit 1; }
-        \(engineShell(binary: "'\(rootSingBoxPath)'", configInput: ""))
+        \(engineShell(binary: "'\(rootSingBoxPath)'", configReader: "cat"))
         """
 
     // stop.sh: reads the PID file and kills only our sing-box
@@ -589,12 +594,15 @@ final class ProcessManager {
     }
 
     // The non-passwordless path: the same engine shell, run by osascript as root with the
-    // bundled sing-box — the root-owned copy exists only in passwordless mode. `>>`: xray is
-    // already writing the log through the app's append-mode handle.
+    // bundled sing-box — the root-owned copy exists only in passwordless mode. The config is
+    // read by a cat running as the user, so a symlink swapped in for the app's file reaches
+    // nothing the user could not read. `>>`: xray is already writing the log through the app's
+    // append-mode handle.
     private func buildNonPrivilegedShellCommand(singBoxPath: String, configFile: String) -> String {
-        """
+        let readAsUser = "/usr/bin/sudo -n -u '#\(getuid())' /bin/cat \(Self.shellEscape(configFile))"
+        return """
         exec >> \(Self.shellEscape(logFile)) 2>&1
-        \(Self.engineShell(binary: Self.shellEscape(singBoxPath), configInput: " < " + Self.shellEscape(configFile)))
+        \(Self.engineShell(binary: Self.shellEscape(singBoxPath), configReader: readAsUser))
         """
     }
 
