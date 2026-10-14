@@ -9,8 +9,8 @@ set -euo pipefail
 #
 # Signing follows release.sh: Developer ID Application when the keychain has one, ad-hoc
 # otherwise. The installed copy is quit through its own quit path (AppleScript quit →
-# applicationShouldTerminate → disconnect), so its root engines come down with it; whatever
-# still holds the installed version's PID files afterwards is swept with sudo, the way
+# applicationShouldTerminate → disconnect), so its engines come down with it; a user xray still
+# named by its PID file afterwards is killed, a root sing-box is swept with sudo, the way
 # dev-run.sh sweeps the dev copy's engines.
 
 [ $# -eq 0 ] || { echo "usage: $0" >&2; exit 1; }
@@ -42,12 +42,25 @@ installed_tag() {
 
 INSTALLED_TAG=$(installed_tag)
 STOP_SH="/usr/local/libexec/warpveil-${INSTALLED_TAG}/stop.sh"
-PID_FILES=("/tmp/warpveil-${INSTALLED_TAG}-singbox.pid" "/tmp/warpveil-${INSTALLED_TAG}-xray.pid")
+PID_FILES=("/tmp/warpveil-${INSTALLED_TAG}-singbox.pid")
+XRAY_PID_FILE="${TMPDIR%/}/warpveil-${INSTALLED_TAG}-xray.pid"
 
 # Anchored to the installed binary path, so a dev-run.sh copy and an Xcode-launched copy are
 # never quit. The quit goes by path too: the bundle id is shared with every Xcode-launched copy.
 installed_is_running() {
     pgrep -f "^${INSTALLED_BIN}$" >/dev/null 2>&1
+}
+
+# xray runs as the user and its PID file is the app's own, in $TMPDIR: no sudo needed.
+stop_user_xray() {
+    local pid
+    [ -f "$XRAY_PID_FILE" ] || return 0
+    pid=$(cat "$XRAY_PID_FILE" 2>/dev/null || true)
+    rm -f "$XRAY_PID_FILE"
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+    case "$(ps -o comm= -p "$pid" 2>/dev/null)" in
+        *xray) kill "$pid" 2>/dev/null || true; echo "stopped: xray" ;;
+    esac
 }
 
 # PIDs from the installed version's PID files that are still alive.
@@ -58,11 +71,11 @@ live_engine_pids() {
         pid=$(cat "$f" 2>/dev/null || true)
         [[ "$pid" =~ ^[0-9]+$ ]] || continue
         # Mirrors kill_pid_file in ProcessManager: a PID is ours only while its executable is
-        # one of our engines — PIDs are recycled, and a crash leaves the file behind. Not
-        # kill -0: the engines are root's, and that says "not permitted" from here. case with
-        # no match exits 0, so a stale PID cannot trip set -e through the caller's pipeline.
+        # sing-box — PIDs are recycled, and a crash leaves the file behind. Not kill -0: the
+        # engine is root's, and that says "not permitted" from here. case with no match exits
+        # 0, so a stale PID cannot trip set -e through the caller's pipeline.
         case "$(ps -o comm= -p "$pid" 2>/dev/null)" in
-            *sing-box|*xray) echo "$pid" ;;
+            *sing-box) echo "$pid" ;;
         esac
     done
 }
@@ -83,14 +96,15 @@ stop_installed() {
         fi
         echo "stopped: installed app"
     fi
+    stop_user_xray
 
-    # Engines run as root. Their PID files are root-owned too, and a stale one is removed by
-    # the next connect's kill_pid_file — nothing to rm here.
+    # sing-box runs as root. Its PID file is root-owned too, and a stale one is removed by the
+    # next connect's kill_pid_file — nothing to rm here.
     local leftovers
     leftovers=$(live_engine_pids | tr '\n' ' ' | sed 's/ *$//')
     [ -n "$leftovers" ] || return 0
 
-    echo "VPN engines still up (pid: $leftovers) — needs admin"
+    echo "sing-box still up (pid: $leftovers) — needs admin"
     if [ -x "$STOP_SH" ]; then
         sudo "$STOP_SH" || true
     else
@@ -101,7 +115,7 @@ stop_installed() {
         [ -n "$(live_engine_pids)" ] || break
         sleep 0.1
     done
-    echo "stopped: VPN engines"
+    echo "stopped: sing-box"
 }
 
 # --- Validate binaries exist (Xcode build phase bundles them) ---

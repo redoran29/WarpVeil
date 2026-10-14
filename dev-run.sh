@@ -32,12 +32,25 @@ DEV_VERSION="${BASE_VERSION}-${DEV_SUFFIX}"
 DEV_TAG="${DEV_VERSION//./-}"
 
 DEV_STOP_SH="/usr/local/libexec/warpveil-${DEV_TAG}/stop.sh"
-DEV_PID_FILES=("/tmp/warpveil-${DEV_TAG}-singbox.pid" "/tmp/warpveil-${DEV_TAG}-xray.pid")
+DEV_PID_FILES=("/tmp/warpveil-${DEV_TAG}-singbox.pid")
+DEV_XRAY_PID_FILE="${TMPDIR%/}/warpveil-${DEV_TAG}-xray.pid"
 
 # Every match is anchored to the dev binary path, so the production build and
 # any Xcode-launched copy are never touched.
 dev_is_running() {
     pgrep -f "^${APP_BIN}$" >/dev/null 2>&1
+}
+
+# xray runs as the user and its PID file is the app's own, in $TMPDIR: no sudo needed.
+stop_dev_xray() {
+    local pid
+    [ -f "$DEV_XRAY_PID_FILE" ] || return 0
+    pid=$(cat "$DEV_XRAY_PID_FILE" 2>/dev/null || true)
+    rm -f "$DEV_XRAY_PID_FILE"
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+    case "$(ps -o comm= -p "$pid" 2>/dev/null)" in
+        *xray) kill "$pid" 2>/dev/null || true; echo "stopped: xray" ;;
+    esac
 }
 
 # PIDs from the dev PID files that are still alive.
@@ -48,11 +61,11 @@ live_engine_pids() {
         pid=$(cat "$f" 2>/dev/null || true)
         [[ "$pid" =~ ^[0-9]+$ ]] || continue
         # Mirrors kill_pid_file in ProcessManager: a PID is ours only while its executable is
-        # one of our engines — PIDs are recycled, and a crash leaves the file behind. Not
-        # kill -0: the engines are root's, and that says "not permitted" from here. case with
-        # no match exits 0, so a stale PID cannot trip set -e through the caller's pipeline.
+        # sing-box — PIDs are recycled, and a crash leaves the file behind. Not kill -0: the
+        # engine is root's, and that says "not permitted" from here. case with no match exits
+        # 0, so a stale PID cannot trip set -e through the caller's pipeline.
         case "$(ps -o comm= -p "$pid" 2>/dev/null)" in
-            *sing-box|*xray) echo "$pid" ;;
+            *sing-box) echo "$pid" ;;
         esac
     done
 }
@@ -75,14 +88,15 @@ stop_dev() {
     else
         echo "dev app was not running"
     fi
+    stop_dev_xray
 
-    # The app does not wait for its teardown to finish before exiting, so sweep
-    # anything still holding the dev PID files. Engines run as root.
+    # The app does not wait for its teardown to finish before exiting, so sweep a sing-box
+    # still holding the dev PID file. It runs as root.
     local leftovers
     leftovers=$(live_engine_pids | tr '\n' ' ' | sed 's/ *$//')
     [ -n "$leftovers" ] || return 0
 
-    echo "dev VPN engines still up (pid: $leftovers) — needs admin" >&2
+    echo "dev sing-box still up (pid: $leftovers) — needs admin" >&2
     if [ -x "$DEV_STOP_SH" ]; then
         sudo "$DEV_STOP_SH" || true
     else
@@ -93,7 +107,7 @@ stop_dev() {
         [ -n "$(live_engine_pids)" ] || break
         sleep 0.1
     done
-    echo "stopped: dev VPN engines" >&2
+    echo "stopped: dev sing-box" >&2
 }
 
 build_dev() {

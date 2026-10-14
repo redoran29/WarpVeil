@@ -10,6 +10,7 @@ final class ProcessManager {
     var isRunning = false
 
     private var helperProcess: Process?
+    private var xrayProcess: Process?
     private var logHandle: FileHandle?
     private var logDebounceTimer: Timer?
     private let logFile = FileManager.default.temporaryDirectory.path + "/warpveil-\(ProcessManager.versionTag).log"
@@ -33,9 +34,11 @@ final class ProcessManager {
     private static let stopScriptPath = "/usr/local/libexec/warpveil-\(versionTag)/stop.sh"
     private static let sudoersFile = "/etc/sudoers.d/warpveil-\(versionTag)"
 
-    // PID files: run.sh and stop.sh kill exactly our engines, nothing else on the machine
+    // PID files: run.sh and stop.sh kill exactly our sing-box, nothing else on the machine. xray
+    // runs as the user, so its file is the app's own, in $TMPDIR — the next connect and the
+    // sweeps in install.sh and dev-run.sh read it.
     private static let singboxPidFile = "/tmp/warpveil-\(versionTag)-singbox.pid"
-    private static let xrayPidFile = "/tmp/warpveil-\(versionTag)-xray.pid"
+    private static let xrayPidFile = FileManager.default.temporaryDirectory.path + "/warpveil-\(versionTag)-xray.pid"
 
     // Shared by run.sh, stop.sh and the osascript fallbacks. Kills only a process the PID file
     // names whose executable is the given engine, then waits for it to be gone — up to 5 s — so
@@ -61,8 +64,8 @@ final class ProcessManager {
         }
         """
 
-    // run.sh: validates argv, launches VPN processes, writes PID files
-    // argv: run.sh <singbox_path> <singbox_config> [<xray_path> <xray_config>]
+    // run.sh: validates argv, launches sing-box, writes its PID file
+    // argv: run.sh <singbox_path> <singbox_config>
     private static let runShContent: String = """
         #!/bin/bash
         set -euo pipefail
@@ -75,8 +78,8 @@ final class ProcessManager {
             [[ ! -L "$p" ]] || { echo "[error] symlink not allowed: $p"; exit 1; }
         }
 
-        if [[ $# -ne 2 && $# -ne 4 ]]; then
-            echo "[error] usage: run.sh <singbox> <singbox_cfg> [<xray> <xray_cfg>]"
+        if [[ $# -ne 2 ]]; then
+            echo "[error] usage: run.sh <singbox> <singbox_cfg>"
             exit 1
         fi
 
@@ -87,62 +90,30 @@ final class ProcessManager {
         \(killPidFileFunction)
 
         kill_pid_file \(singboxPidFile) sing-box || { echo '[error] previous sing-box still running'; exit 1; }
-        kill_pid_file \(xrayPidFile) xray || { echo '[error] previous xray still running'; exit 1; }
 
-        if [[ $# -eq 4 ]]; then
-            XRAY="$3"; XRAY_CFG="$4"
-            validate_arg "$XRAY"
-            validate_arg "$XRAY_CFG"
+        echo '[sing-box] starting...'
+        "$SINGBOX" run -c "$SINGBOX_CFG" &
+        VPN_PID=$!
+        echo $VPN_PID > \(singboxPidFile)
+        echo "[sing-box] started pid=$VPN_PID"
 
-            echo '[xray] starting...'
-            "$XRAY" run -config "$XRAY_CFG" &
-            XRAY_PID=$!
-            echo $XRAY_PID > \(xrayPidFile)
-            echo "[xray] started pid=$XRAY_PID"
-            sleep 1
-
-            echo '[sing-box] starting TUN wrapper...'
-            "$SINGBOX" run -c "$SINGBOX_CFG" &
-            SINGBOX_PID=$!
-            echo $SINGBOX_PID > \(singboxPidFile)
-            echo "[sing-box] started pid=$SINGBOX_PID"
-
-            cleanup() {
-                echo '[stopping...]'
-                kill $XRAY_PID $SINGBOX_PID 2>/dev/null || true
-                wait
-                rm -f \(xrayPidFile) \(singboxPidFile)
-                echo '[stopped]'
-                exit 0
-            }
-            trap cleanup TERM INT
+        cleanup() {
+            echo '[stopping...]'
+            kill $VPN_PID 2>/dev/null || true
             wait
-        else
-            echo '[sing-box] starting...'
-            "$SINGBOX" run -c "$SINGBOX_CFG" &
-            VPN_PID=$!
-            echo $VPN_PID > \(singboxPidFile)
-            echo "[sing-box] started pid=$VPN_PID"
-
-            cleanup() {
-                echo '[stopping...]'
-                kill $VPN_PID 2>/dev/null || true
-                wait
-                rm -f \(singboxPidFile)
-                echo '[stopped]'
-                exit 0
-            }
-            trap cleanup TERM INT
-            wait
-        fi
+            rm -f \(singboxPidFile)
+            echo '[stopped]'
+            exit 0
+        }
+        trap cleanup TERM INT
+        wait
         """
 
-    // stop.sh: reads PID files and kills only our processes
+    // stop.sh: reads the PID file and kills only our sing-box
     private static let stopShContent: String = """
         #!/bin/bash
         \(killPidFileFunction)
         kill_pid_file \(singboxPidFile) sing-box
-        kill_pid_file \(xrayPidFile) xray
         """
 
     private var lastConnection: (config: String, engine: Engine,
@@ -381,10 +352,12 @@ final class ProcessManager {
         // A stop still running would read the PID file the new run.sh writes and kill the fresh
         // engine or delete its only handle. Without passwordless it is the first of two password
         // dialogs, so the connect waits for its answer, however long that takes.
-        if let stop = teardownProcess, stop.isRunning {
+        // An xray still exiting holds the port the next one needs.
+        let exiting = [teardownProcess, xrayProcess].compactMap { $0 }.filter(\.isRunning)
+        if !exiting.isEmpty {
             logs.append("[Waiting for the previous engines to stop...]")
             reconnectTask = Task {
-                while stop.isRunning, !Task.isCancelled {
+                while exiting.contains(where: \.isRunning), !Task.isCancelled {
                     try? await Task.sleep(for: .milliseconds(100))
                 }
                 guard !Task.isCancelled else { return }
@@ -441,25 +414,33 @@ final class ProcessManager {
 
         logs.append(isPasswordless ? "[Connecting...]" : "[Connecting (password prompt)...]")
 
-        // 0600: other local users shouldn't read VPN logs
+        // 0600: other local users shouldn't read VPN logs. One append-mode handle for everything
+        // that writes it — xray, the helper and its sing-box share one file offset, so their
+        // lines interleave instead of overwriting each other.
         FileManager.default.createFile(atPath: logFile, contents: nil, attributes: [.posixPermissions: 0o600])
+        let logDescriptor = open(logFile, O_WRONLY | O_APPEND)
+        guard logDescriptor >= 0 else {
+            logs.append("[Error: cannot open the log file]")
+            return
+        }
+        let engineLog = FileHandle(fileDescriptor: logDescriptor, closeOnDealloc: true)
 
         startLogTail()
 
+        if engine == .xray, !startXray(binaryPath: binaryPath, configFile: configFile, log: engineLog) {
+            stopLogTail()
+            return
+        }
+
+        let singBox = engine == .xray ? singBoxPath : binaryPath
         let process = Process()
         if isPasswordless {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-            if engine == .xray {
-                let sbPath = singBoxPath.isEmpty ? binaryPath : singBoxPath
-                let resolvedSB = Self.findBinary("sing-box") ?? (FileManager.default.isExecutableFile(atPath: sbPath) ? sbPath : binaryPath)
-                process.arguments = [Self.runScriptPath, resolvedSB, singboxConfigFile, binaryPath, configFile]
-            } else {
-                process.arguments = [Self.runScriptPath, binaryPath, configFile]
-            }
-            process.standardOutput = FileHandle(forWritingAtPath: logFile)
-            process.standardError = process.standardOutput
+            process.arguments = [Self.runScriptPath, singBox, singboxConfigFile]
+            process.standardOutput = engineLog
+            process.standardError = engineLog
         } else {
-            let cmd = buildNonPrivilegedShellCommand(engine: engine, binaryPath: binaryPath, singBoxPath: singBoxPath, configFile: configFile)
+            let cmd = buildNonPrivilegedShellCommand(singBoxPath: singBox, configFile: singboxConfigFile)
             process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
             process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(cmd)) with administrator privileges"]
         }
@@ -489,46 +470,71 @@ final class ProcessManager {
     // Builds the shell command used in the non-passwordless (osascript) path.
     // The stable run.sh is only available after installPasswordless, so we
     // replicate the essential logic inline here for the password-prompt flow.
-    private func buildNonPrivilegedShellCommand(engine: Engine, binaryPath: String, singBoxPath: String, configFile: String) -> String {
-        var cmds = ["cd /tmp", "exec > \(Self.shellEscape(logFile)) 2>&1"]
+    private func buildNonPrivilegedShellCommand(singBoxPath: String, configFile: String) -> String {
+        // `>>`: in the xray topology xray is already writing the log through the app's handle.
+        var cmds = ["cd /tmp", "exec >> \(Self.shellEscape(logFile)) 2>&1"]
         cmds.append(Self.killPidFileFunction)
         cmds.append("kill_pid_file \(Self.shellEscape(Self.singboxPidFile)) sing-box || { echo '[error] previous sing-box still running'; exit 1; }")
-        cmds.append("kill_pid_file \(Self.shellEscape(Self.xrayPidFile)) xray || { echo '[error] previous xray still running'; exit 1; }")
-
-        if engine == .xray {
-            cmds.append("echo '[xray] starting...'")
-            cmds.append("\(Self.shellEscape(binaryPath)) run -config \(Self.shellEscape(configFile)) &")
-            cmds.append("XRAY_PID=$!")
-            cmds.append("echo $XRAY_PID > \(Self.shellEscape(Self.xrayPidFile))")
-            cmds.append("echo '[xray] started pid='$XRAY_PID")
-            cmds.append("sleep 1")
-
-            let sbPath = singBoxPath.isEmpty ? binaryPath : singBoxPath
-            let resolvedSB = Self.findBinary("sing-box") ?? (FileManager.default.isExecutableFile(atPath: sbPath) ? sbPath : binaryPath)
-            cmds.append("echo '[sing-box] starting TUN wrapper...'")
-            cmds.append("\(Self.shellEscape(resolvedSB)) run -c \(Self.shellEscape(singboxConfigFile)) &")
-            cmds.append("SINGBOX_PID=$!")
-            cmds.append("echo $SINGBOX_PID > \(Self.shellEscape(Self.singboxPidFile))")
-            cmds.append("echo '[sing-box] started pid='$SINGBOX_PID")
-            cmds.append("""
-                cleanup() { echo '[stopping...]'; kill $XRAY_PID $SINGBOX_PID 2>/dev/null; wait; rm -f \(Self.shellEscape(Self.xrayPidFile)) \(Self.shellEscape(Self.singboxPidFile)); echo '[stopped]'; exit 0; }
-                trap cleanup TERM INT
-                wait
-                """)
-        } else {
-            cmds.append("echo '[sing-box] starting...'")
-            cmds.append("\(Self.shellEscape(binaryPath)) run -c \(Self.shellEscape(configFile)) &")
-            cmds.append("VPN_PID=$!")
-            cmds.append("echo $VPN_PID > \(Self.shellEscape(Self.singboxPidFile))")
-            cmds.append("echo '[sing-box] started pid='$VPN_PID")
-            cmds.append("""
-                cleanup() { echo '[stopping...]'; kill $VPN_PID 2>/dev/null; wait; rm -f \(Self.shellEscape(Self.singboxPidFile)); echo '[stopped]'; exit 0; }
-                trap cleanup TERM INT
-                wait
-                """)
-        }
-
+        cmds.append("echo '[sing-box] starting...'")
+        cmds.append("\(Self.shellEscape(singBoxPath)) run -c \(Self.shellEscape(configFile)) &")
+        cmds.append("VPN_PID=$!")
+        cmds.append("echo $VPN_PID > \(Self.shellEscape(Self.singboxPidFile))")
+        cmds.append("echo '[sing-box] started pid='$VPN_PID")
+        cmds.append("""
+            cleanup() { echo '[stopping...]'; kill $VPN_PID 2>/dev/null; wait; rm -f \(Self.shellEscape(Self.singboxPidFile)); echo '[stopped]'; exit 0; }
+            trap cleanup TERM INT
+            wait
+            """)
         return cmds.joined(separator: "\n")
+    }
+
+    // xray is a SOCKS proxy on loopback and needs no root: it runs as the user, from the bundle.
+    // Its dial to the server enters the TUN like any other connection, and the wrapper routes it
+    // direct by address — that rule never looks at who dialed. The PID file is the handle on an
+    // xray a crashed app left holding the port.
+    private func startXray(binaryPath: String, configFile: String, log: FileHandle) -> Bool {
+        killOrphanedXray()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: binaryPath)
+        process.arguments = ["run", "-config", configFile]
+        process.standardOutput = log
+        process.standardError = log
+        process.terminationHandler = { [weak self] p in
+            let status = p.terminationStatus
+            Task { @MainActor in
+                guard let self, p === self.xrayProcess else { return }
+                self.xrayProcess = nil
+                try? FileManager.default.removeItem(atPath: Self.xrayPidFile)
+                if self.isRunning { self.logs.append("[xray exited (exit \(status))]") }
+            }
+        }
+        do {
+            try process.run()
+        } catch {
+            logs.append("[Error: cannot start xray: \(error.localizedDescription)]")
+            return false
+        }
+        xrayProcess = process
+        try? String(process.processIdentifier).write(toFile: Self.xrayPidFile, atomically: true, encoding: .utf8)
+        logs.append("[xray] started pid=\(process.processIdentifier)")
+        return true
+    }
+
+    // Mirrors kill_pid_file: only a live process whose executable is xray is signalled, then
+    // given up to 5 s to let go of the port before the next xray binds it.
+    private func killOrphanedXray() {
+        guard let text = try? String(contentsOfFile: Self.xrayPidFile, encoding: .utf8) else { return }
+        defer { try? FileManager.default.removeItem(atPath: Self.xrayPidFile) }
+        guard let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
+        var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &path, UInt32(path.count)) > 0,
+              String(cString: path).hasSuffix("/xray") else { return }
+        kill(pid, SIGTERM)
+        var waited = 0
+        while kill(pid, 0) == 0, waited < 50 {
+            usleep(100_000)
+            waited += 1
+        }
     }
 
     // configd publishes State:/Network/Global/IPv6 only while a physical service has a routable
@@ -651,6 +657,7 @@ final class ProcessManager {
     private func tearDownEngines() {
         helperProcess?.terminate()
         helperProcess = nil
+        xrayProcess?.terminate()
         stopLogTail()
         killVPNProcesses()
         isRunning = false
@@ -684,7 +691,6 @@ final class ProcessManager {
             let cmd = """
                 \(Self.killPidFileFunction)
                 kill_pid_file \(Self.shellEscape(Self.singboxPidFile)) sing-box
-                kill_pid_file \(Self.shellEscape(Self.xrayPidFile)) xray
                 """
             let kill = Process()
             kill.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
