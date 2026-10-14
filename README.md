@@ -9,7 +9,7 @@ Lightweight macOS app for managing **sing-box** and **xray** VPN connections.
 - **Subscription support** — add via URL (`vless://`, `vmess://`) or JSON config
 - **Domain bypass** — route specific domains outside the VPN tunnel
 - **Auto-reconnect** after sleep/wake
-- **Passwordless mode** — optional sudoers setup to skip password prompts
+- **Passwordless mode** — optional sudoers setup to skip password prompts; root runs only its own copy of sing-box, on a config it checked
 - **Bundled engines** — `sing-box` and `xray` ship inside the app, no installation required
 - **Server ping** — real delay through each proxy, measured by the bundled engines in user space
 - **Real-time logs** with copy/clear
