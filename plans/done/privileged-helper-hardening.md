@@ -1268,8 +1268,8 @@ deploy)
     (cd "$REPO" && ./install.sh) || { bad "install.sh failed"; exit 1; }
     wait_tunnel 1800 || { bad "tunnel did not come back on the new build"; exit 1; }
     ok "tunnel back on the new build through the password path"
-    ps -axo user=,comm= | grep -q "^root .*Resources/sing-box$" && ok "root sing-box from the bundle (osascript path)" || log "note: no root sing-box from the bundle"
-    if ps -axo user=,comm= | grep "Resources/xray$" | grep -qv "^root"; then ok "xray runs as the user"; else bad "no user-owned xray"; fi
+    ps -axo user=,comm= | grep >/dev/null "^root .*Resources/sing-box$" && ok "root sing-box from the bundle (osascript path)" || log "note: no root sing-box from the bundle"
+    if ps -axo user=,comm= | grep "Resources/xray$" | grep -v "^root" >/dev/null; then ok "xray runs as the user"; else bad "no user-owned xray"; fi
     [ -f "$PID_FILE" ] && ok "sing-box PID file in $RUN_DIR" || bad "no $PID_FILE"
     [ -e "/tmp/warpveil-$TAG-singbox.pid" ] && log "note: old /tmp PID file still there" || ok "no PID file in /tmp"
     [ "$(stat -f '%Su %Lp' "$RUN_DIR" 2>/dev/null)" = "root 755" ] && ok "run dir root 0755" || bad "run dir: $(stat -f '%Su %Lp' "$RUN_DIR" 2>&1)"
@@ -1319,12 +1319,12 @@ probe)
     for _ in $(seq 1 50); do tun_up || break; sleep 0.2; done
     tun_up && bad "TUN still up after quit" || ok "TUN released on quit"
     [ -e "$PID_FILE" ] && bad "PID file left after quit" || ok "PID file removed on quit"
-    ps -axo comm= | grep -q "Resources/xray$" && bad "xray survived the quit" || ok "xray stopped with the app"
+    ps -axo comm= | grep >/dev/null "Resources/xray$" && bad "xray survived the quit" || ok "xray stopped with the app"
     open -n "$APP"
     wait_tunnel 90 || { bad "no tunnel after relaunch"; exit 1; }
-    ps -axo args= | grep -q "^/usr/bin/sudo $RUN_SH$" && ok "connected through sudo run.sh, no arguments" || bad "no 'sudo run.sh' helper: $(ps -axo args= | grep run.sh)"
-    ps -axo user=,args= | grep -q "^root  *$LIBEXEC/sing-box run -c $RUN_DIR/stage/singbox\." && ok "root copy runs the staged config" || bad "sing-box: $(ps -axo user=,args= | grep 'sing-box run')"
-    if ps -axo user=,comm= | grep "Resources/xray$" | grep -qv "^root"; then ok "xray runs as the user"; else bad "no user xray"; fi
+    ps -axo args= | grep >/dev/null "^/usr/bin/sudo $RUN_SH$" && ok "connected through sudo run.sh, no arguments" || bad "no 'sudo run.sh' helper: $(ps -axo args= | grep run.sh)"
+    ps -axo user=,args= | grep >/dev/null "^root  *$LIBEXEC/sing-box run -c $RUN_DIR/stage/singbox\." && ok "root copy runs the staged config" || bad "sing-box: $(ps -axo user=,args= | grep 'sing-box run')"
+    if ps -axo user=,comm= | grep "Resources/xray$" | grep -v "^root" >/dev/null; then ok "xray runs as the user"; else bad "no user xray"; fi
     grep -q "\[error\]" "$LOG" && bad "errors in the engine log: $(grep '\[error\]' "$LOG" | tail -2)" || ok "no [error] lines in the engine log"
     for h in ifconfig.me api.ipify.org; do log "  $h -> $(curl -s --max-time 10 https://$h 2>/dev/null)"; done
     ;;
@@ -1332,3 +1332,25 @@ probe)
 esac
 log "finished with $fails failure(s)"; exit $((fails > 0))
 ```
+
+Live, 2026-10-14, xray topology:
+
+- `deploy`: the tunnel came back at 19:30 through the password path. Running then: the osascript
+  shell, a root `…/Resources/sing-box run -c /var/run/warpveil-1-2/stage/singbox.XXXXXX`, xray as
+  the user, the PID file in `/var/run/warpveil-1-2` (root 0755), and none in `/tmp`.
+- The owner turned Passwordless on again at 19:31. `probe`: every security check passed. All seven
+  calls to `sudo -n run.sh` were refused: an argument, a binary on stdin, empty stdin, `log.OUTPUT`,
+  `external_ui`, a Unicode-folded key, and a caller `HOME` carrying a `~/.jq`. After each one the
+  sing-box PID and the TUN were unchanged. Nothing was written to `/etc`. The exit IP stayed
+  `203.0.113.30`. `stage/` was root 0700 and the user could not list it. There was no manifest,
+  and the root copy was byte-for-byte the bundled binary (`cmp`). `/etc/sudoers.d` held only
+  `warpveil-1-2`. On quit, the TUN, the PID file and xray all went away. On relaunch, the tunnel
+  was back in 4 s with no prompt, with no `[error]` in the engine log.
+- Two checks failed because of a bug in the script, not in the build. Under `set -o pipefail`,
+  `ps … | grep -q` fails whenever `grep -q` exits at its first match before `ps` has finished
+  writing: `ps` dies of SIGPIPE, and that fails the pipeline. The bytes of the `ps` output
+  matched both patterns exactly (`od -c`): `/usr/bin/sudo /usr/local/libexec/warpveil-1-2/run.sh`
+  with no arguments, and root `/usr/local/libexec/warpveil-1-2/sing-box run -c
+  /var/run/warpveil-1-2/stage/singbox.LssOIX`. The first deploy's "no root sing-box from the
+  bundle" note had the same cause. Every `ps … | grep -q` in the script above now reads
+  `grep >/dev/null`.
