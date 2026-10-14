@@ -134,7 +134,8 @@ the version (`ProcessManager` derives its sudoers, libexec, PID and log paths fr
 TUN interface — only one build can hold a tunnel at a time; the second one's sing-box fails at
 the TUN, it does not take the tunnel over; and passwordless — enabling or disabling it in one
 build removes every other build's sudoers entry and libexec directory (they are the same hole),
-so the other copy asks for its toggle again.
+so the other copy's next connect or disconnect goes through the password dialog and its toggle
+reads off until it is switched on again.
 
 `--watch` is a rebuild-and-relaunch loop, not hot reload: in-memory state resets on every
 change, `@AppStorage` survives. Each relaunch activates the app; the window comes back at its
@@ -227,19 +228,23 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - **NSAllowsArbitraryLoads**: user-provided subscription URLs may be HTTP; the app's own calls (`LocationService` → `ipwho.is`) use HTTPS
 - **Version-tagged privileged paths**: sudoers, libexec, PID files and the log all carry the app version (`1.2` → `warpveil-1-2`), because `.` is illegal in a `/etc/sudoers.d/` filename. Side effect: every version bump re-asks for the password once
 - **Passwordless mode**: installs into `/usr/local/libexec/warpveil-<tag>/` (root:wheel) a copy
-  of the bundled `sing-box` with its `sing-box.sha256`, plus `run.sh`/`stop.sh` (0755), and a
-  sudoers entry whitelisting those two exact script paths — no wildcards. `run.sh` takes one
-  argument, the config; the binary it runs is its own root-owned copy, never a path it was
-  given, because the `.app` is the user's and a bundled binary can be swapped by anyone running
-  as the user. Enabling or disabling in any build first removes every `/etc/sudoers.d/warpveil*`
-  and `/etc/sudoers.d/vpnswift` and every `/usr/local/libexec/warpveil*` — an older tag's
-  `run.sh` is the old hole for as long as its entry exists. The install reads as on only while
-  the two scripts match byte-for-byte what this build would install and the bundled sing-box's
-  SHA-256 (CryptoKit, ~30 ms at launch) is the one in the manifest; a script change or an engine
-  bump reads as off, the log says so, and switching the toggle on re-installs with one prompt
+  of the bundled `sing-box` plus `run.sh`/`stop.sh` (0755), and a sudoers entry whitelisting
+  those two exact script paths — no wildcards. `run.sh` takes no arguments and reads the config
+  on stdin; the binary it runs is its own root-owned copy, never a path it was given, because
+  the `.app` is the user's and a bundled binary can be swapped by anyone running as the user.
+  The copy is taken at the password prompt: code running as the user before that rides the
+  prompt, as it can ride any admin prompt — a pin kept in the user's own bundle would not stop
+  it. Enabling or disabling in any build first removes every `/etc/sudoers.d/warpveil*` and
+  `/etc/sudoers.d/vpnswift` and every `/usr/local/libexec/warpveil*` — an older tag's `run.sh`
+  is the old hole for as long as its entry exists. The install reads as on only while the two
+  scripts match byte-for-byte what this build would install and the root copy is byte-for-byte
+  the bundled sing-box (`contentsEqual`); a script change or an engine bump reads as off, the
+  log says so, and switching the toggle on re-installs with one prompt. It is re-read before
+  every connect and disconnect, because another build's toggle removes it while this one runs
 - **Config policy**: every root sing-box — passwordless or not — runs a copy of its config that
-  `run.sh` (or the osascript command) made in the root-owned 0700 `/var/run/warpveil-<tag>/`,
-  and only after `/usr/bin/jq` (macOS 15+) accepted that copy: top-level keys limited to `log`,
+  `run.sh` (or the osascript command) made from stdin in the root-owned 0700
+  `/var/run/warpveil-<tag>/stage/`, removed by an EXIT trap however the shell ends, and only
+  after `/usr/bin/jq` (macOS 15+, run under `env -i`) accepted that copy: top-level keys limited to `log`,
   `dns`, `ntp`, `inbounds`, `outbounds`, `endpoints`, `route`, `experimental`; any key ending in
   `_path`/`_directory`/`_file` (except `process_path`) or starting with `output`, `external_ui`,
   `cache_file`, `acme`, `write_to_system`, `download_url`, `geoip`, `geosite` refused; `path`
@@ -247,13 +252,21 @@ Write the simplest code that works. Prioritize readability over cleverness.
   compared lowercased, non-ASCII keys refused. The check runs before `kill_pid_file`, so a
   refused connect never takes a tunnel down. It is a denylist of sing-box's file, directory,
   exec and system-state keys (`ProcessManager.configPolicy`), so a sing-box bump is reviewed for
-  new ones. `PATH` is pinned in every root shell: macOS's sudoers has no `secure_path`
+  new ones. `PATH` and `HOME` are pinned in every root shell: macOS's sudoers has no
+  `secure_path` and keeps the caller's `HOME`. The keys a provider template carries by default
+  and the tunnel does not need — a cache file, a dashboard, a log file, `geoip`/`geosite`, extra
+  top-level sections — are dropped app-side first (`BypassService.dropUnneededFileKeys`), with
+  a log line
 - **PID files**: `run.sh`, `stop.sh` and the osascript fallbacks kill by PID file only — one
   shared `kill_pid_file`, which checks that the PID's executable is sing-box, then waits up to
-  5 s for it to exit before the file is removed; nothing else on the machine is touched. xray's
-  file is the app's own (`$TMPDIR/warpveil-<tag>-xray.pid`), read by `ProcessManager.
-  killOrphanedXray` at the next connect under the same rule (`proc_pidpath` ends in `/xray`) and
-  by `install.sh`/`dev-run.sh`. A sing-box with no PID file at our path (another build's tag, a
+  5 s for it to exit before the file is removed; nothing else on the machine is touched. The
+  file is `/var/run/warpveil-<tag>/singbox.pid`, in a root-owned directory: in `/tmp` root's
+  write would follow a symlink planted at its name. xray's file is the app's own
+  (`$TMPDIR/warpveil-<tag>-xray.pid`), read by `ProcessManager.stopOrphanedXray` at the next
+  connect under the same rule (`proc_pidpath` ends in `/xray`; one that outlives the wait keeps
+  its file and stops the connect) and by `install.sh`/`dev-run.sh`. The wrapper starts only once
+  xray's port accepts connections, and an xray that exits while connected tears the engines
+  down. A sing-box with no PID file at our path (another build's tag, a
   hand-started one) survives, and the next connect fails with sing-box's own error in Logs. PID
   files are not deleted at launch: they are the handle on an engine a crash orphaned
 - **JSONSerialization, not Codable**: bypass injection rewrites arbitrary user configs and needs untyped JSON
@@ -282,12 +295,12 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - `$TMPDIR/warpveil-singbox-<pid>.json` — injected sing-box config
 - `$TMPDIR/warpveil-xray-<pid>.json` — xray config, as the subscription produced it
 - `$TMPDIR/warpveil-ping-{singbox,xray}-<pid>.json` — ping configs, present only during a run
-- `/tmp/warpveil-<tag>-singbox.pid` — sing-box's PID, root's
+- `/var/run/warpveil-<tag>/singbox.pid` — sing-box's PID, root's (directory 0755)
 - `$TMPDIR/warpveil-<tag>-xray.pid` — xray's PID, the user's
-- `/usr/local/libexec/warpveil-<tag>/{run.sh,stop.sh,sing-box,sing-box.sha256}` — the passwordless
-  install, root-owned
-- `/var/run/warpveil-<tag>/singbox.XXXXXX` — the root-owned copy of the sing-box config the engine
-  runs, removed with it
+- `/usr/local/libexec/warpveil-<tag>/{run.sh,stop.sh,sing-box}` — the passwordless install,
+  root-owned
+- `/var/run/warpveil-<tag>/stage/singbox.XXXXXX` — the root-owned copy of the sing-box config the
+  engine runs (directory 0700), removed when its shell ends
 - `~/.config/warpveil/subscriptions.json` — subscriptions, shared across all builds
 
 ## Gotchas
@@ -338,8 +351,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - sing-box's JSON decoder matches field names case-insensitively with Unicode folding: `OUTPUT`
   and `timeſtamp` reach `output` and `timestamp`. Anything that filters config keys compares
   them lowercased and refuses non-ASCII keys
-- macOS's sudoers has `env_reset` but no `secure_path`: a `NOPASSWD` script inherits the
-  caller's `PATH`. Every root shell here pins `PATH` on its first line
+- macOS's sudoers has `env_reset` but no `secure_path`, and `env_keep` holds `HOME`: a
+  `NOPASSWD` script inherits the caller's `PATH` and `HOME`. Every root shell here pins both,
+  and jq runs under `env -i` — it loads `~/.jq` on start, which can redefine its builtins
 - A `sudo -u user cmd` from a root script keeps sudo as the parent — `$!` is sudo's PID and
   `ps -o comm=` says `sudo`, so it cannot be tracked by PID file. xray is started by the app
 - Two `FileHandle(forWritingAtPath:)` on one log overwrite each other: they are separate open
