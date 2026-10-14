@@ -33,7 +33,8 @@ DEV_TAG="${DEV_VERSION//./-}"
 
 DEV_STOP_SH="/usr/local/libexec/warpveil-${DEV_TAG}/stop.sh"
 DEV_PID_FILES=("/var/run/warpveil-${DEV_TAG}/singbox.pid")
-DEV_XRAY_PID_FILE="${TMPDIR%/}/warpveil-${DEV_TAG}-xray.pid"
+# The app's $TMPDIR, also when this shell has none (ssh, cron).
+DEV_XRAY_PID_FILE="$(getconf DARWIN_USER_TEMP_DIR)warpveil-${DEV_TAG}-xray.pid"
 
 # Every match is anchored to the dev binary path, so the production build and
 # any Xcode-launched copy are never touched.

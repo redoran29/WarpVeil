@@ -43,7 +43,8 @@ installed_tag() {
 INSTALLED_TAG=$(installed_tag)
 STOP_SH="/usr/local/libexec/warpveil-${INSTALLED_TAG}/stop.sh"
 PID_FILES=("/var/run/warpveil-${INSTALLED_TAG}/singbox.pid")
-XRAY_PID_FILE="${TMPDIR%/}/warpveil-${INSTALLED_TAG}-xray.pid"
+# The app's $TMPDIR, also when this shell has none (ssh, cron).
+XRAY_PID_FILE="$(getconf DARWIN_USER_TEMP_DIR)warpveil-${INSTALLED_TAG}-xray.pid"
 
 # Anchored to the installed binary path, so a dev-run.sh copy and an Xcode-launched copy are
 # never quit. The quit goes by path too: the bundle id is shared with every Xcode-launched copy.
