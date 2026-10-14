@@ -869,23 +869,25 @@ final class ProcessManager {
         // Poll log file every 0.25s instead of DispatchSource (which fires per-write, hundreds/sec)
         logDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             let data = handle.readDataToEndOfFile()
-            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-            let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                logs.append(contentsOf: lines)
-                if logs.count > 600 {
-                    logs = Array(logs.suffix(500))
-                }
-            }
+            Task { @MainActor [weak self] in self?.appendLog(data) }
         }
     }
 
+    // The last poll can miss an engine's final lines — usually the reason it stopped.
     private func stopLogTail() {
         logDebounceTimer?.invalidate()
         logDebounceTimer = nil
+        if let handle = logHandle { appendLog(handle.readDataToEndOfFile()) }
         logHandle?.closeFile()
         logHandle = nil
+    }
+
+    private func appendLog(_ data: Data) {
+        guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+        logs.append(contentsOf: text.components(separatedBy: .newlines).filter { !$0.isEmpty })
+        if logs.count > 600 {
+            logs = Array(logs.suffix(500))
+        }
     }
 
     // MARK: - Binary auto-detection
