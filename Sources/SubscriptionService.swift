@@ -134,10 +134,13 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             guard let server = parseVlessURI(trimmed) ?? parseVmessURI(trimmed) else {
                 return .unparsableLink
             }
-            // A server an earlier build stored as sing-box cannot connect: the same link added
-            // again gets an xray twin, and the old row is removed by hand.
+            // A manual server an earlier build stored as sing-box cannot connect: the same link
+            // added again gets an xray twin, and the old row is removed by hand. A feed's row is
+            // rebuilt by the feed's next refresh, so it still counts.
             guard !subscriptions.contains(where: { sub in
-                sub.servers.contains { ($0.engine ?? sub.engine) == .xray && $0.isSameNode(as: server) }
+                sub.servers.contains {
+                    (!sub.isManual || ($0.engine ?? sub.engine) == .xray) && $0.isSameNode(as: server)
+                }
             }) else {
                 return .duplicateServer
             }
