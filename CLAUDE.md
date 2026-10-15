@@ -15,8 +15,8 @@ to code.
 
 Work comes from `BACKLOG.md`, the owner's list: one numbered line per item, in Russian, untracked
 (`.git/info/exclude` — the repository is public). Numbers are never reused. A tag in brackets
-names an older plan whose research the item's own plan reads from; once every item tagged with
-it has a plan of its own, the older plan goes. Never delete the file.
+names an old plan, dropped on 2026-10-15 to be planned again: `git show 975f8b4:plans/<tag>.md`
+is its research, read by the item's new plan, not copied into it. Never delete the file.
 
 ### 1. Plan
 
