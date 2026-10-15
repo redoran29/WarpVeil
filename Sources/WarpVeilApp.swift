@@ -93,9 +93,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // Synchronous: the .terminateNow path below exits without waiting for anything.
         app.ping.cancel()
-        // Always: between a restart's teardown and its connect no session runs, yet the restart is
-        // pending. Then wait for whatever still runs — the engines, an xray still exiting, a helper
-        // install or removal at its password dialog.
+        // Always, not only while a session runs: between a restart's teardown and its connect none
+        // does, yet the restart is pending.
         app.pm.connectHold = ProcessManager.quitHoldMessage
         app.disconnect()
         guard !app.pm.isTornDown else { return .terminateNow }
