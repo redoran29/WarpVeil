@@ -530,7 +530,9 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
     // its outbound's tag.
     private func servers(in root: [String: Any]) -> [Server] {
         let outbounds = root["outbounds"] as? [[String: Any]] ?? []
-        let proxies = outbounds.filter { ($0["protocol"] as? String).map(Self.vpnTypesXray.contains) == true }
+        let proxies = outbounds.filter {
+            ($0["protocol"] as? String).map(Self.vpnTypesXray.contains) == true && BypassService.serverEndpoint($0) != nil
+        }
         let remarks = proxies.count == 1 ? root["remarks"] as? String : nil
         return proxies.compactMap { outbound in
             guard let proto = outbound["protocol"] as? String,
