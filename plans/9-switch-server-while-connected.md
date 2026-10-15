@@ -16,8 +16,8 @@ Backlog 9.
 
 ### Open for the owner
 - The pause that merges a burst of taps. Default: 2 s, as for routing changes.
-- With passwordless off a switch costs two password dialogs (stop, then start). Default: accepted;
-  the canon already says passwordless off means dialogs.
+- With passwordless off a switch costs a password dialog — the start's; the stop asks none since
+  plan 17. Default: accepted; the canon already says passwordless off means dialogs.
 
 ### Depends on
 - Nothing missing today. Plan 6's "Fastest" row, if built first, switches the same way.

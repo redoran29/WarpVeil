@@ -60,8 +60,8 @@ final class ProcessManager {
 
     // Root-owned. sing-box's PID file lives here, not in the world-writable /tmp, where root's
     // write would follow a symlink planted at its name; it stays readable for install.sh. The
-    // configs go one level down, 0700: the engine runs root's copy of the config, so what
-    // passed the policy is what runs.
+    // configs go one level down, 0700: the engine runs root's copy of the config — what passed
+    // the policy, re-serialized by jq with the TUN's name added and nothing else.
     private static let runDir = "/var/run/warpveil-\(versionTag)"
     private static let stageDir = "/var/run/warpveil-\(versionTag)/stage"
 

@@ -84,8 +84,7 @@ live_engine_pids() {
 stop_installed() {
     if installed_is_running; then
         # Quit properly first — that path lets the app tear down its own engines. The app
-        # waits up to 30 s for that teardown (a password dialog when passwordless is off),
-        # so this wait is longer than that.
+        # waits up to 30 s for that teardown, so this wait is longer than that.
         osascript -e "tell application \"$INSTALLED_APP\" to quit" >/dev/null 2>&1 || true
         for _ in $(seq 1 175); do
             installed_is_running || break

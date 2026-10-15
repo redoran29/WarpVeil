@@ -74,8 +74,7 @@ live_engine_pids() {
 stop_dev() {
     if dev_is_running; then
         # Quit properly first — that path lets the app tear down its own engines. The app
-        # waits up to 30 s for that teardown (a password dialog when passwordless is off),
-        # so this wait is longer than that.
+        # waits up to 30 s for that teardown, so this wait is longer than that.
         osascript -e "tell application id \"$DEV_BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
         for _ in $(seq 1 175); do
             dev_is_running || break

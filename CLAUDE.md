@@ -322,7 +322,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - **Config policy**: every root sing-box — passwordless or not — runs a copy of its config that
   `run.sh` (or the osascript command) made from stdin — at most 4 MiB — in the root-owned 0700
   `/var/run/warpveil-<tag>/stage/`, removed by an EXIT trap however the shell ends, and only
-  after `/usr/bin/jq` (macOS 15+, run under `env -i`) accepted that copy. Root never opens a
+  after `/usr/bin/jq` (macOS 15+, run under `env -i`) accepted that copy; what runs is that copy
+  re-serialized by jq with the TUN's `interface_name` set and nothing else changed. Root never opens a
   path a caller chose: `run.sh` gets the config on stdin from the app, and the osascript command
   reads the app's file with a `cat` running as the user (`sudo -u '#<uid>'`); the only user path
   it looks at itself is the session file, and only for whether it exists. The policy: top-level keys limited to `log`,
