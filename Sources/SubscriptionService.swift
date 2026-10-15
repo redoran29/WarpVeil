@@ -541,15 +541,20 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
                 proxy["proxySettings"] = nil
                 proxy = BypassService.settingSockopt(proxy, "dialerProxy", tag)
             }
-            return Server(name: outbound["tag"] as? String ?? proto, protocolType: proto,
+            return Server(name: Self.nonBlank(outbound["tag"]) ?? proto, protocolType: proto,
                           address: "\(host):\(port)", transport: Self.canonicalTransport(network),
                           config: xrayClientConfig(proxy, dialers: BypassService.xrayDialers(of: proxy, in: outbounds)),
                           engine: .xray)
         }
-        guard listed.count == 1, let remarks = root["remarks"] as? String else { return listed }
+        guard listed.count == 1, let remarks = Self.nonBlank(root["remarks"]) else { return listed }
         var only = listed[0]
         only.name = remarks
         return [only]
+    }
+
+    private static func nonBlank(_ value: Any?) -> String? {
+        guard let text = value as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return text
     }
 
     // MARK: - Manual config
