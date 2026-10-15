@@ -287,7 +287,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
   scripts match byte-for-byte what this build would install and the root copy is byte-for-byte
   the bundled sing-box (mapped pages compared at launch and after an install or removal — the
   83 MB comparison is too slow for every call); a script change or an engine bump reads as off,
-  the log says so, and switching the toggle on re-installs with one prompt. The sudoers entry and
+  the log says so, and switching the toggle on re-installs with one prompt. The log says so at
+  launch too while any other build's entry exists — another version's tag, which a version bump
+  leaves behind, or the pre-rename `vpnswift`. The sudoers entry and
   the scripts are re-read before every connect and disconnect, because another build's toggle
   removes them while this one runs
 - **Config policy**: every root sing-box — passwordless or not — runs a copy of its config that

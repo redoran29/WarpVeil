@@ -356,9 +356,17 @@ final class ProcessManager {
         refreshPasswordless()
     }
 
+    // Any warpveil sudoers entry that is not this build's working install: this tag's with changed
+    // scripts or a bumped engine, the tag of the version an update replaced, or the pre-rename
+    // vpnswift entry. Each one is an old hole until a toggle removes it.
+    private static var otherInstallExists: Bool {
+        ((try? FileManager.default.contentsOfDirectory(atPath: "/etc/sudoers.d")) ?? [])
+            .contains { $0.hasPrefix("warpveil") || $0 == "vpnswift" }
+    }
+
     init() {
         refreshPasswordless()
-        if FileManager.default.fileExists(atPath: Self.sudoersFile), !isPasswordless {
+        if !isPasswordless, Self.otherInstallExists {
             logs.append("[Passwordless install is from another build — turn Passwordless on again in Advanced]")
         }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
