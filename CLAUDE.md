@@ -97,20 +97,29 @@ committed to `Binaries/` and copied in by the Xcode "Bundle VPN Binaries" build 
 
 **One connection topology.** Every server runs on xray: a SOCKS proxy on port 10808, run as the
 user and started by the app, with a sing-box TUN wrapper in front of it that holds every routing
-decision. Only that wrapper runs as root, and its server rule is by address, so it does not care
-who dialed. The bypass rule goes into it through `BypassService.injectSingBox`. xray's own
+decision. Only that wrapper runs as root, and for an IP-literal server its server rule is by
+address alone, so it does not care who dialed. The bypass rule goes into it through `BypassService.injectSingBox`. xray's own
 connection to its server enters the TUN as well and is routed `direct` by address (`ip_cidr`),
 never by name. A server given as a hostname is resolved by the app at connect, inside the
 session and off the main actor, retried for half a minute while a network settles
 (`BypassService.resolveAddresses`); every address goes into the wrapper's rule, and the xray
 config gets the same addresses pinned in xray's own DNS (`dns.hosts` +
-`sockopt.domainStrategy: ForceIP`, `BypassService.pinXrayServer`), so xray cannot dial one the
-wrapper does not route direct — ForceIP fails a dial the pin misses where UseIP would ask the
-system resolver. The address is read from `vnext` (vless, vmess) or `servers` (trojan,
-shadowsocks, socks), and a config without one is refused. Every xray config — built from a link,
-taken from a panel's `?format=xray` or pasted — runs in the app's frame: one socks inbound on
-10808, the proxy, a freedom outbound, no routing rules, which would send "direct" traffic back
-through the TUN.
+`sockopt.domainStrategy: ForceIP`, `BypassService.pinXrayServer`), so xray dials only addresses
+the wrapper routes direct. A name the pin misses would go to xray's localhost DNS client — the
+system resolver — so the pin is written under every spelling xray may look the name up by (as
+written, without a trailing dot, lowercased); ForceIP fails a dial whose lookup fails outright.
+A name can resolve to a CDN's shared edge, so for a server given by name the wrapper's rule needs
+xray's process path as well as the address (a `logical` and) — other sites on that edge stay in
+the tunnel, and if macOS stops serving root the socket list such a server loops rather than
+leaks (owner, 2026-10-15). The address is read from `vnext` (vless, vmess), `servers` (trojan,
+shadowsocks, socks) or flat in `settings`, and a config without one is refused. Every xray config
+— built from a link, taken from a panel's `?format=xray`, pasted, or stored by an earlier build
+(moved at load) — runs in the app's frame: one socks inbound on 10808, the proxy, a freedom
+outbound it dials through if it names one (`dialerProxy`, `proxySettings`), a freedom `direct`,
+no routing rules, which would send "direct" traffic back through the TUN. A session counts as
+Connected only once the root helper runs (`ProcessManager.isTunnelUp`): the status, the uptime,
+the menu-bar shield, the speed monitor and the location polling wait for it, and the window says
+Connecting until then.
 
 ---
 
@@ -328,11 +337,13 @@ Write the simplest code that works. Prioritize readability over cleverness.
   root-owned
 - `/var/run/warpveil-<tag>/stage/singbox.XXXXXX` — the root-owned copy of the sing-box config the
   engine runs (directory 0700), removed when its shell ends
-- `~/.config/warpveil/subscriptions.json` — subscriptions, shared across all builds
+- `~/.config/warpveil/subscriptions.json` — subscriptions, shared across all builds; written with
+  sorted keys, so a load that changes nothing writes nothing
 
 ## Gotchas
 
-- TUN comes up with a delay — location detection retries at 3, 5 and 10 seconds after connect
+- TUN comes up with a delay — location detection retries at 3, 5 and 10 seconds after the tunnel
+  comes up (`isTunnelUp`), not after the connect: a name lookup can come first
 - `which` is unreliable inside `.app` bundles (no shell profile) — resolve paths explicitly
 - Sleep/wake reconnects after a 5 second delay to let the network settle
 - A domain rule placed before `sniff` never matches a TUN connection: it arrives as an IP
@@ -392,7 +403,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - sing-box's `process_path`/`process_name` rules read `net.inet.tcp.pcblist_n`, which macOS 27
   answers with the header alone for a process without `com.apple.private.network.statistics`
   (`netstat` has it, the bundled engines do not) and in full for root — measured 2026-10-15, 48
-  bytes against 548 KB. Process rules work only in the root wrapper
+  bytes against 548 KB. Process rules work only in the root wrapper; the rule for a server given
+  by name relies on it
 - sing-box's JSON decoder matches field names case-insensitively with Unicode folding: `OUTPUT`
   and `timeſtamp` reach `output` and `timestamp`. Anything that filters config keys compares
   them lowercased and refuses non-ASCII keys

@@ -80,3 +80,19 @@ was done:
   configs is read, each named by `remarks`; a config with no readable server address is not listed.
 - The sing-box binary was no longer checked before a connect: both engines are.
 - The server-address lookup existed twice: the Servers list reads `BypassService.serverEndpoint`.
+
+### Review (2026-10-15, round 2)
+`/code-review 9d857e6..aa6718c`, findings for this plan, and what was done:
+- A panel's freedom outbound the proxy dials through (`dialerProxy`, a fragment outbound) was
+  dropped from the frame, so every dial failed: it comes along; ping measures without it
+  (`8dcd815`).
+- Manual configs stored by earlier builds never entered the frame: moved at load (`d8435cf`). That
+  check found the subscriptions file rewritten on every launch — JSONEncoder's key order follows the
+  hash seed — now written with sorted keys (`b65f8a8`).
+- Re-adding a link over a feed's stale row made a manual twin the feed's refresh would duplicate:
+  a feed's row still counts as a duplicate (`776b3ab`).
+- `remarks` was ignored for a single config and shared by two servers in one: it names a config's
+  server only when it holds one (`e96a734`).
+- The ping fallback started per-server xrays one after another, kept a timed-out launch's ports,
+  left a refused row blank and kept a stale error: started together, stopped when not ready, failed
+  rows named in the error (`b0fdf16`).

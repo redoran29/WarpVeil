@@ -72,3 +72,20 @@ Built in `f695e0c`. `/code-review 89fcdeb..9d857e6` findings for this plan, and 
   direct rule, so other sites on those addresses leave outside the VPN. Kept as built until the
   owner picks between the address rule, an address-and-process rule for xray, or binding xray's
   dials to the physical interface.
+
+### Review (2026-10-15, round 2)
+`/code-review 9d857e6..aa6718c`, findings for this plan, and what was done:
+- Owner, 2026-10-15, on round 1's open item: a server given by name gets a wrapper rule that needs
+  both the address and xray's process path (`dde00d3`); an IP-literal server keeps the address rule.
+- ForceIP does not fail a pin miss — xray resolves it through its localhost DNS client — and xray
+  strips a trailing dot before the lookup: the pin is written under every spelling (`daefe55`).
+- A server address written flat in `settings` was not read (`430f3b8`).
+- The TUN's IP families were read after the lookup, so the IPv6 watcher compared with a stale value
+  during it (`3f1bb67`).
+- The lookup's retries were bounded by count, so a slow resolver held the session for minutes
+  (`ed1e1a3`).
+- The passwordless install was read before the lookup and used after it (`615d7e5`).
+- The window and the menu showed Connected while the name resolved, and the location checks ran
+  before the tunnel existed: Connected now means the root helper runs (`2d76c09`).
+- The reviewer noted that `fed9fbd` and `4acd038` each bundle several fixes; history is public and
+  stays as it is, and this round's fixes are one commit each.
