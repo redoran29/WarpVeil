@@ -187,20 +187,28 @@ final class ProcessManager {
         rm -f "$CFG"
         CFG=$NAMED
         [[ "$(ifconfig)" != *"inet \(tunAddress) "* ]] || echo '[warning] another tunnel already holds \(tunAddress)'
+        # Set before sing-box starts, so a TERM that lands right after the start still stops it ($!
+        # is set before VPN_PID is). It is the only stop the app sends, so it ends with a KILL
+        # rather than waiting on an engine that does not exit.
+        cleanup() {
+            echo '[stopping...]'
+            local engine=${!:-}
+            if [[ -n "$engine" ]]; then
+                kill $engine 2>/dev/null || true
+                for _ in $(seq 50); do kill -0 $engine 2>/dev/null || break; sleep 0.1; done
+                kill -9 $engine 2>/dev/null || true
+            fi
+            wait
+            echo '[stopped]'
+            exit 0
+        }
+        trap cleanup TERM INT
         cd '\(stageDir)'
         echo '[sing-box] starting...'
         \(binary) run -c "$CFG" &
         VPN_PID=$!
         echo $VPN_PID > \(singboxPidFile)
         trap 'rm -f "$CFG"; [[ "$(cat \(singboxPidFile) 2>/dev/null)" != "$VPN_PID" ]] || rm -f \(singboxPidFile)' EXIT
-        cleanup() {
-            echo '[stopping...]'
-            kill $VPN_PID 2>/dev/null || true
-            wait
-            echo '[stopped]'
-            exit 0
-        }
-        trap cleanup TERM INT
         UP=
         while kill -0 $VPN_PID 2>/dev/null; do
             if [[ -z "$UP" && "$(ifconfig "$TUN_NAME" 2>/dev/null)" == *"inet \(tunAddress) "* ]]; then

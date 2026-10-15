@@ -287,6 +287,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
   reaches — once the session file the app made for it is gone.
   The session ends when the helper exits, which it does only after its sing-box, so a disconnect,
   a restart and a quit ask no password and leave nothing behind a window that reads Disconnected.
+  The shell's stop is its only one, so it ends with a KILL after 5 s, and its trap is set before
+  sing-box starts, so a TERM that lands right after the start still stops it.
   The app never ends the osascript helper: that would not reach a root shell already running, and
   one still at its password dialog stays until the user answers it — the shell then finds no
   session file, which it checks before anything else, and exits without touching a PID file or a
