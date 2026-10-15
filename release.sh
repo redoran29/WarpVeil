@@ -1,14 +1,22 @@
 #!/bin/bash
 set -euo pipefail
 #
-# Builds, signs, notarizes, and publishes a WarpVeil release.
+# Builds, signs, notarizes and publishes a WarpVeil release.
 #
 # Notarization setup (one-time):
 #   xcrun notarytool store-credentials NOTARY_PROFILE \
 #       --apple-id <id> --team-id <team> --password <app-specific-password>
 # Then export NOTARY_PROFILE=NOTARY_PROFILE before running this script.
-# Without a Developer ID identity in the keychain, builds are signed ad-hoc
-# and notarization is skipped (good enough for local dev).
+# Without a Developer ID identity in the keychain, builds are signed ad-hoc and notarization
+# is skipped. A browser download of such a build is quarantined and its first launch goes
+# through Gatekeeper's "Open Anyway" — the notes below say how; nothing a publisher does
+# short of notarization avoids it.
+#
+# The zip is signed with the release key (CLAUDE.md, "release.sh") and the signature is
+# uploaded next to it: an installed app updates itself only from a release whose signature its
+# WVUpdatePublicKey accepts. The notes come from CHANGELOG.md's "## <version>" section. A tag
+# names exactly what was built, once, so everything that would make a release wrong is refused
+# before anything is built.
 
 cd "$(dirname "$0")"
 
@@ -19,36 +27,74 @@ APP_NAME="WarpVeil"
 SCRIPT_DIR="$(pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build"
 ENTITLEMENTS="${SCRIPT_DIR}/WarpVeil.entitlements"
+SIGNING_KEY="${HOME}/.config/warpveil/release-signing.key"
 
 # --- Get version from Info.plist ---
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Info.plist)
 TAG="v${VERSION}"
+ZIP_NAME="${APP_NAME}-${VERSION}-macOS.zip"
+SIG_NAME="${ZIP_NAME}.sig"
 
 echo "=== ${APP_NAME} Release ==="
 echo "Version: ${VERSION}"
 echo "Tag: ${TAG}"
 echo ""
 
-# --- Skip if nothing changed since last tag ---
-TAG_EXISTS=0
-if git rev-parse "$TAG" >/dev/null 2>&1; then
-    TAG_EXISTS=1
-    TAG_COMMIT=$(git rev-list -n 1 "$TAG")
-    HEAD_COMMIT=$(git rev-parse HEAD)
+fail() { echo "ERROR: $*" >&2; exit 1; }
 
-    if [ "$TAG_COMMIT" = "$HEAD_COMMIT" ] && git diff --quiet HEAD 2>/dev/null; then
-        echo "No changes since ${TAG} — skipping"
-        exit 0
-    fi
-    echo "New changes found — will replace release ${TAG} after a successful build."
-else
-    echo "First release ${TAG}"
+# The key file is the base64 32-byte ed25519 seed. LibreSSL's openssl has no ed25519, so both
+# helpers are Swift scripts on CryptoKit.
+public_key_of() {
+    swift - "$1" <<'EOF'
+import CryptoKit
+import Foundation
+let text = (try? String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8)) ?? ""
+guard let seed = Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+      let key = try? Curve25519.Signing.PrivateKey(rawRepresentation: seed) else { exit(1) }
+print(key.publicKey.rawRepresentation.base64EncodedString())
+EOF
+}
+
+# Prints the base64 signature of $1's bytes.
+sign_zip() {
+    swift - "$SIGNING_KEY" "$1" <<'EOF'
+import CryptoKit
+import Foundation
+let args = CommandLine.arguments
+let seed = Data(base64Encoded: try String(contentsOfFile: args[1], encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)) ?? Data()
+let key = try Curve25519.Signing.PrivateKey(rawRepresentation: seed)
+print(try key.signature(for: Data(contentsOf: URL(fileURLWithPath: args[2]), options: .mappedIfSafe)).base64EncodedString())
+EOF
+}
+
+# --- Refuse what cannot be released ---
+[ -z "$(git status --porcelain --untracked-files=no)" ] || fail "uncommitted changes — commit them first"
+git fetch --quiet --tags origin
+! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null || fail "tag ${TAG} already exists — bump CFBundleShortVersionString in Info.plist"
+# "release not found" is the only answer that means there is none; any other failure is unknown.
+if RELEASE_CHECK=$(gh release view "$TAG" 2>&1 >/dev/null); then
+    fail "release ${TAG} already exists on GitHub"
+elif [ "$RELEASE_CHECK" != "release not found" ]; then
+    fail "cannot ask GitHub about release ${TAG}: ${RELEASE_CHECK}"
 fi
+LATEST=$(git tag --list 'v*' --sort=-version:refname | head -1)
+if [ -n "$LATEST" ] && [ "$(printf '%s\n%s\n' "$LATEST" "$TAG" | sort -V | tail -1)" != "$TAG" ]; then
+    fail "${VERSION} is not newer than the latest tag ${LATEST} — bump CFBundleShortVersionString in Info.plist"
+fi
+
+CHANGES=$(awk -v heading="## ${VERSION}" '$0 == heading { p = 1; next } /^## / { p = 0 } p' CHANGELOG.md 2>/dev/null || true)
+[ -n "$(printf '%s' "$CHANGES" | tr -d '[:space:]')" ] || fail "CHANGELOG.md has no \"## ${VERSION}\" section"
+
+PUBLIC_KEY=$(/usr/libexec/PlistBuddy -c "Print :WVUpdatePublicKey" Info.plist 2>/dev/null || true)
+[ -n "$PUBLIC_KEY" ] || fail "Info.plist has no WVUpdatePublicKey"
+[ -f "$SIGNING_KEY" ] || fail "no release signing key at ${SIGNING_KEY} (CLAUDE.md, \"release.sh\")"
+# A release signed with another key would be refused by every installed app.
+[ "$(public_key_of "$SIGNING_KEY" || true)" = "$PUBLIC_KEY" ] \
+    || fail "${SIGNING_KEY} is not the pair of WVUpdatePublicKey in Info.plist"
 
 # --- Validate binaries exist (Xcode build phase bundles them) ---
 if [ ! -f "${SCRIPT_DIR}/Binaries/xray" ] || [ ! -f "${SCRIPT_DIR}/Binaries/sing-box" ]; then
-    echo "Binaries not found. Run ./fetch-binaries.sh first"
-    exit 1
+    fail "Binaries not found. Run ./fetch-binaries.sh first"
 fi
 
 # --- Build Release ---
@@ -64,19 +110,13 @@ xcodebuild -project "$PROJECT" \
     CONFIGURATION_BUILD_DIR="$BUILD_DIR" \
     2>&1 | tail -3
 
-if [ ! -d "$BUILD_DIR/${APP_NAME}.app" ]; then
-    echo "Build failed"
-    exit 1
-fi
-
+[ -d "$BUILD_DIR/${APP_NAME}.app" ] || fail "Build failed"
 echo "Build succeeded"
 
 # --- Verify the Xcode build phase actually bundled the binaries ---
 RESOURCES_DIR="$BUILD_DIR/${APP_NAME}.app/Contents/Resources"
 if [ ! -f "$RESOURCES_DIR/xray" ] || [ ! -f "$RESOURCES_DIR/sing-box" ]; then
-    echo "Build did not bundle binaries into $RESOURCES_DIR"
-    echo "Check the 'Bundle VPN Binaries' build phase."
-    exit 1
+    fail "Build did not bundle binaries into $RESOURCES_DIR — check the 'Bundle VPN Binaries' build phase"
 fi
 
 # --- Code sign ---
@@ -101,7 +141,6 @@ else
 fi
 
 # --- Package ---
-ZIP_NAME="${APP_NAME}-${VERSION}-macOS.zip"
 cd "$BUILD_DIR"
 ditto -c -k --sequesterRsrc --keepParent "${APP_NAME}.app" "$ZIP_NAME"
 cd "$SCRIPT_DIR"
@@ -126,52 +165,36 @@ fi
 ZIP_SIZE=$(du -h "$BUILD_DIR/$ZIP_NAME" | cut -f1)
 echo "Packaged ${ZIP_NAME} (${ZIP_SIZE})"
 
-# --- Release notes from git log ---
-LAST_TAGS=$(git tag --sort=-version:refname | head -5)
-PREV_TAG=""
-for t in $LAST_TAGS; do
-    if [ "$t" != "$TAG" ]; then
-        PREV_TAG="$t"
-        break
-    fi
-done
+# --- Sign the final zip (after stapling, which repackages it) ---
+sign_zip "$BUILD_DIR/$ZIP_NAME" > "$BUILD_DIR/$SIG_NAME"
+echo "Signed ${SIG_NAME}"
 
-if [ -n "$PREV_TAG" ]; then
-    CHANGES=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s" --no-merges 2>/dev/null)
-else
-    CHANGES=$(git log --pretty=format:"- %s" --no-merges -20 2>/dev/null)
-fi
-
-[ -z "$CHANGES" ] && CHANGES="- Update"
-
+# --- Release notes: the changelog section, then what a stranger needs to get it running ---
+REPO_URL=$(gh repo view --json url -q .url)
 NOTES="## ${APP_NAME} ${VERSION}
 
 ### Changes
 ${CHANGES}
 
 ### Install
-1. Download \`${ZIP_NAME}\`
-2. Unzip
-3. Drag ${APP_NAME}.app to /Applications
-4. Launch — the window opens and the icon appears in the menu bar
+1. Download \`${ZIP_NAME}\`, unzip it and drag \`${APP_NAME}.app\` to \`/Applications\`.
+2. The first launch is blocked with a dialog saying Apple could not verify the app — it is not notarized. Click **Done**, open **System Settings → Privacy & Security**, scroll to **Security**, click **Open Anyway** next to the ${APP_NAME} line and enter your password. The button stays for about an hour after the blocked launch; Control-click → Open does not work.
+3. Later releases install themselves: **Advanced → Updates** in the window, or **Update to …** in the menu-bar menu.
 
-> Requires macOS 15+"
+Or from Terminal, with no dialog — a \`curl\` download carries no quarantine:
 
-# --- Replace existing tag/release only after a successful build ---
-if [ "$TAG_EXISTS" = "1" ]; then
-    echo "Removing previous tag/release ${TAG}..."
-    git tag -d "$TAG" 2>/dev/null || true
-    git push origin ":refs/tags/$TAG" 2>/dev/null || true
-    gh release delete "$TAG" --yes 2>/dev/null || true
-fi
+    curl -L -o /tmp/${ZIP_NAME} ${REPO_URL}/releases/download/${TAG}/${ZIP_NAME} && ditto -x -k /tmp/${ZIP_NAME} /Applications && open /Applications/${APP_NAME}.app
 
+Requires macOS 15 or newer, Apple Silicon. \`${SIG_NAME}\` is the signature installed copies check the zip with — nothing to do with it by hand."
+
+# --- Tag and publish ---
 echo "Creating tag ${TAG}..."
 git tag -a "$TAG" -m "Release ${VERSION}"
 git push origin "$TAG"
 
 echo "Uploading release..."
 gh release create "$TAG" \
-    "$BUILD_DIR/$ZIP_NAME" \
+    "$BUILD_DIR/$ZIP_NAME" "$BUILD_DIR/$SIG_NAME" \
     --title "${APP_NAME} ${VERSION}" \
     --notes "$NOTES"
 

@@ -111,10 +111,11 @@ written, without a trailing dot, lowercased); ForceIP fails a dial whose lookup 
 A name can resolve to a CDN's shared edge, so for a server given by name the wrapper's rule needs
 xray's process path as well as the address (a `logical` and) — other sites on that edge stay in
 the tunnel, and if macOS stops serving root the socket list such a server loops rather than
-leaks (owner, 2026-10-15). The address is read from `vnext` (vless, vmess), `servers` (trojan,
+leaks (owner, 2026-10-15). The price: while such a server is connected, sing-box looks up the
+owner of every TUN connection, from a socket list it caches for 200 ms. The address is read from `vnext` (vless, vmess), `servers` (trojan,
 shadowsocks, socks) or flat in `settings`, and a config without one is refused. Every xray config
 — built from a link, taken from a panel's `?format=xray`, pasted, or stored by an earlier build
-(moved at load) — runs in the app's frame: one socks inbound on 10808, the proxy, a freedom
+(moved at every load; 500 servers load in 20–34 ms with it, measured 2026-10-15) — runs in the app's frame: one socks inbound on 10808, the proxy, a freedom
 outbound it dials through if it names one (`sockopt.dialerProxy`; a `proxySettings` dialer is
 rewritten into one, since xray hands that dial to the sibling by name, past the pin), a freedom
 `direct`, no routing rules, which would send "direct" traffic back through the TUN. A session
@@ -134,7 +135,7 @@ real bundle with `Info.plist`.
 
 1. `./fetch-binaries.sh` once, to populate `Binaries/`.
 2. `WarpVeil.xcodeproj` → Cmd+R.
-3. `./release.sh` for a signed + notarized build (`NOTARY_PROFILE` required for notarization).
+3. `./release.sh` to publish a release — see below.
 4. `./install.sh` to build Release without Xcode and replace `/Applications/WarpVeil.app`.
 
 ### dev-run.sh
@@ -184,6 +185,30 @@ build.
 
 Callable from anywhere via `ln -sf "$PWD/install.sh" ~/.local/bin/warpveil-install`; the script
 resolves its own path with `readlink -f`.
+
+### release.sh
+
+Publishes a release. A tag names exactly what was built, once, so before building it refuses
+uncommitted tracked changes, an existing tag (local or on origin) or GitHub release for the
+version, a version not newer than the latest `v*` tag (`sort -V`), a `CHANGELOG.md` with no
+`## <version>` section, and a signing key that is missing or not the pair of `Info.plist`'s
+`WVUpdatePublicKey`. Any answer from `gh` but "release not found" is refused too: an outage must
+not read as "no release". Then: the Release build, codesign (Developer ID and, with
+`NOTARY_PROFILE`, notarization when the keychain has an identity; ad-hoc otherwise), the `ditto`
+zip and its `.sig`, the notes (the changelog section, then a stranger's install steps), `git tag`
+and push, and `gh release create` with both assets. A failure after the tag was pushed leaves a
+tag with no release: remove it (`git push origin :refs/tags/vX && git tag -d vX`) and run again.
+A release is cut by bumping `CFBundleShortVersionString` and `CFBundleVersion`, writing the
+changelog section, committing, then running the script.
+
+The release key signs every release zip, so an installed copy can tell the zip came from here.
+Its private half is `~/.config/warpveil/release-signing.key` — 0600, one line, the base64 32-byte
+ed25519 seed — on the owner's machine only and backed up by the owner: without it no installed
+copy can verify an update again, and the way out is a new pair plus one install by hand of the
+next release everywhere. A leaked key is the same: there is no revocation. Its public half is
+`WVUpdatePublicKey` in `Info.plist`. Rotation: put the new public key into `Info.plist` and sign
+that one release with the old key. LibreSSL's `openssl` has no ed25519, so the script signs
+through `swift -` with CryptoKit.
 
 ---
 
@@ -309,7 +334,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
   release, which meets that default exactly — a server that raises it needs a newer xray, which
   runs as the user. Feeds are read as links, then as `?format=xray`; a pasted sing-box JSON is
   refused. A sing-box config an earlier build stored stays listed and is refused at connect,
-  which is why `Engine` keeps its sing-box case. xray's own TUN, which would retire sing-box, sets
+  which is why `Engine` keeps its sing-box case. Its link added again: a manual row does not count
+  as a duplicate, so the link gets an xray twin and the old row is removed by hand; a feed's row
+  does — the feed's next refresh rebuilds it (owner, 2026-10-15). xray's own TUN, which would retire sing-box, sets
   no routes on macOS before Xray 26.7.11, and every release since is a prerelease
 - **Ping is a user-space measurement**: `PingService` runs a user-space xray with a socks inbound
   per server, chained into a user-space sing-box as socks outbounds behind
@@ -350,6 +377,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
   engine runs (directory 0700), removed when its shell ends
 - `~/.config/warpveil/subscriptions.json` — subscriptions, shared across all builds; written with
   sorted keys, so a load that changes nothing writes nothing
+- `~/.config/warpveil/release-signing.key` — the release key's private half, 0600, the owner's
+  machine only
 
 ## Gotchas
 

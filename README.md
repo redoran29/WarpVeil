@@ -44,15 +44,16 @@ Quit from the app menu or from the menu-bar icon.
 
 ## Release
 
+Bump `CFBundleShortVersionString` and `CFBundleVersion` in `Info.plist`, add a `## <version>` section to `CHANGELOG.md`, commit, then:
+
 ```bash
-NOTARY_PROFILE=NOTARY_PROFILE ./release.sh
+./release.sh                                 # ad-hoc signed
+NOTARY_PROFILE=NOTARY_PROFILE ./release.sh   # with a Developer ID in the keychain: signed and notarized
 ```
 
-Builds Release, signs `xray`/`sing-box` and the `.app` with Developer ID, notarizes via `notarytool`, staples, packages a `.zip`, then creates a GitHub Release. If no Developer ID identity is found, signs ad-hoc and skips notarization.
+Before building it refuses uncommitted changes, an existing tag or release, a version that is not newer than the latest tag, a missing changelog section, and a signing key that is missing or does not match `WVUpdatePublicKey` in `Info.plist`. Then it builds Release, signs `xray`/`sing-box` and the `.app`, packages the `.zip`, signs it with the release key (`~/.config/warpveil/release-signing.key`, see `CLAUDE.md`), tags, and creates the GitHub release with the zip, its `.sig` and the changelog section as notes.
 
 One-time notary setup: `xcrun notarytool store-credentials NOTARY_PROFILE --apple-id <id> --team-id <team> --password <app-specific-password>`.
-
-To bump version, edit `CFBundleShortVersionString` in `Info.plist`.
 
 ## Architecture
 
