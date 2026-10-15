@@ -521,7 +521,9 @@ final class ProcessManager {
                 }
                 xrayConfig = BypassService.pinXrayServer(config, host: serverHost, addresses: addresses)
             }
-            writeConfigs(xray: xrayConfig, serverAddresses: addresses, dialerPath: isName ? xrayPath : nil,
+            // The kernel reports the executable's real path, symlinks resolved.
+            let dialerPath = isName ? URL(fileURLWithPath: xrayPath).resolvingSymlinksInPath().path : nil
+            writeConfigs(xray: xrayConfig, serverAddresses: addresses, dialerPath: dialerPath,
                          bypassDomains: bypassDomains, hostHasIPv6: hostHasIPv6)
             // The wrapper sends everything to xray's port, so it starts once xray listens.
             let started = await startXray(binaryPath: xrayPath, configFile: xrayConfigFile, log: engineLog)
