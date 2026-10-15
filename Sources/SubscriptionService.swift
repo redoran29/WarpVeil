@@ -498,21 +498,22 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         "vless", "vmess", "trojan", "shadowsocks"
     ]
 
-    // A panel serves one config with every server as an outbound, or a list of full configs,
-    // one server each, named in `remarks`.
+    // A panel serves one config with every server as an outbound, or a list of full configs.
     private func parseXray(_ json: String) -> [Server] {
         guard let data = json.data(using: .utf8),
               let parsed = try? JSONSerialization.jsonObject(with: data) else { return [] }
-        if let configs = parsed as? [[String: Any]] {
-            return configs.flatMap { servers(in: $0, remarks: $0["remarks"] as? String) }
-        }
-        return (parsed as? [String: Any]).map { servers(in: $0, remarks: nil) } ?? []
+        let configs = parsed as? [[String: Any]] ?? (parsed as? [String: Any]).map { [$0] } ?? []
+        return configs.flatMap(servers(in:))
     }
 
-    private func servers(in root: [String: Any], remarks: String?) -> [Server] {
+    // A config's `remarks` names its server only when it holds one; with several, each takes
+    // its outbound's tag.
+    private func servers(in root: [String: Any]) -> [Server] {
         let outbounds = root["outbounds"] as? [[String: Any]] ?? []
-        return outbounds.compactMap { outbound in
-            guard let proto = outbound["protocol"] as? String, Self.vpnTypesXray.contains(proto),
+        let proxies = outbounds.filter { ($0["protocol"] as? String).map(Self.vpnTypesXray.contains) == true }
+        let remarks = proxies.count == 1 ? root["remarks"] as? String : nil
+        return proxies.compactMap { outbound in
+            guard let proto = outbound["protocol"] as? String,
                   let endpoint = BypassService.serverEndpoint(outbound),
                   let host = endpoint["address"] as? String else { return nil }
             let port = endpoint["port"] as? Int ?? 0
