@@ -39,6 +39,8 @@ final class PingService {
     private static let passes = 3
     private static let readinessAttempts = 100
     private static let readinessInterval = Duration.milliseconds(30)
+    private static let testTimeout = Duration.seconds(10)
+    private static let xrayRefusedStatus: Int32 = 23
 
     private let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
@@ -93,7 +95,7 @@ final class PingService {
             }
             let xrayPorts = Dictionary(zip(servers.map(\.id), ports.dropFirst()),
                                        uniquingKeysWith: { first, _ in first })
-            let tags = await launchXray(servers, ports: xrayPorts, interface: Self.primaryInterface())
+            let tags = try await launchXray(servers, ports: xrayPorts, interface: Self.primaryInterface())
             guard !tags.isEmpty, !Task.isCancelled else { return }
             let measured = try await launchSingBox(tags, xrayPorts: xrayPorts, apiPort: apiPort)
             guard !Task.isCancelled else { return }
@@ -176,13 +178,16 @@ final class PingService {
 
     // MARK: - Engines
 
-    private func launch(_ path: String, _ arguments: [String]) throws -> (Process, Pipe) {
+    private func launch(
+        _ path: String, _ arguments: [String], onExit: (@Sendable (Process) -> Void)? = nil
+    ) throws -> (Process, Pipe) {
         let process = Process()
         let output = Pipe()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
         process.standardOutput = output
         process.standardError = output
+        process.terminationHandler = onExit
         try process.run()
         engines.append(process)
         return (process, output)
@@ -190,116 +195,119 @@ final class PingService {
 
     // The tags whose socks inbound is up. One server xray refuses at config load takes a merged
     // config down with it: when the merge exits, each server is checked alone with `xray run
-    // -test`, and the refused ones are marked failed and named in `error`. The rest run merged once
-    // more — after a slow start or a port taken in the meantime as well, which no test would show.
-    private func launchXray(_ servers: [Server], ports: [String: UInt16], interface: String?) async -> [String] {
-        guard let xray = ProcessManager.findBinary("xray") else {
-            error = "xray is not bundled"
-            return []
-        }
-        guard let merged = startXray(xray, servers, ports: ports, interface: interface, name: "xray") else { return [] }
-        if let tags = await awaitXray(merged) { return tags }
-        let exited = !merged.process.isRunning
-        await stop(merged)
-        guard !Task.isCancelled else { return [] }
-        let refused = exited ? await refusedServers(xray, servers, ports: ports, interface: interface) : []
-        guard !Task.isCancelled else { return [] }
-        var tags: [String] = []
-        if let retry = startXray(xray, servers.filter { !refused.contains($0.id) }, ports: ports,
-                                 interface: interface, name: "xray") {
-            tags = await awaitXray(retry) ?? []
-        }
-        guard !Task.isCancelled else { return [] }
-        let named = servers.filter { refused.contains($0.id) }
-        if !named.isEmpty {
-            named.forEach { results[$0.id] = .failed }
-            error = "xray refused \(named.map(\.name).joined(separator: ", "))"
-        }
-        return tags
-    }
-
-    // The IDs of the servers whose config alone xray will not load.
-    private func refusedServers(
-        _ xray: String, _ servers: [Server], ports: [String: UInt16], interface: String?
-    ) async -> Set<String> {
-        await withTaskGroup(of: String?.self) { group in
-            for (index, server) in servers.enumerated() {
-                let (config, _) = Self.xrayConfig([server], ports: ports, interface: interface)
-                let file = write(config, name: "xray-test-\(index)")
-                group.addTask { await Self.loads(xray, file) ? nil : server.id }
-            }
-            var refused: Set<String> = []
-            for await id in group {
-                if let id { refused.insert(id) }
-            }
-            return refused
-        }
-    }
-
-    // `xray run -test` loads a config and exits; waited for without holding a thread.
-    private nonisolated static func loads(_ xray: String, _ file: String) async -> Bool {
-        await withCheckedContinuation { continuation in
-            let test = Process()
-            test.executableURL = URL(fileURLWithPath: xray)
-            test.arguments = ["run", "-test", "-config", file]
-            test.standardOutput = FileHandle.nullDevice
-            test.standardError = FileHandle.nullDevice
-            test.terminationHandler = { continuation.resume(returning: $0.terminationStatus == 0) }
-            do {
-                try test.run()
-            } catch {
-                continuation.resume(returning: false)
+    // -test`, and the refused ones are marked failed and named. The rest run merged once more —
+    // after a slow start or a port taken in the meantime as well, which no test would show — with
+    // a longer wait, since a start that was slow is as slow the second time. `error` is set once,
+    // from how the run ended: an attempt reports, it does not write.
+    private func launchXray(_ servers: [Server], ports: [String: UInt16], interface: String?) async throws -> [String] {
+        guard let xray = ProcessManager.findBinary("xray") else { throw PingError("xray is not bundled") }
+        let first = try await runXray(xray, servers, ports: ports, interface: interface, attempts: Self.readinessAttempts)
+        guard case .failed(_, let exited) = first else { return first.tags }
+        let refused = exited ? await refusals(xray, servers, ports: ports, interface: interface) : [:]
+        try Task.checkCancellation()
+        let rest = servers.filter { refused[$0.id] == nil }
+        let retry = rest.isEmpty
+            ? nil
+            : try await runXray(xray, rest, ports: ports, interface: interface, attempts: 3 * Self.readinessAttempts)
+        // A feed's servers tend to fail alike — a transport this xray lacks — so one line per reason.
+        var refusedByReason: [(reason: String, names: [String])] = []
+        for server in servers {
+            guard let reason = refused[server.id] else { continue }
+            results[server.id] = .failed
+            if let index = refusedByReason.firstIndex(where: { $0.reason == reason }) {
+                refusedByReason[index].names.append(server.name)
+            } else {
+                refusedByReason.append((reason, [server.name]))
             }
         }
+        var problems = refusedByReason.map { "xray refused \($0.names.joined(separator: ", ")): \($0.reason)" }
+        if case .failed(let reason, _)? = retry { problems.append(reason) }
+        error = problems.isEmpty ? nil : problems.joined(separator: "; ")
+        return retry?.tags ?? []
     }
 
-    // A launch that never got ready has to let go of its ports before the retry binds them.
-    private func stop(_ launch: XrayLaunch) async {
-        launch.process.terminate()
-        for _ in 0..<Self.readinessAttempts where launch.process.isRunning {
-            try? await Task.sleep(for: Self.readinessInterval)
+    // How a merged xray's start ended. Nothing is left running unless it is ready.
+    private enum XrayStart {
+        case ready([String])
+        case failed(String, exited: Bool)
+
+        var tags: [String] {
+            guard case .ready(let tags) = self else { return [] }
+            return tags
         }
-    }
-
-    private struct XrayLaunch {
-        let process: Process
-        let output: Pipe
-        let tags: [String]
-        let ports: [UInt16]
-    }
-
-    private func startXray(
-        _ xray: String, _ servers: [Server], ports: [String: UInt16], interface: String?, name: String
-    ) -> XrayLaunch? {
-        let (config, tags) = Self.xrayConfig(servers, ports: ports, interface: interface)
-        let listeningPorts = tags.compactMap { ports[$0] }
-        guard !listeningPorts.isEmpty else { return nil }
-        let file = write(config, name: name)
-        guard let (process, output) = try? launch(xray, ["run", "-config", file]) else {
-            error = "xray did not launch"
-            return nil
-        }
-        return XrayLaunch(process: process, output: output, tags: tags, ports: listeningPorts)
     }
 
     // Readiness is every socks inbound accepting a connection, not a log line: a log line is
     // upstream's wording, and waiting for one that never comes hangs the whole service. Every
     // inbound, because xray starts tagged inbounds in map order — the first one listed is not
     // the first one up, and a delay test against a port nobody listens on fails in 14 ms.
-    private func awaitXray(_ launch: XrayLaunch) async -> [String]? {
-        for _ in 0..<Self.readinessAttempts {
-            guard (try? await Task.sleep(for: Self.readinessInterval)) != nil else { return nil }
-            guard launch.process.isRunning else {
-                error = "xray: \(Self.lastLine(of: readAll(launch.output)))"
-                return nil
+    private func runXray(
+        _ xray: String, _ servers: [Server], ports: [String: UInt16], interface: String?, attempts: Int
+    ) async throws -> XrayStart {
+        let (config, tags) = Self.xrayConfig(servers, ports: ports, interface: interface)
+        let listeningPorts = tags.compactMap { ports[$0] }
+        guard !listeningPorts.isEmpty else { return .ready([]) }
+        let file = write(config, name: "xray")
+        guard let (process, output) = try? launch(xray, ["run", "-config", file]) else {
+            return .failed("xray did not launch", exited: false)
+        }
+        for _ in 0..<attempts {
+            try await Task.sleep(for: Self.readinessInterval)
+            guard process.isRunning else {
+                return .failed("xray: \(Self.cause(of: readAll(output)))", exited: true)
             }
-            if launch.ports.allSatisfy(Self.isListening) {
-                drainInBackground(launch.output)
-                return launch.tags
+            if listeningPorts.allSatisfy(Self.isListening) {
+                drainInBackground(output)
+                return .ready(tags)
             }
         }
-        error = "xray did not start"
-        return nil
+        // A launch that never got ready has to let go of its ports before the retry binds them.
+        process.terminate()
+        for _ in 0..<Self.readinessAttempts where process.isRunning {
+            try await Task.sleep(for: Self.readinessInterval)
+        }
+        return .failed("xray did not start", exited: false)
+    }
+
+    // Why xray will not load each server's config alone, by server ID. As many tests at a time as
+    // delay tests: each is a Go process of its own.
+    private func refusals(
+        _ xray: String, _ servers: [Server], ports: [String: UInt16], interface: String?
+    ) async -> [String: String] {
+        var pending = servers.enumerated().map { index, server in
+            (server.id, write(Self.xrayConfig([server], ports: ports, interface: interface).0, name: "xray-test-\(index)"))
+        }[...]
+        var refused: [String: String] = [:]
+        await withTaskGroup(of: (String, String?).self) { group in
+            func addNext() {
+                guard !Task.isCancelled, let (id, file) = pending.popFirst() else { return }
+                group.addTask { (id, await self.refusal(xray, file)) }
+            }
+            for _ in 0..<Self.concurrency { addNext() }
+            for await (id, reason) in group {
+                if let reason { refused[id] = reason }
+                addNext()
+            }
+        }
+        return refused
+    }
+
+    // `xray run -test` loads a config and exits, with 23 when it will not. A test that says
+    // nothing about the config — it did not launch, was cancelled or hung — blames no one. It
+    // runs with the engines, so a cancel kills it.
+    private func refusal(_ xray: String, _ file: String) async -> String? {
+        let (exits, exit) = AsyncStream.makeStream(of: Never.self)
+        guard let (test, output) = try? launch(xray, ["run", "-test", "-config", file], onExit: { _ in exit.finish() })
+        else { return nil }
+        let watchdog = Task {
+            try await Task.sleep(for: Self.testTimeout)
+            test.terminate()
+        }
+        for await _ in exits {}
+        watchdog.cancel()
+        guard !test.isRunning, test.terminationReason == .exit, test.terminationStatus == Self.xrayRefusedStatus
+        else { return nil }
+        return Self.cause(of: readAll(output))
     }
 
     // Returns the tags actually in the config. sing-box prints nothing at the warn level, so
@@ -446,6 +454,12 @@ final class PingService {
         let plain = text.replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression)
         let lines = plain.split(separator: "\n").map(String.init).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         return lines.last ?? "exited without a message"
+    }
+
+    // xray chains an error's context with " > ", the cause last: `failed to load config files:
+    // [<path>] > … > invalid "password"`. Another wording leaves the whole line.
+    private static func cause(of text: String) -> String {
+        lastLine(of: text).components(separatedBy: " > ").last ?? ""
     }
 
     // A TCP connect to loopback answers at once: refused until the port is bound.

@@ -317,9 +317,13 @@ Write the simplest code that works. Prioritize readability over cleverness.
   server. No sudo, no TUN. A server's freedom dialers come along under per-server tags, so the
   probe goes the way the connection does. A server xray refuses at config load would take the
   merged xray down with every row, so when the merge exits each server's config is checked alone
-  with `xray run -test`, the refused ones show as failed and are named, and the merge runs once
-  more without them — after a slow start or a taken port too. Every tag is measured in three passes over the same engines and the
-  minimum is reported: the first request through a
+  with `xray run -test`, ten at a time. Refused is exit 23, xray's code for a config it will not
+  load; a test that cannot launch, is cancelled or runs past 10 s blames no one. The refused
+  ones show as failed and are named with xray's reason, and the merge runs once more without
+  them, with three times the wait — after a slow start or a taken port too. The error is set
+  once, from how the run ended: an attempt that wrote its own kept going stale under the retry.
+  Every tag is measured in three passes over the same engines and the minimum is reported: the
+  first request through a
   proxy carries its REALITY/TLS handshake, which puts every server at the same ~800 ms and hides
   the real differences. Passes over all tags, not three requests in a row on one tag — that shape
   was built and measured worse: only the sing-box rows warmed up, the xray rows stayed at ~700 ms
