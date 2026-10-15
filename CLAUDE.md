@@ -355,7 +355,7 @@ Write the simplest code that works. Prioritize readability over cleverness.
   engines are down the bundle is staged as `.WarpVeil.app.new` next to the running one, wherever
   that is, so an app quit during the wait leaves nothing there. A `/bin/sh` helper spawned before
   `NSApp.terminate` waits for the app to exit, moves the old bundle aside and the new one in (or
-  the old one back), removes the old one only once an app is in place, and `open -n`s it.
+  the old one back), removes the other copies only once an app is in place, and `open -n`s it.
   Nothing runs as root, and a download by the app carries no quarantine. No ETag: a 304 counts
   against GitHub's 60 requests an hour as well. Engine upgrades still ship with the app: bump the
   pinned tags in `fetch-binaries.sh` and cut a release
