@@ -907,8 +907,11 @@ final class ProcessManager {
         logHandle = nil
     }
 
+    // Decoded with replacement: an engine can log raw bytes — a sniffed name — and one invalid
+    // byte must not drop the whole chunk, the engine shell's start line with it.
     private func appendLog(_ data: Data) {
-        guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+        guard !data.isEmpty else { return }
+        let text = String(decoding: data, as: UTF8.self)
         let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
         if isRunning, lines.contains(where: { $0.hasPrefix(Self.engineStartedMarker) }) { isTunnelUp = true }
         logs.append(contentsOf: lines)
