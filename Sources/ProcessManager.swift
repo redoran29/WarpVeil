@@ -474,6 +474,7 @@ final class ProcessManager {
     // a click, a wake or a routing edit — would outlive the check that the engines stopped, under
     // a tag the new version cannot stop.
     var isHeldForUpdate = false
+    static let updateHoldMessage = "[An update is installing — connect after it]"
 
     func connect(config: String, xrayPath: String, singBoxPath: String, bypassDomains: [String] = []) {
         guard !isRunning else { return }
@@ -483,7 +484,7 @@ final class ProcessManager {
         reconnectTask = nil
         // After the pending restart is dropped, so a refused one is not left for a wake to take up.
         guard !isHeldForUpdate else {
-            logs.append("[An update is installing — connect after it]")
+            logs.append(Self.updateHoldMessage)
             return
         }
         // An xray still exiting holds the port the next one needs.
