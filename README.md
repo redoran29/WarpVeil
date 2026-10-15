@@ -38,7 +38,7 @@ The app is not notarized by Apple, so the first launch is blocked with a dialog 
 Or from Terminal, with no dialog — a `curl` download carries no quarantine (the release page has the exact URL). Quit WarpVeil first if an older version runs; the command replaces it only once the download succeeded:
 
 ```bash
-D=$(mktemp -d) && curl -fL -o "$D/WarpVeil.zip" https://github.com/redoran29/WarpVeil/releases/download/v<version>/WarpVeil-<version>-macOS.zip && rm -rf /Applications/WarpVeil.app && ditto -x -k "$D/WarpVeil.zip" /Applications && open /Applications/WarpVeil.app
+D=$(mktemp -d) && curl -fL -o "$D/WarpVeil.zip" https://github.com/redoran29/WarpVeil/releases/download/v<version>/WarpVeil-<version>-macOS.zip && rm -rf /Applications/WarpVeil.app && ditto -x -k "$D/WarpVeil.zip" /Applications && rm -rf "$D" && open /Applications/WarpVeil.app
 ```
 
 Later releases install themselves: Advanced → Updates in the window, or "Update to …" in the menu-bar menu. Quit from the app menu or from the menu-bar icon.
