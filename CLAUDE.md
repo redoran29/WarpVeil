@@ -277,9 +277,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - **JSONSerialization, not Codable**: bypass injection rewrites arbitrary user configs and needs untyped JSON
 - **Bundled binaries only**: `ProcessManager.findBinary` resolves engines from `Bundle.main.resourcePath` and nowhere else — Homebrew, MacPorts and `$PATH` are ignored. The bundle is what xray, the ping and the non-passwordless path run; the passwordless `run.sh` runs the root-owned copy made from it at install
 - **Binary upgrades ship with the app**: no in-app updater; bump the pinned tags in `fetch-binaries.sh` and cut a release
-- **No routing modes** (owner, 2026-10-15): Global and Rule are the bypass toggle off and on,
-  and Direct is a disconnect. The production engine gets a Clash API only with the active
-  connections page, the one feature that needs it
+- **No routing modes, no Clash API in the tunnel** (owner, 2026-10-15): Global and Rule are the
+  bypass toggle off and on, and Direct is a disconnect. An active connections page was the one
+  other user of a production Clash API and was dropped too — debugging goes through Logs
 - **Ping is a user-space measurement**: `PingService` runs the bundled sing-box with every server
   as an outbound behind `experimental.clash_api` on a free localhost port and asks
   `/proxies/<Server.id>/delay` per server; xray servers run behind a user-space xray with a socks
