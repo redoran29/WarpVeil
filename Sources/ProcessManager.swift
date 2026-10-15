@@ -432,10 +432,7 @@ final class ProcessManager {
 
     // MARK: - Connect / Disconnect
 
-    func connect(
-        config: String, xrayPath: String, singBoxPath: String,
-        bypassDomains: [String] = [], resolvedAddresses: [String]? = nil
-    ) {
+    func connect(config: String, xrayPath: String, singBoxPath: String, bypassDomains: [String] = []) {
         guard !isRunning else { return }
         // A connect supersedes a pending restart: left alone it would connect a second time,
         // and without passwordless ask for the password again.
@@ -453,8 +450,7 @@ final class ProcessManager {
                     try? await Task.sleep(for: .milliseconds(100))
                 }
                 guard !Task.isCancelled else { return }
-                connect(config: config, xrayPath: xrayPath, singBoxPath: singBoxPath,
-                        bypassDomains: bypassDomains, resolvedAddresses: resolvedAddresses)
+                connect(config: config, xrayPath: xrayPath, singBoxPath: singBoxPath, bypassDomains: bypassDomains)
             }
             return
         }
@@ -462,49 +458,18 @@ final class ProcessManager {
             logs.append("[Error: no config provided]")
             return
         }
-        guard FileManager.default.isExecutableFile(atPath: xrayPath) else {
-            logs.append("[Error: binary not found at \(xrayPath)]")
+        for binary in [xrayPath, singBoxPath] where !FileManager.default.isExecutableFile(atPath: binary) {
+            logs.append("[Error: binary not found at \(binary)]")
             return
         }
-
-        // xray dials its server by name while the wrapper routes that dial by address, so a
-        // name is resolved here, once, and both engines get the same addresses. getaddrinfo
-        // blocks, so the connect parks itself like the stop wait above and re-enters with the
-        // answer; a restart re-enters without one and resolves again, on the network it has.
-        let serverHost = BypassService.xrayServerHost(config)
-        let serverName = serverHost.flatMap { IPv4Address($0) == nil && IPv6Address($0) == nil ? $0 : nil }
-        if let name = serverName, resolvedAddresses == nil {
-            logs.append("[Resolving \(name)...]")
-            reconnectTask = Task {
-                let addresses = await Task.detached { BypassService.resolveAddresses(of: name) }.value
-                guard !Task.isCancelled else { return }
-                reconnectTask = nil
-                guard !addresses.isEmpty else {
-                    logs.append("[Error: \(name) does not resolve]")
-                    return
-                }
-                connect(config: config, xrayPath: xrayPath, singBoxPath: singBoxPath,
-                        bypassDomains: bypassDomains, resolvedAddresses: addresses)
-            }
+        // Without the server's address the wrapper has no rule for xray's own dial, which would
+        // loop back through the TUN with nothing in Logs.
+        guard let serverHost = BypassService.xrayServerHost(config) else {
+            logs.append("[Error: the server's address is not in its config]")
             return
         }
-        let serverAddresses = resolvedAddresses ?? serverHost.map { [$0] } ?? []
 
         lastConnection = (config, xrayPath, singBoxPath, bypassDomains)
-
-        let xrayConfig = serverName.map { BypassService.pinXrayServer(config, host: $0, addresses: serverAddresses) } ?? config
-        FileManager.default.createFile(atPath: xrayConfigFile, contents: xrayConfig.data(using: .utf8),
-                                        attributes: [.posixPermissions: 0o600])
-
-        // The wrapper is the only sing-box, so the bypass rule and the host's IP families go
-        // there: xray gets IP destinations over SOCKS and never sees a domain.
-        let hostHasIPv6 = hostIPv6State() ?? true
-        tunHasIPv6 = hostHasIPv6
-        let wrapper = BypassService.injectSingBox(Self.buildTunWrapperConfig(serverAddresses: serverAddresses),
-                                                  domains: bypassDomains)
-        FileManager.default.createFile(atPath: singboxConfigFile,
-                                        contents: BypassService.fitTunToHost(wrapper, hostHasIPv6: hostHasIPv6).data(using: .utf8),
-                                        attributes: [.posixPermissions: 0o600])
 
         if !bypassDomains.isEmpty {
             logs.append("[Bypass] \(bypassDomains.count) domain(s) will route direct")
@@ -527,12 +492,27 @@ final class ProcessManager {
         startLogTail()
 
         // The session starts here, before any engine is up, so disconnect, restart, wake and
-        // quit see it and a second connect is refused.
+        // quit see it and a second connect is refused. The start waits in reconnectTask; whoever
+        // cancels it — disconnect, restart, wake — tears the session down itself, so a cancelled
+        // start touches nothing.
         isRunning = true
-        // The wrapper sends everything to xray's port, so it starts once xray listens. The start
-        // waits in reconnectTask; whoever cancels it — disconnect, restart, wake — tears the
-        // session down itself, so a cancelled start touches nothing.
         reconnectTask = Task {
+            // xray dials a server given by name while the wrapper routes that dial by address,
+            // so the name is resolved here and both engines get the same addresses.
+            var xrayConfig = config
+            var addresses = Self.ipLiteral(serverHost).map { [$0] } ?? []
+            if addresses.isEmpty {
+                addresses = await resolve(serverHost)
+                guard !Task.isCancelled else { return }
+                guard !addresses.isEmpty else {
+                    reconnectTask = nil
+                    abandonStart()
+                    return
+                }
+                xrayConfig = BypassService.pinXrayServer(config, host: serverHost, addresses: addresses)
+            }
+            writeConfigs(xray: xrayConfig, serverAddresses: addresses, bypassDomains: bypassDomains)
+            // The wrapper sends everything to xray's port, so it starts once xray listens.
             let started = await startXray(binaryPath: xrayPath, configFile: xrayConfigFile, log: engineLog)
             guard !Task.isCancelled else { return }
             reconnectTask = nil
@@ -542,6 +522,41 @@ final class ProcessManager {
             }
             startHelper(singBoxPath: singBoxPath, log: engineLog)
         }
+    }
+
+    // A wake or a network change restarts before the new network may answer, so a lookup that
+    // fails is retried for half a minute, as long as the session is not cancelled.
+    private func resolve(_ host: String) async -> [String] {
+        logs.append("[Resolving \(host)...]")
+        for _ in 0..<Self.lookupAttempts where !Task.isCancelled {
+            let addresses = await Task.detached { BypassService.resolveAddresses(of: host) }.value
+            if !addresses.isEmpty { return addresses }
+            try? await Task.sleep(for: .seconds(2))
+        }
+        if !Task.isCancelled { logs.append("[Error: \(host) does not resolve]") }
+        return []
+    }
+    private static let lookupAttempts = 15
+
+    // A link carries an IPv6 address in brackets; xray takes it either way, the wrapper's rule
+    // only bare.
+    private static func ipLiteral(_ host: String) -> String? {
+        let bare = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        return IPv4Address(bare) != nil || IPv6Address(bare) != nil ? bare : nil
+    }
+
+    // The wrapper is the only sing-box, so the bypass rule and the host's IP families go there:
+    // xray gets IP destinations over SOCKS and never sees a domain.
+    private func writeConfigs(xray: String, serverAddresses: [String], bypassDomains: [String]) {
+        FileManager.default.createFile(atPath: xrayConfigFile, contents: xray.data(using: .utf8),
+                                        attributes: [.posixPermissions: 0o600])
+        let hostHasIPv6 = hostIPv6State() ?? true
+        tunHasIPv6 = hostHasIPv6
+        let wrapper = BypassService.injectSingBox(Self.buildTunWrapperConfig(serverAddresses: serverAddresses),
+                                                  domains: bypassDomains)
+        FileManager.default.createFile(atPath: singboxConfigFile,
+                                        contents: BypassService.fitTunToHost(wrapper, hostHasIPv6: hostHasIPv6).data(using: .utf8),
+                                        attributes: [.posixPermissions: 0o600])
     }
 
     // A start that failed before the helper ran leaves no root engine to stop.
