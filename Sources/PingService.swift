@@ -189,31 +189,45 @@ final class PingService {
     }
 
     // The tags whose socks inbound is up. One server xray refuses at config load takes a merged
-    // config down with it, so a refused merge is retried with one xray per server; `error` keeps
-    // the reason the merge failed.
+    // config down with it, so a refused merge is retried with one xray per server, all started at
+    // once; the servers xray still refuses are marked failed and named in `error`.
     private func launchXray(_ servers: [Server], ports: [String: UInt16], interface: String?) async -> [String] {
         guard let xray = ProcessManager.findBinary("xray") else {
             error = "xray is not bundled"
             return []
         }
-        if let tags = await launchXray(xray, servers, ports: ports, interface: interface, name: "xray") {
+        if let merged = startXray(xray, servers, ports: ports, interface: interface, name: "xray"),
+           let tags = await awaitXray(merged) {
             return tags
         }
-        guard servers.count > 1 else { return [] }
-        var tags: [String] = []
-        for (index, server) in servers.enumerated() where !Task.isCancelled {
-            tags += await launchXray(xray, [server], ports: ports, interface: interface, name: "xray-\(index)") ?? []
+        guard servers.count > 1, !Task.isCancelled else { return [] }
+        let launches = servers.enumerated().map { index, server in
+            (server, startXray(xray, [server], ports: ports, interface: interface, name: "xray-\(index)"))
         }
+        var tags: [String] = []
+        var refused: [String] = []
+        for (server, launch) in launches {
+            if let launch, let up = await awaitXray(launch) {
+                tags += up
+            } else {
+                refused.append(server.name)
+                results[server.id] = .failed
+            }
+        }
+        error = refused.isEmpty ? nil : "xray refused \(refused.joined(separator: ", "))"
         return tags
     }
 
-    // Readiness is every socks inbound accepting a connection, not a log line: a log line is
-    // upstream's wording, and waiting for one that never comes hangs the whole service. Every
-    // inbound, because xray starts tagged inbounds in map order — the first one listed is not
-    // the first one up, and a delay test against a port nobody listens on fails in 14 ms.
-    private func launchXray(
+    private struct XrayLaunch {
+        let process: Process
+        let output: Pipe
+        let tags: [String]
+        let ports: [UInt16]
+    }
+
+    private func startXray(
         _ xray: String, _ servers: [Server], ports: [String: UInt16], interface: String?, name: String
-    ) async -> [String]? {
+    ) -> XrayLaunch? {
         let (config, tags) = Self.xrayConfig(servers, ports: ports, interface: interface)
         let listeningPorts = tags.compactMap { ports[$0] }
         guard !listeningPorts.isEmpty else { return nil }
@@ -222,17 +236,27 @@ final class PingService {
             error = "xray did not launch"
             return nil
         }
+        return XrayLaunch(process: process, output: output, tags: tags, ports: listeningPorts)
+    }
+
+    // Readiness is every socks inbound accepting a connection, not a log line: a log line is
+    // upstream's wording, and waiting for one that never comes hangs the whole service. Every
+    // inbound, because xray starts tagged inbounds in map order — the first one listed is not
+    // the first one up, and a delay test against a port nobody listens on fails in 14 ms.
+    private func awaitXray(_ launch: XrayLaunch) async -> [String]? {
         for _ in 0..<Self.readinessAttempts {
             guard (try? await Task.sleep(for: Self.readinessInterval)) != nil else { return nil }
-            guard process.isRunning else {
-                error = "xray: \(Self.lastLine(of: readAll(output)))"
+            guard launch.process.isRunning else {
+                error = "xray: \(Self.lastLine(of: readAll(launch.output)))"
                 return nil
             }
-            if listeningPorts.allSatisfy(Self.isListening) {
-                drainInBackground(output)
-                return tags
+            if launch.ports.allSatisfy(Self.isListening) {
+                drainInBackground(launch.output)
+                return launch.tags
             }
         }
+        // Still running but never ready: it must not keep the ports a retry is about to use.
+        launch.process.terminate()
         error = "xray did not start"
         return nil
     }
