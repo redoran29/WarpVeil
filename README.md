@@ -5,11 +5,11 @@ Lightweight macOS app for VPN connections: every server runs on **xray**, behind
 ## Features
 
 - **Menu bar status** — connection state and country flag, with connect/disconnect in its menu
-- **One-click connect/disconnect** with admin privileges
+- **One-click connect/disconnect** — the first connect of a version asks for your password once, to install the helper
 - **Subscription support** — add via URL (`vless://`, `vmess://`) or an xray JSON config
 - **Domain bypass** — route specific domains outside the VPN tunnel
 - **Auto-reconnect** after sleep/wake
-- **Passwordless mode** — optional sudoers setup to skip password prompts; root runs only its own copy of sing-box, on a config it checked
+- **A passwordless helper** — a sudoers entry for two root-owned scripts, so later connects ask nothing; root runs only its own copy of sing-box, on a config it checked
 - **Bundled engines** — `sing-box` and `xray` ship inside the app, no installation required
 - **Server ping** — real delay through each proxy, measured by the bundled engines in user space
 - **In-app updates** — checks GitHub releases daily and installs only a release signed with the project's key
@@ -19,7 +19,7 @@ Lightweight macOS app for VPN connections: every server runs on **xray**, behind
 
 | Servers | Routing | Advanced | Logs |
 |---------|---------|----------|------|
-| Servers grouped by subscription, with refresh and delete per subscription | Domain bypass | Auto-connect, passwordless, components | VPN log with copy and clear |
+| Servers grouped by subscription, with refresh and delete per subscription | Domain bypass | Auto-connect, the helper, components, updates | VPN log with copy and clear |
 
 The power button, uptime, traffic stats and location sit in the right-hand column on every page.
 
@@ -74,7 +74,7 @@ Sources/
 ├── ConnectionView.swift       # Power button, stats, location — the right column
 ├── ServersView.swift          # Servers grouped by subscription
 ├── RoutingView.swift          # Domain bypass
-├── AdvancedView.swift         # Auto-connect, passwordless, components
+├── AdvancedView.swift         # Auto-connect, the helper, components, updates
 ├── LogView.swift              # VPN log
 ├── ProcessManager.swift       # VPN process lifecycle, sudo, log tailing, sleep/wake
 ├── SubscriptionService.swift  # Subscription fetch, vless/vmess URI parsing

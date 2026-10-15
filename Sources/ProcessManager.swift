@@ -23,11 +23,6 @@ final class ProcessManager {
 
     private var helperProcess: Process?
     private var isStopping = false
-    // Without passwordless, what the root engine shell watches: its removal stops the engine. A
-    // passwordless session has none — a TERM to sudo reaches run.sh's trap instead.
-    private var sessionFile: String?
-    private static let sessionDirectory = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support/WarpVeil")
     private var xrayProcess: Process?
     private var logHandle: FileHandle?
     private var partialLogLine = Data()
@@ -74,7 +69,7 @@ final class ProcessManager {
     // xray's SOCKS inbound, which the TUN wrapper forwards everything to.
     nonisolated static let xraySocksPort: UInt16 = 10808
 
-    // Shared by run.sh, stop.sh and the osascript fallbacks. Kills only a process the PID file
+    // Shared by run.sh and stop.sh. Kills only a process the PID file
     // names whose executable is the given engine, then waits for it to be gone — up to 5 s — so
     // the next sing-box never races the old one for the TUN. A stale or foreign PID is dropped.
     // Returns non-zero, keeping the file, when the engine outlives the wait: with no pkill left
@@ -119,7 +114,7 @@ final class ProcessManager {
         ] | if length == 0 then "ok" else .[] end
         """
 
-    // Shared by run.sh and the osascript fallback. stage_config copies the config from stdin
+    // run.sh's. stage_config copies the config from stdin
     // into the stage directory, up to 4 MiB, and prints the copy's path — root never opens a
     // path a caller chose; check_config runs the policy on that copy. Both exit before any
     // engine is touched, so a refused connect leaves a running tunnel up. jq runs with an empty
@@ -151,32 +146,26 @@ final class ProcessManager {
         }
         """
 
-    // The engine start shared by run.sh (the root-owned copy, config on stdin) and the
-    // osascript fallback (the bundled binary, the app's file read as the user). PATH and
-    // HOME are pinned first: sudo passes the caller's through, and every name below would
-    // resolve against them as root. Then stage, check, and only then kill the previous engine.
-    // The EXIT trap removes the staged copy however the shell ends, and the PID file once it is
-    // ours, unless a newer run.sh already wrote its own.
+    // run.sh's body: the root-owned sing-box on the config that comes on stdin. PATH and HOME are
+    // pinned first: sudo passes the caller's through, and every name below would resolve against
+    // them as root. Then stage, check, and only then kill the previous engine. The EXIT trap
+    // removes the staged copies however the shell ends, and the PID file once it is ours, unless a
+    // newer run.sh already wrote its own.
     // The shell names the TUN itself, just before sing-box takes it — the first utun past every
     // one that exists, the way sing-box would pick one — and prints its start line once that
     // interface carries the address: a tunnel another build or client holds there is never ours.
-    // It also stops its own sing-box, so a disconnect needs no privileged stop: run.sh on the TERM
-    // sudo passes on when the app ends the helper, the osascript shell — which no signal from the
-    // app reaches — once the app's session file is gone. Root only tests that file for existence,
-    // and first of all: a shell whose session ended while its password dialog was up exits before
-    // it touches a PID file or a tunnel.
-    private static func engineShell(binary: String, configReader: String, sessionFile: String? = nil) -> String {
-        let sessionCheck = sessionFile.map {
-            "[[ -e \($0) ]] || { echo '[sing-box] not started: the session ended'; exit 0; }"
-        } ?? ""
-        let watch = sessionFile.map { "[[ -e \($0) ]] || cleanup\n    sleep 0.5" } ?? "[[ -z \"$UP\" ]] || break\n    sleep 0.1"
+    // It also stops its own sing-box on the TERM sudo passes on when the app ends the helper, so a
+    // disconnect needs no privileged stop. The trap is set before sing-box starts, so a TERM right
+    // after the start still stops it; it waits for sing-box, which exits on TERM — no SIGKILL, for
+    // kill_pid_file's reason.
+    private static let engineShell: String = {
+        let binary = "'\(rootSingBoxPath)'"
         return """
         export PATH=/usr/bin:/bin:/usr/sbin:/sbin
         export HOME=/var/empty
-        \(sessionCheck)
         \(configFunctions)
         \(killPidFileFunction)
-        CFG=$(\(configReader) | stage_config) || exit 1
+        CFG=$(stage_config) || exit 1
         NAMED=
         trap 'rm -f "$CFG" ${NAMED:+"$NAMED"}' EXIT
         check_config "$CFG"
@@ -188,9 +177,7 @@ final class ProcessManager {
         rm -f "$CFG"
         CFG=$NAMED
         [[ "$(ifconfig)" != *"inet \(tunAddress) "* ]] || echo '[warning] another tunnel already holds \(tunAddress)'
-        # Set before sing-box starts, so a TERM that lands right after the start still stops it:
-        # jobs -p names sing-box before VPN_PID does, and is empty, not unset, before the start.
-        # It waits for sing-box, which exits on TERM — no SIGKILL, for kill_pid_file's reason.
+        # jobs -p names sing-box from its start on, before VPN_PID does.
         cleanup() {
             echo '[stopping...]'
             local engine
@@ -207,24 +194,23 @@ final class ProcessManager {
         VPN_PID=$!
         echo $VPN_PID > \(singboxPidFile)
         trap 'rm -f "$CFG"; [[ "$(cat \(singboxPidFile) 2>/dev/null)" != "$VPN_PID" ]] || rm -f \(singboxPidFile)' EXIT
-        UP=
         while kill -0 $VPN_PID 2>/dev/null; do
-            if [[ -z "$UP" && "$(ifconfig "$TUN_NAME" 2>/dev/null)" == *"inet \(tunAddress) "* ]]; then
+            if [[ "$(ifconfig "$TUN_NAME" 2>/dev/null)" == *"inet \(tunAddress) "* ]]; then
                 echo "\(engineStartedMarker) pid=$VPN_PID"
-                UP=1
+                break
             fi
-            \(watch)
+            sleep 0.1
         done
         wait
         """
-    }
+    }()
 
     // run.sh: the config comes on stdin; the binary is the root-owned copy.
     private static let runShContent: String = """
         #!/bin/bash
         set -euo pipefail
         [[ $# -eq 0 ]] || { echo '[error] usage: run.sh < singbox_cfg'; exit 1; }
-        \(engineShell(binary: "'\(rootSingBoxPath)'", configReader: "cat"))
+        \(engineShell)
         """
 
     // stop.sh: reads the PID file and kills only our sing-box
@@ -271,16 +257,16 @@ final class ProcessManager {
         return root == bundle
     }
 
-    func installPasswordless() {
-        guard !isPasswordlessBusy else { return }
+    // The connect's install of the helper this version runs its engine through — the one password
+    // dialog the app shows, once per version, before anything of the session starts. True once the
+    // install reads as working.
+    private func installHelper() async -> Bool {
+        guard !isPasswordlessBusy else { return false }
         guard let bundledSingBox = Self.findBinary("sing-box") else {
             logs.append("[Error: bundled sing-box not found]")
-            return
+            return false
         }
         isPasswordlessBusy = true
-        // Optimistic: flip the toggle visually right away so the click feels responsive.
-        // terminationHandler reconciles with the real filesystem state.
-        isPasswordless = true
 
         let user = NSUserName()
         // Exact paths, no wildcards — this is the fix for the LPE
@@ -298,7 +284,7 @@ final class ProcessManager {
         } catch {
             logs.append("[Error: failed to write sudoers temp file: \(error.localizedDescription)]")
             passwordlessOperationFinished()
-            return
+            return false
         }
 
         do {
@@ -307,7 +293,7 @@ final class ProcessManager {
         } catch {
             logs.append("[Error: failed to write helper scripts: \(error.localizedDescription)]")
             passwordlessOperationFinished()
-            return
+            return false
         }
 
         // One osascript call. Every other build's entry goes first — an older run.sh with the
@@ -326,35 +312,27 @@ final class ProcessManager {
             rm -f \(Self.shellEscape(tmpSudoers))
             """
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(shellCmd)) with administrator privileges"]
-        process.terminationHandler = { [weak self] p in
-            let status = p.terminationStatus
-            Task { @MainActor in
-                guard let self else { return }
-                if status == 0 {
-                    self.logs.append("[Passwordless mode enabled]")
-                } else {
-                    self.logs.append("[Failed to enable passwordless mode]")
-                }
-                self.passwordlessOperationFinished()
+        let status: Int32 = await withCheckedContinuation { continuation in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(shellCmd)) with administrator privileges"]
+            process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(returning: -1)
             }
         }
-        do {
-            try process.run()
-        } catch {
-            logs.append("[Error: \(error.localizedDescription)]")
-            passwordlessOperationFinished()
-        }
+        passwordlessOperationFinished()
+        logs.append(isPasswordless ? "[Helper installed]" : "[The helper was not installed (exit \(status))]")
+        return isPasswordless
     }
 
     func removePasswordless() {
         guard !isPasswordlessBusy else { return }
         isPasswordlessBusy = true
-        isPasswordless = false
 
-        // Off means off for every build: the other tags' entries are the same hole.
+        // Every build's: the other tags' entries are the same hole.
         let shellCmd = "rm -f /etc/sudoers.d/warpveil* /etc/sudoers.d/vpnswift && rm -rf /usr/local/libexec/warpveil*"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
@@ -364,7 +342,7 @@ final class ProcessManager {
             Task { @MainActor in
                 guard let self else { return }
                 if status == 0 {
-                    self.logs.append("[Passwordless mode disabled]")
+                    self.logs.append("[Helper removed — the next connect installs it again]")
                 }
                 self.passwordlessOperationFinished()
             }
@@ -377,8 +355,8 @@ final class ProcessManager {
         }
     }
 
-    // Enabling passwordless in another build removes this one's install while it runs, so every
-    // privileged call re-reads it. Not during an install: the toggle is flipped optimistically.
+    // An install in another build removes this one's helper while it runs, so every connect
+    // re-reads it. Not while an install or a removal is under way.
     private func refreshPasswordless() {
         guard !isPasswordlessBusy else { return }
         isPasswordless = rootCopyMatches && Self.scriptsInstalled()
@@ -403,7 +381,7 @@ final class ProcessManager {
     init() {
         refreshPasswordless()
         if !isPasswordless, Self.otherInstallExists {
-            logs.append("[Passwordless install is from another build — turn Passwordless on again in Advanced]")
+            logs.append("[The helper is from another build — the next connect installs this one]")
         }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
@@ -542,7 +520,7 @@ final class ProcessManager {
         }
 
         refreshPasswordless()
-        logs.append(isPasswordless ? "[Connecting...]" : "[Connecting (password prompt)...]")
+        logs.append(isPasswordless ? "[Connecting...]" : "[Connecting — installing the helper (password prompt)...]")
 
         // 0600: other local users shouldn't read VPN logs. One append-mode handle for everything
         // that writes it — xray, the helper and its sing-box share one file offset, so their
@@ -567,6 +545,17 @@ final class ProcessManager {
         let hostHasIPv6 = hostIPv6State() ?? true
         tunHasIPv6 = hostHasIPv6
         reconnectTask = Task {
+            if !isPasswordless {
+                guard await installHelper() else {
+                    guard !Task.isCancelled else { return }
+                    reconnectTask = nil
+                    logs.append("[The helper is needed to connect — connect again to install it]")
+                    endSession()
+                    return
+                }
+                // A disconnect or a quit during the dialog: the session is over, whatever the answer.
+                guard !Task.isCancelled else { return }
+            }
             // xray dials a server given by name while the wrapper routes that dial by address,
             // so the name is resolved here and both engines get the same addresses.
             var xrayConfig = config
@@ -596,7 +585,7 @@ final class ProcessManager {
             // between the pick and sing-box taking the name.
             writeWrapperConfig(serverAddresses: addresses, dialerPath: isName ? Self.kernelPath(xrayPath) : nil,
                                bypassDomains: bypassDomains, hostHasIPv6: hostHasIPv6)
-            startHelper(singBoxPath: singBoxPath, log: engineLog)
+            startHelper(log: engineLog)
         }
     }
 
@@ -644,28 +633,21 @@ final class ProcessManager {
                                         attributes: [.posixPermissions: 0o600])
     }
 
-    private func startHelper(singBoxPath: String, log engineLog: FileHandle) {
+    private func startHelper(log engineLog: FileHandle) {
         // Re-read: the name lookup and xray's start lie between the connect and here, and another
-        // build's toggle may have removed the install meanwhile.
+        // build's install may have removed this one's meanwhile.
         refreshPasswordless()
-        let process = Process()
-        if isPasswordless {
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-            process.arguments = [Self.runScriptPath]
-            process.standardInput = FileHandle(forReadingAtPath: singboxConfigFile)
-            process.standardOutput = engineLog
-            process.standardError = engineLog
-        } else {
-            // Not in $TMPDIR: dirhelper deletes files there untouched for 3 days, and a stat by the
-            // root shell does not touch it — a session older than that would stop by itself.
-            let file = Self.sessionDirectory.appendingPathComponent("session-\(UUID().uuidString)").path
-            try? FileManager.default.createDirectory(at: Self.sessionDirectory, withIntermediateDirectories: true)
-            FileManager.default.createFile(atPath: file, contents: nil, attributes: [.posixPermissions: 0o600])
-            sessionFile = file
-            let cmd = buildNonPrivilegedShellCommand(singBoxPath: singBoxPath, configFile: singboxConfigFile, sessionFile: file)
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(cmd)) with administrator privileges"]
+        guard isPasswordless else {
+            logs.append("[Error: the helper was removed while connecting — connect again to install it]")
+            endSession()
+            return
         }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
+        process.arguments = [Self.runScriptPath]
+        process.standardInput = FileHandle(forReadingAtPath: singboxConfigFile)
+        process.standardOutput = engineLog
+        process.standardError = engineLog
 
         // A helper torn down by a restart can exit after its successor started; only the
         // current one speaks for the connection. xray no longer dies with the helper, so a
@@ -687,19 +669,6 @@ final class ProcessManager {
             logs.append("[Error: \(error.localizedDescription)]")
             endSession()
         }
-    }
-
-    // The non-passwordless path: the same engine shell, run by osascript as root with the
-    // bundled sing-box — the root-owned copy exists only in passwordless mode. The config is
-    // read by a cat running as the user, so a symlink swapped in for the app's file reaches
-    // nothing the user could not read. `>>`: xray is already writing the log through the app's
-    // append-mode handle.
-    private func buildNonPrivilegedShellCommand(singBoxPath: String, configFile: String, sessionFile: String) -> String {
-        let readAsUser = "/usr/bin/sudo -n -u '#\(getuid())' /bin/cat \(Self.shellEscape(configFile))"
-        return """
-        exec >> \(Self.shellEscape(logFile)) 2>&1
-        \(Self.engineShell(binary: Self.shellEscape(singBoxPath), configReader: readAsUser, sessionFile: Self.shellEscape(sessionFile)))
-        """
     }
 
     // xray is a SOCKS proxy on loopback and needs no root: it runs as the user, from the bundle.
@@ -882,37 +851,26 @@ final class ProcessManager {
         tearDownEngines()
     }
 
-    // The engine shell stops its own sing-box: run.sh on the TERM sudo passes on when the helper
-    // ends, the osascript shell once the session file is gone. The session ends when the helper
-    // exits, which it does only after its sing-box, so nothing is left running behind a window that
-    // reads Disconnected, and no password is asked. The osascript helper is left to exit by itself:
-    // killing it would not reach a root shell already running, and one still at its password
-    // dialog stays until the user answers — a shell that starts after the session ended finds no
-    // session file and touches nothing. A session still waiting for xray has no helper yet.
+    // run.sh stops its own sing-box on the TERM sudo passes on, and the session ends when the
+    // helper exits, which it does only after its sing-box — so nothing is left running behind a
+    // window that reads Disconnected, and no password is asked. A session still waiting for xray,
+    // or for the helper's install, has no helper yet.
     private func tearDownEngines() {
         guard let helper = helperProcess else {
             endSession()
             return
         }
-        guard !isStopping else { return }
         isStopping = true
-        if sessionFile == nil { helper.terminate() } else { removeSessionFile() }
+        helper.terminate()
     }
 
     private func endSession() {
         helperProcess?.terminate()
         helperProcess = nil
         xrayProcess?.terminate()
-        removeSessionFile()
         stopLogTail()
         isStopping = false
         isRunning = false
-    }
-
-    private func removeSessionFile() {
-        guard let sessionFile else { return }
-        try? FileManager.default.removeItem(atPath: sessionFile)
-        self.sessionFile = nil
     }
 
     // Quit, restart and an update need the session over before they go on. True once it ended and

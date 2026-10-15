@@ -62,9 +62,9 @@ Sources/
 ├── ConnectionView.swift       # Power button, status, stats, location — the right column
 ├── ServersView.swift          # Grouped Form, one section per subscription, add sheet
 ├── RoutingView.swift          # Domain bypass, grouped Form
-├── AdvancedView.swift         # Auto-connect, passwordless, components, grouped Form
+├── AdvancedView.swift         # Auto-connect, the helper's state, components, updates, grouped Form
 ├── LogView.swift              # VPN log with copy and clear, drawn as a grouped-Form card
-├── ProcessManager.swift       # VPN process lifecycle, sudo/passwordless, config policy, log tailing, sleep/wake
+├── ProcessManager.swift       # VPN process lifecycle, the passwordless helper, config policy, log tailing, sleep/wake
 ├── SubscriptionService.swift  # Subscription fetch, vless:// and vmess:// parsing, xray config building
 ├── SetupService.swift         # Bundled-binary detection & version reporting
 ├── LocationService.swift      # Public IP & geolocation via ipwho.is (HTTPS)
@@ -121,8 +121,8 @@ outbound it dials through if it names one (`sockopt.dialerProxy`; a `proxySettin
 rewritten into one, since xray hands that dial to the sibling by name, past the pin), a freedom
 `direct`, no routing rules, which would send "direct" traffic back through the TUN. A session
 counts as Connected (`ProcessManager.isTunnelUp`) once the engine shell's own `[sing-box]
-started` line has reached the log the app tails — not when the helper launches, which without
-passwordless is a password dialog. The shell names the TUN itself just before it starts sing-box
+started` line has reached the log the app tails — not when the helper launches, which at a
+version's first connect waits behind the install's password dialog. The shell names the TUN itself just before it starts sing-box
 — the first utun past every one that exists, the way sing-box would pick one, written into its
 staged config's `interface_name` — and prints the line only once that interface carries the
 TUN's address, 172.19.0.1, so a tunnel another build or client holds at that address is never
@@ -157,10 +157,9 @@ Isolation comes from overriding the bundle id (separate `UserDefaults` domain) a
 the version (`ProcessManager` derives its sudoers, libexec, PID and log paths from
 `CFBundleShortVersionString`). Not isolated: `~/.config/warpveil/subscriptions.json`; the
 TUN interface — only one build can hold a tunnel at a time; the second one's sing-box fails at
-the TUN, it does not take the tunnel over; and passwordless — enabling or disabling it in one
-build removes every other build's sudoers entry and libexec directory (they are the same hole),
-so the other copy's next connect goes through the password dialog and its toggle reads off until
-it is switched on again.
+the TUN, it does not take the tunnel over; and the passwordless helper — installing or removing
+it in one build removes every other build's sudoers entry and libexec directory (they are the
+same hole), so the other copy's next connect installs its own again, with a password dialog.
 
 `--watch` is a rebuild-and-relaunch loop, not hot reload: in-memory state resets on every
 change, `@AppStorage` survives. Each relaunch activates the app; the window comes back at its
@@ -191,8 +190,8 @@ sing-box is swept with `sudo stop.sh` of that tag when installed, else `sudo kil
 signalled only while its executable is one of our engines. An Xcode-launched copy of the same
 version shares those files and loses its tunnel too. Under the same version a stale PID file is
 dropped by `kill_pid_file` at the next connect; after a bump the old tag's PID file stays behind
-— the sudoers entry and libexec directory are removed by the next passwordless toggle in any
-build.
+— the sudoers entry and libexec directory are removed by the next install or removal of the
+helper in any build.
 
 Callable from anywhere via `ln -sf "$PWD/install.sh" ~/.local/bin/warpveil-install`; the script
 resolves its own path with `readlink -f`.
@@ -243,7 +242,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - Swift concurrency (async/await, Task)
 - `@Observable` for reactive state, not ObservableObject/Published
 - `@AppStorage` for persistent user settings
-- `Process` + pipes for shell commands, `osascript` for privilege escalation
+- `Process` + pipes for shell commands; `sudo` for the engine, `osascript` only for installing and
+  removing the helper
 - All UI in SwiftUI. AppKit appears only in `WarpVeilApp.swift`, which owns the window, the
   status item and its menu — everything hosted inside is SwiftUI
 - No external Swift package dependencies
@@ -256,7 +256,7 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - **Few settings** (owner, 2026-10-15): the app decides by itself wherever it can. A setting is
   added only for a problem it solves that no default can — a TUN MTU picker, a DNS upstream, a
   watchdog switch and a refresh-interval picker were all turned down on this ground
-- **No sandbox**: the app runs sing-box as a root child process (sudo in passwordless mode, osascript otherwise), which needs full system access for the TUN; xray runs as the user
+- **No sandbox**: the app runs sing-box as a root child process through the passwordless helper (`sudo run.sh`), which needs full system access for the TUN; xray runs as the user
 - **Window model**: one resizable `NSWindow` built in `AppDelegate`, hidden on close rather than
   destroyed (`isReleasedWhenClosed = false`), so the SwiftUI graph and its `@State` survive. The
   content is a three-column `NavigationSplitView` and the window owns its size. Traps:
@@ -282,51 +282,49 @@ Write the simplest code that works. Prioritize readability over cleverness.
   nothing else stops the engines at exit. An engine that has not stopped by then is left to the
   next connect: xray, a child the app's exit does not take down (it is reparented to launchd), to
   `stopOrphanedXray`, the root sing-box to `run.sh`'s `kill_pid_file`
-- **The engine shell stops its own sing-box** (owner, 2026-10-15): `run.sh` on the TERM sudo
-  passes on when the app ends the helper, the osascript shell — which no signal from the app
-  reaches — once the session file the app made for it is gone.
-  The session ends when the helper exits, which it does only after its sing-box, so a disconnect,
-  a restart and a quit ask no password and leave nothing behind a window that reads Disconnected.
-  The shell's trap is set before sing-box starts, so a TERM that lands right after the start still
-  stops it; it waits for sing-box, which exits on TERM — no SIGKILL, for `kill_pid_file`'s reason.
-  The app never ends the osascript helper: that would not reach a root shell already running, and
-  one still at its password dialog stays until the user answers it — the shell then finds no
-  session file, which it checks before anything else, and exits without touching a PID file or a
-  tunnel. A restart
-  waits for the session to end and gives way to an engine that does not stop in 30 s. The
-  privileged stop is only for an engine a crash orphaned: `install.sh`'s sweep through `stop.sh`,
-  and the next connect's `kill_pid_file`. Before, the app ran a privileged stop — a second
-  password dialog without passwordless — and the order of that stop and the helper's end was
-  changed four times in review, each order losing a case
+- **The engine shell stops its own sing-box** (owner, 2026-10-15): `run.sh` stops it on the TERM
+  sudo passes on when the app ends the helper, and the session ends when the helper exits, which
+  it does only after its sing-box — so a disconnect, a restart and a quit ask no password and
+  leave nothing behind a window that reads Disconnected. The shell's trap is set before sing-box
+  starts, so a TERM that lands right after the start still stops it; it waits for sing-box, which
+  exits on TERM — no SIGKILL, for `kill_pid_file`'s reason. A restart waits for the session to end
+  and gives way to an engine that does not stop in 30 s. `stop.sh` is only for an engine a crash
+  orphaned — `install.sh`'s sweep — besides the next connect's `kill_pid_file`. Before, the app
+  ran a privileged stop of its own, and the order of that stop and the helper's end was changed
+  four times in review, each order losing a case
+- **Only the passwordless helper** (owner, 2026-10-15): the engine always starts through `sudo
+  run.sh`; a connect that finds no working helper for this version installs it first, with the
+  only password dialog the app shows, before anything of the session starts. A Disconnect or a
+  quit during that dialog starts no engine, whatever the answer. Advanced shows whether the helper
+  is installed, with Remove. The osascript engine path went: rounds 3–6 of plan 17's review kept
+  finding cases in it — a password dialog mid-session, a root shell no signal from the app
+  reaches, a session file to watch, a session stuck at Connecting
 - **Apple Silicon only**: `ARCHS = arm64`, and `fetch-binaries.sh` pulls arm64 assets. Intel support, if ever needed, is a separate piece of work
 - **NSAllowsArbitraryLoads**: user-provided subscription URLs may be HTTP; the app's own calls (`LocationService` → `ipwho.is`) use HTTPS
-- **Version-tagged privileged paths**: sudoers, libexec, PID files and the log all carry the app version (`1.2` → `warpveil-1-2`), because `.` is illegal in a `/etc/sudoers.d/` filename. Side effect: every version bump re-asks for the password once
-- **Passwordless mode**: installs into `/usr/local/libexec/warpveil-<tag>/` (root:wheel) a copy
+- **Version-tagged privileged paths**: sudoers, libexec, PID files and the log all carry the app version (`1.2` → `warpveil-1-2`), because `.` is illegal in a `/etc/sudoers.d/` filename. Side effect: every version's first connect asks for the password once, to install its helper
+- **The passwordless helper**: installs into `/usr/local/libexec/warpveil-<tag>/` (root:wheel) a copy
   of the bundled `sing-box` plus `run.sh`/`stop.sh` (0755), and a sudoers entry whitelisting
   those two exact script paths — no wildcards. `run.sh` takes no arguments and reads the config
   on stdin; the binary it runs is its own root-owned copy, never a path it was given, because
   the `.app` is the user's and a bundled binary can be swapped by anyone running as the user.
   The copy is taken at the password prompt: code running as the user before that rides the
   prompt, as it can ride any admin prompt — a pin kept in the user's own bundle would not stop
-  it. Enabling or disabling in any build first removes every `/etc/sudoers.d/warpveil*` and
+  it. Installing or removing in any build first removes every `/etc/sudoers.d/warpveil*` and
   `/etc/sudoers.d/vpnswift` and every `/usr/local/libexec/warpveil*` — an older tag's `run.sh`
   is the old hole for as long as its entry exists. The install reads as on only while the two
   scripts match byte-for-byte what this build would install and the root copy is byte-for-byte
   the bundled sing-box (mapped pages compared at launch and after an install or removal — the
-  83 MB comparison is too slow for every call); a script change or an engine bump reads as off,
-  the log says so, and switching the toggle on re-installs with one prompt. The log says so at
-  launch too while any other build's entry exists — another version's tag, which a version bump
-  leaves behind, or the pre-rename `vpnswift`. The sudoers entry and
-  the scripts are re-read before every connect and disconnect, because another build's toggle
-  removes them while this one runs
-- **Config policy**: every root sing-box — passwordless or not — runs a copy of its config that
-  `run.sh` (or the osascript command) made from stdin — at most 4 MiB — in the root-owned 0700
+  83 MB comparison is too slow for every call); a script change or an engine bump reads as not
+  installed, and the next connect re-installs it with one prompt. The log says so at launch while
+  any other build's entry exists — another version's tag, which a version bump leaves behind, or
+  the pre-rename `vpnswift`. The sudoers entry and the scripts are re-read before every connect,
+  because another build's install removes them while this one runs
+- **Config policy**: every root sing-box runs a copy of its config that `run.sh` made from stdin
+  — at most 4 MiB — in the root-owned 0700
   `/var/run/warpveil-<tag>/stage/`, removed by an EXIT trap however the shell ends, and only
   after `/usr/bin/jq` (macOS 15+, run under `env -i`) accepted that copy; what runs is that copy
   re-serialized by jq with the TUN's `interface_name` set and nothing else changed. Root never opens a
-  path a caller chose: `run.sh` gets the config on stdin from the app, and the osascript command
-  reads the app's file with a `cat` running as the user (`sudo -u '#<uid>'`); the only user path
-  it looks at itself is the session file, and only for whether it exists. The policy: top-level keys limited to `log`,
+  path a caller chose: `run.sh` gets the config on stdin from the app. The policy: top-level keys limited to `log`,
   `dns`, `ntp`, `inbounds`, `outbounds`, `endpoints`, `route`, `experimental`; any key ending in
   `_path`/`_directory`/`_file` (except `process_path`) or starting with `output`, `external_ui`,
   `cache_file`, `acme`, `write_to_system`, `download_url`, `geoip`, `geosite` refused; `path`
@@ -337,7 +335,7 @@ Write the simplest code that works. Prioritize readability over cleverness.
   new ones. `PATH` and `HOME` are pinned in every root shell: macOS's sudoers has no
   `secure_path` and keeps the caller's `HOME`. The only config the app hands root is the wrapper
   it builds, which names no file; the policy is what holds when something else feeds `run.sh`
-- **PID files**: `run.sh`, `stop.sh` and the osascript fallback kill by PID file only — one
+- **PID files**: `run.sh` and `stop.sh` kill by PID file only — one
   shared `kill_pid_file`, which checks that the PID's executable is sing-box, then waits up to
   5 s for it to exit before the file is removed; nothing else on the machine is touched. The
   file is `/var/run/warpveil-<tag>/singbox.pid`, in a root-owned directory: in `/tmp` root's
@@ -431,7 +429,7 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - `$TMPDIR/warpveil-ping-{singbox,xray,xray-test-<n>}-<pid>.json` — ping configs, present only during a run
 - `/var/run/warpveil-<tag>/singbox.pid` — sing-box's PID, root's (directory 0755)
 - `$TMPDIR/warpveil-<tag>-xray.pid` — xray's PID, the user's
-- `/usr/local/libexec/warpveil-<tag>/{run.sh,stop.sh,sing-box}` — the passwordless install,
+- `/usr/local/libexec/warpveil-<tag>/{run.sh,stop.sh,sing-box}` — the passwordless helper,
   root-owned
 - `/var/run/warpveil-<tag>/stage/singbox.XXXXXX` — the root-owned copy of the sing-box config the
   engine runs (directory 0700), removed when its shell ends
@@ -439,9 +437,6 @@ Write the simplest code that works. Prioritize readability over cleverness.
   sorted keys, so a load that changes nothing writes nothing
 - `~/.config/warpveil/release-signing.key` — the release key's private half, 0600, the owner's
   machine only
-- `~/Library/Application Support/WarpVeil/session-<uuid>` — without passwordless, the empty file
-  whose removal tells the root engine shell to stop its sing-box; it lives as long as the session.
-  Not in `$TMPDIR`: `dirhelper` would delete it after 3 days, and the shell's stat does not touch it
 - `$TMPDIR/warpveil-update-<uuid>/` — an update's download and unpack directory, 0700, one per
   attempt, removed once the update is staged or refused; the zip goes as soon as it is unpacked.
   A quit while the engines stop leaves the unpacked app to `dirhelper`, which clears `$TMPDIR` of

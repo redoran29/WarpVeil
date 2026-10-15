@@ -13,12 +13,14 @@ struct AdvancedView: View {
                     Text("Connect on app launch")
                 }
 
-                Toggle(isOn: Binding(
-                    get: { app.pm.isPasswordless },
-                    set: { $0 ? app.pm.installPasswordless() : app.pm.removePasswordless() }
-                )) {
-                    Text("Passwordless")
-                    Text(app.pm.isPasswordlessBusy ? "Waiting for admin prompt..." : "Skip password prompts via sudoers")
+                // Installed by the connect that needs it; the row only says so and takes it away.
+                LabeledContent {
+                    if app.pm.isPasswordless {
+                        Button("Remove") { app.pm.removePasswordless() }
+                    }
+                } label: {
+                    Text("Helper")
+                    Text(helperStatus)
                 }
                 .disabled(app.pm.isPasswordlessBusy)
             }
@@ -69,6 +71,13 @@ struct AdvancedView: View {
         case .installing: "Downloading and installing — the app relaunches when done"
         case .failed(let reason): reason
         }
+    }
+
+    private var helperStatus: String {
+        if app.pm.isPasswordlessBusy { return "Waiting for admin prompt..." }
+        return app.pm.isPasswordless
+            ? "Starts the engine without a password"
+            : "The next connect installs it, with your password once"
     }
 
     @ViewBuilder

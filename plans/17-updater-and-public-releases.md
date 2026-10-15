@@ -39,15 +39,15 @@ ready — what is in `main` plus the updater — and every later feature arrives
   shell waits for the address on exactly that interface — no comparing interface lists (owner,
   2026-10-15). Since round 4 the shell picks the name itself, right before sing-box starts.
 - Review round 4, replacing round 2's "a failed stop leaves the tunnel up": the engine shell stops
-  its own sing-box — run.sh on the TERM sudo relays, the osascript shell once the app's session
-  file is gone — and the session ends when the helper exits; the app runs no privileged stop and a
-  disconnect asks no password (owner, 2026-10-15).
+  its own sing-box and the session ends when the helper exits; the app runs no privileged stop and
+  a disconnect asks no password (owner, 2026-10-15). Since round 6 only the passwordless helper
+  runs the engine (plan 21), so the stop is run.sh's TERM alone.
 - Review rounds 1–2: the root PID file keeps its version tag (CLAUDE.md, "Version-tagged
   privileged paths"); the update keeps stopping the engines before the swap (owner, 2026-10-15).
 
 ### Open for the owner
-- A version bump re-asks the password twice on the first connect (a new tag, then the passwordless
-  toggle). Default: accepted, and the 1.3 notes say so; reducing it is its own plan.
+- A version bump asks for the password at its first connect, to install the new version's helper —
+  once since plan 21. Default: accepted, and the 1.3 notes say so.
 - The signing key is made by the builder and lives outside the repo. Default: the builder says
   where; the owner keeps a copy in a password manager — without it no installed copy can verify an
   update again.
