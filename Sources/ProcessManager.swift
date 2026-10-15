@@ -909,7 +909,6 @@ final class ProcessManager {
         }
     }
 
-    // The last poll can miss an engine's final lines — usually the reason it stopped.
     private func checkTunnel() {
         guard isRunning, engineStarted, !isTunnelUp, Self.tunAddressIsUp() else { return }
         isTunnelUp = true
@@ -931,6 +930,7 @@ final class ProcessManager {
         return false
     }
 
+    // The last poll can miss an engine's final lines — usually the reason it stopped.
     private func stopLogTail() {
         logDebounceTimer?.invalidate()
         logDebounceTimer = nil
