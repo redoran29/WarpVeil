@@ -88,10 +88,12 @@ final class AppState {
             return
         }
 
-        // Every server runs on xray; a sing-box config stored by an earlier build is a manual one
-        // (feeds are rebuilt at launch) and has to be added again.
+        // Every server runs on xray. A sing-box config an earlier build stored is rebuilt by its
+        // feed's next refresh; a manual one has to be added again.
         guard (server.engine ?? sub.engine) == .xray else {
-            pm.logs.append("[Error: \(server.name) is a sing-box config — add it again as a link or an xray config]")
+            pm.logs.append(sub.isManual
+                ? "[Error: \(server.name) is a sing-box config — add it again as a link or an xray config]"
+                : "[Error: \(server.name) is still a sing-box config — refresh \(sub.name) to rebuild it]")
             return
         }
         pm.connect(

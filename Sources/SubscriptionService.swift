@@ -111,7 +111,11 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             guard let server = parseVlessURI(trimmed) ?? parseVmessURI(trimmed) else {
                 return .unparsableLink
             }
-            guard !subscriptions.contains(where: { $0.servers.contains { $0.isSameNode(as: server) } }) else {
+            // A server an earlier build stored as sing-box cannot connect: the same link added
+            // again gets an xray twin, and the old row is removed by hand.
+            guard !subscriptions.contains(where: { sub in
+                sub.servers.contains { ($0.engine ?? sub.engine) == .xray && $0.isSameNode(as: server) }
+            }) else {
                 return .duplicateServer
             }
             var sub = Subscription(name: server.name, isManual: true, engine: .xray)
@@ -447,6 +451,14 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
 
         outbound["streamSettings"] = streamSettings
 
+        return xrayClientConfig(outbound)
+    }
+
+    // Every server runs in the same frame: one socks inbound on the port the wrapper sends to,
+    // the proxy first, a freedom outbound, no routing rules. Whatever a panel's config adds —
+    // other inbounds, routing to direct (which would loop back through the TUN), log files — is
+    // left out.
+    private func xrayClientConfig(_ outbound: [String: Any]) -> String {
         let config: [String: Any] = [
             "log": ["loglevel": "info"],
             "inbounds": [
@@ -456,12 +468,6 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
                     "listen": "127.0.0.1",
                     "protocol": "socks",
                     "settings": ["udp": true]
-                ] as [String: Any],
-                [
-                    "tag": "http-in",
-                    "port": 10809,
-                    "listen": "127.0.0.1",
-                    "protocol": "http"
                 ] as [String: Any]
             ],
             "outbounds": [
@@ -473,7 +479,6 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
                 "rules": [] as [[String: Any]]
             ] as [String: Any]
         ]
-
         return serializeJSON(config) ?? "{}"
     }
 
@@ -483,53 +488,28 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         "vless", "vmess", "trojan", "shadowsocks"
     ]
 
-    private static let serviceTypesXray: Set<String> = [
-        "freedom", "blackhole", "dns"
-    ]
-
+    // A panel serves one config with every server as an outbound, or a list of full configs,
+    // one server each, named in `remarks`.
     private func parseXray(_ json: String) -> [Server] {
         guard let data = json.data(using: .utf8),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let outbounds = root["outbounds"] as? [[String: Any]]
-        else { return [] }
-
-        let serviceOutbounds = outbounds.filter {
-            guard let proto = $0["protocol"] as? String else { return false }
-            return Self.serviceTypesXray.contains(proto)
+              let parsed = try? JSONSerialization.jsonObject(with: data) else { return [] }
+        if let configs = parsed as? [[String: Any]] {
+            return configs.flatMap { servers(in: $0, remarks: $0["remarks"] as? String) }
         }
+        return (parsed as? [String: Any]).map { servers(in: $0, remarks: nil) } ?? []
+    }
 
-        var servers: [Server] = []
-        for ob in outbounds {
-            guard let proto = ob["protocol"] as? String,
-                  Self.vpnTypesXray.contains(proto) else { continue }
-
-            let name = ob["tag"] as? String ?? proto
-            let address: String
-            if let settings = ob["settings"] as? [String: Any],
-               let vnext = settings["vnext"] as? [[String: Any]],
-               let first = vnext.first {
-                let host = first["address"] as? String ?? "?"
-                let port = first["port"] as? Int ?? 0
-                address = "\(host):\(port)"
-            } else if let settings = ob["settings"] as? [String: Any],
-                      let srvs = settings["servers"] as? [[String: Any]],
-                      let first = srvs.first {
-                let host = first["address"] as? String ?? "?"
-                let port = first["port"] as? Int ?? 0
-                address = "\(host):\(port)"
-            } else {
-                address = "?"
-            }
-            let transport = Self.canonicalTransport((ob["streamSettings"] as? [String: Any])?["network"] as? String ?? "tcp")
-
-            var modifiedRoot = root
-            modifiedRoot["outbounds"] = [ob] + serviceOutbounds
-            let config = serializeJSON(modifiedRoot) ?? ""
-
-            servers.append(Server(name: name, protocolType: proto, address: address,
-                                  transport: transport, config: config))
+    private func servers(in root: [String: Any], remarks: String?) -> [Server] {
+        (root["outbounds"] as? [[String: Any]] ?? []).compactMap { outbound in
+            guard let proto = outbound["protocol"] as? String, Self.vpnTypesXray.contains(proto),
+                  let endpoint = BypassService.serverEndpoint(outbound),
+                  let host = endpoint["address"] as? String else { return nil }
+            let port = endpoint["port"] as? Int ?? 0
+            let network = (outbound["streamSettings"] as? [String: Any])?["network"] as? String ?? "tcp"
+            return Server(name: remarks ?? outbound["tag"] as? String ?? proto, protocolType: proto,
+                          address: "\(host):\(port)", transport: Self.canonicalTransport(network),
+                          config: xrayClientConfig(outbound), engine: .xray)
         }
-        return servers
     }
 
     // MARK: - Manual config

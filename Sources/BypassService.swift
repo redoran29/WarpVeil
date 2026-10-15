@@ -102,10 +102,15 @@ enum BypassService {
     }
 
     private static func serverAddress(_ outbound: [String: Any]) -> String? {
+        serverEndpoint(outbound)?["address"] as? String
+    }
+
+    // The entry holding the server's address and port; the Servers list reads it too, so a row
+    // and the wrapper's rule never disagree about where a server is.
+    static func serverEndpoint(_ outbound: [String: Any]) -> [String: Any]? {
         guard let settings = outbound["settings"] as? [String: Any] else { return nil }
-        let first = (settings["vnext"] as? [[String: Any]])?.first
+        return (settings["vnext"] as? [[String: Any]])?.first
             ?? (settings["servers"] as? [[String: Any]])?.first
-        return first?["address"] as? String
     }
 
     // getaddrinfo blocks, so callers run it off the main actor. AI_ADDRCONFIG drops the
