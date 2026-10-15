@@ -344,7 +344,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
   notification, no dialog, and it installs only on a click. Authenticity is our own ed25519
   signature over the release zip (`<zip>.sig`, made by `release.sh`), checked against
   `WVUpdatePublicKey` before anything unpacks it — the app's own signature is ad-hoc and proves
-  nothing. The unpacked `WarpVeil.app` must be a real directory with this bundle id, the tag's
+  nothing. An app whose directory the swap cannot write — a standard user's `/Applications`, App
+  Translocation's read-only mount — is refused before anything is downloaded or stopped. The
+  unpacked `WarpVeil.app` must be a real directory with this bundle id, the tag's
   version, newer than the running one, arm64; anything else is refused with its reason in the
   row. Then `disconnect()` and `awaitTeardown`: a stop that exited non-zero, or anything of the
   session still running after 30 s, cancels the update — the new version's tag cannot stop the

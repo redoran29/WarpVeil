@@ -114,10 +114,17 @@ final class Updater {
             state = .failed("No update checked")
             return false
         }
-        state = .installing
         let bundle = Bundle.main.bundleURL
-        let staged = bundle.deletingLastPathComponent().appendingPathComponent(".\(bundle.lastPathComponent).new")
-        let aside = bundle.deletingLastPathComponent().appendingPathComponent(".\(bundle.lastPathComponent).old")
+        let directory = bundle.deletingLastPathComponent()
+        // Staging comes after the engines stop, so a directory the swap cannot write — a standard
+        // user's /Applications, App Translocation's read-only mount — is caught before them.
+        guard FileManager.default.isWritableFile(atPath: directory.path) else {
+            state = .failed("Cannot replace the app in \(directory.path) — move WarpVeil to a folder you can write")
+            return false
+        }
+        state = .installing
+        let staged = directory.appendingPathComponent(".\(bundle.lastPathComponent).new")
+        let aside = directory.appendingPathComponent(".\(bundle.lastPathComponent).old")
         // A path of its own per attempt: Bundle(url:) caches what it read at a path for the life of
         // the process, so a second install from the same path would check the first archive.
         let work = FileManager.default.temporaryDirectory.appendingPathComponent("warpveil-update-\(UUID().uuidString)")
