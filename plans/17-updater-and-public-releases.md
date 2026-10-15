@@ -203,3 +203,22 @@ ready — what is in `main` plus the updater — and every later feature arrives
   runs (`dd41624`).
 - Process slips, history kept as it is: `04b0fc4` bundled the shell's naming of the TUN with the
   new stop, and the plan was corrected in `db37c68` rather than in `04b0fc4`.
+
+### Review (2026-10-15, round 6)
+`/code-review db37c68..f8548e4`. Its findings fell mostly on the mode without passwordless —
+the osascript helper at its dialog during a teardown, a restart's dialog during an update, the
+session file's crash leftovers and failures — and showed rounds 3–5 changing the same places in
+turn, twice again without the owner (`c98559b` rewrote an owner-marked line, `f1a11ba` undid part
+of round 4). Taken to the owner as the construction question: only the passwordless helper runs
+the engine (plan 21, `54ffbb4`), which removes those cases. Also:
+- The shell's cleanup read `${!:-}`, unbound under bash 3.2's `set -u`; it sent a SIGKILL against
+  `kill_pid_file`'s rule; the EXIT trap missed the named copy (`2723b9d`).
+- The disconnect line came before the engine's last lines (`3ee44f8`); the hold's message was
+  written twice (`5e472d6`).
+- The update hold, after rounds 4 and 5: engine starts held from the stop, Connect clicks refused
+  from the download on, the hold released only by the install that set it — each round's case
+  holds, and with one mode a restart during the download asks nothing.
+- Not changed: `isTunnelUp` reads a start line from the log every copy of one version shares, so
+  an Xcode-launched copy of the installed version could read the other's — the canon's one-build-
+  per-tunnel rule; dev copies carry their own tag.
+- Process slip: `dd41624` bundled two comment fixes.
