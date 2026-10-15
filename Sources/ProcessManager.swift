@@ -930,7 +930,7 @@ final class ProcessManager {
         if isRunning { return "the engine has not stopped" }
         guard !sessionOnly else { return nil }
         if xrayProcess?.isRunning == true { return "xray has not exited" }
-        if isPasswordlessBusy { return "the helper's password dialog is still open" }
+        if isPasswordlessBusy { return "the helper's install or removal has not finished" }
         return nil
     }
 
