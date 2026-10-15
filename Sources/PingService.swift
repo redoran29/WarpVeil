@@ -391,7 +391,8 @@ final class PingService {
             return dialer
         }
         proxy["tag"] = server.id
-        proxy = BypassService.settingSockopt(proxy, "dialerProxy", dialers.first?["tag"])
+        // A dialer the frame does not carry stays named: the dial fails here as it does on connect.
+        if let tag = dialers.first?["tag"] { proxy = BypassService.settingSockopt(proxy, "dialerProxy", tag) }
         return ([proxy] + dialers).map { outbound in
             interface.map { BypassService.settingSockopt(outbound, "interface", $0) } ?? outbound
         }
