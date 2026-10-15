@@ -110,3 +110,19 @@ unreachable busy guard and writes the staged list once). Also:
   late, it can undo a newer install, and the next connect asks again.
 - Process slip: `c82885b` bundled the dialog decision with four smaller changes.
 
+### Review (2026-10-15, round 5)
+`/code-review 051e63e..1691509`, findings and what was done:
+- The staged files' cleanup, changed a third time: taken to the owner, decided above — the root shell
+  removes them, the app only where none ran (`4daf860`).
+- A failed update released a quit's connect hold (`dd8cdf6`).
+- osascript's stderr, drained from a pipe after exit, could block osascript for good or freeze the
+  main thread: a file takes it (`cc7ce71`); its multi-line error broke a log line (`081393f`); an
+  empty reason left a dangling colon (`1f8e3e7`).
+- A restart's wait also covered xray, which its connect waits for, and `isTornDown` wrapped
+  `teardownBlocker` for one caller (`a521655`); the wait ran on the wall clock (`bbb6b62`); the skipped
+  restart's line lost "old settings" (`90668be`); the helper's blocker named a dialog that may be
+  gone (`be779cf`); a comment restated a signature (`93f8558`).
+- Not changed: the connect hold keeps one slot with the quit's and the update's reasons — the update
+  now releases only its own, which closes the case found.
+- Next, as decided: one control round, fixing only what breaks a real scenario.
+
