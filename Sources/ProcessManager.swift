@@ -909,17 +909,10 @@ final class ProcessManager {
 
     private func killVPNProcesses() {
         refreshPasswordless()
+        let kill = Process()
         if isPasswordless {
-            let kill = Process()
             kill.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
             kill.arguments = [Self.stopScriptPath]
-            watchStop(kill)
-            do {
-                try kill.run()
-                teardownProcess = kill
-            } catch {
-                logs.append("[Error: failed to run stop script: \(error.localizedDescription) — the tunnel is still up]")
-            }
         } else {
             // The helper stop.sh carries, inline: the libexec copy exists only in passwordless mode.
             let cmd = """
@@ -927,16 +920,15 @@ final class ProcessManager {
                 \(Self.killPidFileFunction)
                 kill_pid_file \(Self.shellEscape(Self.singboxPidFile)) sing-box
                 """
-            let kill = Process()
             kill.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
             kill.arguments = ["-e", "do shell script \(Self.appleScriptEscape(cmd)) with administrator privileges"]
-            watchStop(kill)
-            do {
-                try kill.run()
-                teardownProcess = kill
-            } catch {
-                logs.append("[Error: failed to run disconnect: \(error.localizedDescription) — the tunnel is still up]")
-            }
+        }
+        watchStop(kill)
+        do {
+            try kill.run()
+            teardownProcess = kill
+        } catch {
+            logs.append("[Error: cannot stop the engine: \(error.localizedDescription) — the tunnel is still up]")
         }
     }
 
