@@ -493,7 +493,7 @@ final class ProcessManager {
             // An engine that does not stop leaves the session up with what it started with, and the
             // restart gives way to it — it is no longer pending, or a later wake would take it up
             // for a session that has ended since.
-            if let blocker = await awaitTeardown(timeout: 30, helperToo: false) {
+            if let blocker = await awaitTeardown(timeout: 30, sessionOnly: true) {
                 guard !Task.isCancelled else { return }
                 reconnectTask = nil
                 logs.append("[Restart skipped: \(blocker)]")
@@ -923,22 +923,21 @@ final class ProcessManager {
         isRunning = false
     }
 
-    // What still runs that a quit or an update has to outwait, or nil. A restart leaves the helper
-    // out: its connect joins an install under way and gets the dialog's answer.
-    func teardownBlocker(helperToo: Bool = true) -> String? {
+    // A restart waits for the session alone: its connect waits for xray's port itself and joins an
+    // install under way. A quit or an update has to outwait the rest too.
+    func teardownBlocker(sessionOnly: Bool = false) -> String? {
         if isRunning { return "the engine has not stopped" }
+        guard !sessionOnly else { return nil }
         if xrayProcess?.isRunning == true { return "xray has not exited" }
-        if helperToo, isPasswordlessBusy { return "the helper's password dialog is still open" }
+        if isPasswordlessBusy { return "the helper's password dialog is still open" }
         return nil
     }
 
-    var isTornDown: Bool { teardownBlocker() == nil }
-
     // nil once nothing blocks; what still does when the time runs out.
     @discardableResult
-    func awaitTeardown(timeout: TimeInterval, helperToo: Bool = true) async -> String? {
+    func awaitTeardown(timeout: TimeInterval, sessionOnly: Bool = false) async -> String? {
         let deadline = Date().addingTimeInterval(timeout)
-        while let blocker = teardownBlocker(helperToo: helperToo) {
+        while let blocker = teardownBlocker(sessionOnly: sessionOnly) {
             guard Date() < deadline, !Task.isCancelled else { return blocker }
             try? await Task.sleep(for: .milliseconds(100))
         }

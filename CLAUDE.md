@@ -277,8 +277,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
   all, + Add) rides on the first subscription's section header, because a section with no rows
   renders its header alone and drops the next header to footer style
 - **Quit path**: `applicationShouldTerminate` disconnects and replies `.terminateLater`, waiting
-  up to 30 s for the teardown (`ProcessManager.isTornDown`: the session over, its xray gone, no
-  helper install or removal at its dialog), with every connect held meanwhile, so anything that
+  up to 30 s for the teardown (`ProcessManager.teardownBlocker`: the session over, its xray gone,
+  no helper install or removal at its dialog), with every connect held meanwhile, so anything that
   kills the app on a timer has to outwait it. Every
   quit goes through it — Cmd+Q, the status menu, an update, `dev-run.sh`, `install.sh` — so
   nothing else stops the engines at exit. An engine that has not stopped by then is left to the
