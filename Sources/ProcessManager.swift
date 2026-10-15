@@ -383,8 +383,11 @@ final class ProcessManager {
         }
         for await _ in exits {}
         let text = String(decoding: (try? Data(contentsOf: errorFile)) ?? Data(), as: UTF8.self)
+        // One "\n"-ended line, "0:24: execution error: <message> (<code>)", whose message joins the
+        // command's stderr lines with "\r".
         let line = text.split(separator: "\n").last.map(String.init) ?? ""
-        let failure = line.components(separatedBy: "execution error: ").last ?? line
+        let failure = (line.range(of: "execution error: ").map { String(line[$0.upperBound...]) } ?? line)
+            .replacingOccurrences(of: "\r", with: "; ")
         guard !process.isRunning, process.terminationReason == .exit else { return (nil, failure) }
         return (process.terminationStatus, failure)
     }
