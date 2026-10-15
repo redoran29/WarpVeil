@@ -531,18 +531,20 @@ final class ProcessManager {
     }
 
     // A wake or a network change restarts before the new network may answer, so a lookup that
-    // fails is retried for half a minute, as long as the session is not cancelled.
+    // fails is retried until half a minute has passed — the last lookup may run past it by its
+    // own timeout, which nothing can cut short.
     private func resolve(_ host: String) async -> [String] {
         logs.append("[Resolving \(host)...]")
-        for _ in 0..<Self.lookupAttempts where !Task.isCancelled {
+        let deadline = ContinuousClock.now + .seconds(30)
+        while !Task.isCancelled {
             let addresses = await Task.detached { BypassService.resolveAddresses(of: host) }.value
             if !addresses.isEmpty { return addresses }
+            guard ContinuousClock.now + .seconds(2) < deadline else { break }
             try? await Task.sleep(for: .seconds(2))
         }
         if !Task.isCancelled { logs.append("[Error: \(host) does not resolve]") }
         return []
     }
-    private static let lookupAttempts = 15
 
     // A link carries an IPv6 address in brackets; xray takes it either way, the wrapper's rule
     // only bare.
