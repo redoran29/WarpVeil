@@ -13,12 +13,11 @@ struct AdvancedView: View {
                     Text("Connect on app launch")
                 }
 
-                // Installed by the connect that needs it; the row only says so and takes it away —
-                // not mid-session, or the next restart would ask for the password out of nowhere.
+                // Installed by the connect that needs it; the row only says so and takes it away.
                 LabeledContent {
                     if app.pm.isPasswordless {
                         Button("Remove") { app.pm.removePasswordless() }
-                            .disabled(app.pm.isRunning)
+                            .disabled(!app.pm.canRemoveHelper)
                     }
                 } label: {
                     Text("Helper")

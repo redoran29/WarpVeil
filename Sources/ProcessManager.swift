@@ -345,8 +345,14 @@ final class ProcessManager {
         return isPasswordless
     }
 
+    // Not during a session — a pending start or restart counts — or its next restart would ask for
+    // the password out of nowhere; and not while an install or a removal is under way.
+    var canRemoveHelper: Bool {
+        isPasswordless && !isPasswordlessBusy && !isRunning && reconnectTask == nil && helperInstall == nil
+    }
+
     func removePasswordless() {
-        guard !isPasswordlessBusy else { return }
+        guard canRemoveHelper else { return }
         isPasswordlessBusy = true
         Task {
             if await runAsAdmin(Self.removeEveryInstallCommand) == 0 {
@@ -506,6 +512,12 @@ final class ProcessManager {
         // After the pending restart is dropped, so a refused one is not left for a wake to take up.
         guard !isHeldForUpdate else {
             logs.append(Self.updateHoldMessage)
+            return
+        }
+        // During an install the connect joins it; during a removal it would read the helper as
+        // still there and start through scripts about to go.
+        guard !isPasswordlessBusy || helperInstall != nil else {
+            logs.append("[The helper is being removed — connect after it]")
             return
         }
         // An xray still exiting holds the port the next one needs.
