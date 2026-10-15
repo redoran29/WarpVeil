@@ -330,12 +330,11 @@ final class PingService {
         var tags: [String] = []
         for server in servers {
             guard let port = ports[server.id],
-                  var outbound = proxyOutbound(of: server)
+                  let serverOutbounds = proxyOutbounds(of: server, interface: interface)
             else { continue }
-            if let interface { outbound = BypassService.settingSockopt(outbound, "interface", interface) }
             let inboundTag = "in-\(server.id)"
             inbounds.append(["tag": inboundTag, "listen": "127.0.0.1", "port": Int(port), "protocol": "socks"])
-            outbounds.append(outbound)
+            outbounds += serverOutbounds
             rules.append(["type": "field", "inboundTag": [inboundTag], "outboundTag": server.id])
             tags.append(server.id)
         }
@@ -348,19 +347,28 @@ final class PingService {
         return (serialize(config), tags)
     }
 
-    // Every builder and parser puts the proxy first. Anything else — a pasted config whose first
+    // The server's proxy, tagged with its ID, and the freedom outbounds it dials through under
+    // tags of their own, so two servers' dialers cannot collide in the merged config — the probe
+    // goes the way the connection does. Whatever dials leaves through the physical interface.
+    // Every builder and parser puts the proxy first; anything else — a pasted config whose first
     // outbound is a selector — would take the whole merged config down, so it is left out.
-    private static func proxyOutbound(of server: Server) -> [String: Any]? {
+    private static func proxyOutbounds(of server: Server, interface: String?) -> [[String: Any]]? {
         guard let data = server.config.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var outbound = (root["outbounds"] as? [[String: Any]])?.first,
-              let type = outbound["protocol"] as? String, SubscriptionService.vpnTypesXray.contains(type)
+              let outbounds = root["outbounds"] as? [[String: Any]],
+              var proxy = outbounds.first,
+              let type = proxy["protocol"] as? String, SubscriptionService.vpnTypesXray.contains(type)
         else { return nil }
-        outbound["tag"] = server.id
-        // Both name a sibling outbound to dial through that the merged config does not carry: the
-        // server is measured without it, and its dials do not fail on the missing tag.
-        outbound["proxySettings"] = nil
-        return BypassService.settingSockopt(outbound, "dialerProxy", nil)
+        let dialers = BypassService.xrayDialers(of: proxy, in: outbounds).map { dialer in
+            var dialer = dialer
+            dialer["tag"] = "\(server.id)-\(dialer["tag"] as? String ?? "")"
+            return dialer
+        }
+        proxy["tag"] = server.id
+        proxy = BypassService.settingSockopt(proxy, "dialerProxy", dialers.first?["tag"])
+        return ([proxy] + dialers).map { outbound in
+            interface.map { BypassService.settingSockopt(outbound, "interface", $0) } ?? outbound
+        }
     }
 
     // MARK: - Helpers
