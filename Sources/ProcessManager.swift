@@ -27,6 +27,7 @@ final class ProcessManager {
     private var helperProcess: Process?
     private var xrayProcess: Process?
     private var logHandle: FileHandle?
+    private var partialLogLine = Data()
     private var logDebounceTimer: Timer?
     private let logFile = FileManager.default.temporaryDirectory.path + "/warpveil-\(ProcessManager.versionTag).log"
     private var xrayConfigFile: String {
@@ -934,16 +935,21 @@ final class ProcessManager {
     private func stopLogTail() {
         logDebounceTimer?.invalidate()
         logDebounceTimer = nil
-        if let handle = logHandle { appendLog(handle.readDataToEndOfFile()) }
+        appendLog(logHandle?.readDataToEndOfFile() ?? Data(), flush: true)
         logHandle?.closeFile()
         logHandle = nil
     }
 
-    // Decoded with replacement: an engine can log raw bytes — a sniffed name — and one invalid
-    // byte must not drop the whole chunk, the engine shell's start line with it.
-    private func appendLog(_ data: Data) {
-        guard !data.isEmpty else { return }
-        let text = String(decoding: data, as: UTF8.self)
+    // A read can end inside a line — the engine shell's start line among them — or inside a
+    // character, so only complete lines are taken and the rest waits for the next read. Decoded
+    // with replacement: an engine can log raw bytes — a sniffed name — and one invalid byte must
+    // not drop the whole chunk.
+    private func appendLog(_ data: Data, flush: Bool = false) {
+        let pending = partialLogLine + data
+        let end = flush ? pending.endIndex : pending.lastIndex(of: UInt8(ascii: "\n")).map { $0 + 1 } ?? pending.startIndex
+        partialLogLine = Data(pending[end...])
+        guard end > pending.startIndex else { return }
+        let text = String(decoding: pending[..<end], as: UTF8.self)
         let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
         if isRunning, lines.contains(where: { $0.hasPrefix(Self.engineStartedMarker) }) { engineStarted = true }
         logs.append(contentsOf: lines)
