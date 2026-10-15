@@ -109,6 +109,8 @@ enum BypassService {
     // and the wrapper's rule never disagree about where a server is.
     static func serverEndpoint(_ outbound: [String: Any]) -> [String: Any]? {
         guard let settings = outbound["settings"] as? [String: Any] else { return nil }
+        // xray also takes the server flat in `settings`: `address`, `port`.
+        if settings["address"] is String { return settings }
         return (settings["vnext"] as? [[String: Any]])?.first
             ?? (settings["servers"] as? [[String: Any]])?.first
     }
