@@ -303,13 +303,14 @@ final class ProcessManager {
         let tmpRun = staging + "/warpveil-\(Self.versionTag)-run.sh"
         let tmpStop = staging + "/warpveil-\(Self.versionTag)-stop.sh"
         let staged = [tmpSudoers, tmpRun, tmpStop]
-        defer { for file in staged { try? FileManager.default.removeItem(atPath: file) } }
+        func removeStaged() { for file in staged { try? FileManager.default.removeItem(atPath: file) } }
         do {
             try sudoersContent.write(toFile: tmpSudoers, atomically: true, encoding: .utf8)
             try Self.runShContent.write(toFile: tmpRun, atomically: true, encoding: .utf8)
             try Self.stopShContent.write(toFile: tmpStop, atomically: true, encoding: .utf8)
         } catch {
             logs.append("[Error: cannot stage the helper: \(error.localizedDescription)]")
+            removeStaged()
             passwordlessOperationFinished()
             return false
         }
@@ -323,6 +324,9 @@ final class ProcessManager {
             visudo -qcf \(Self.shellEscape(tmpSudoers)) && \
             install -m 0440 -o root -g wheel \(Self.shellEscape(tmpSudoers)) '\(Self.sudoersFile)'
             """)
+        // Only once osascript returned by itself, so its root shell is done with them: one ended from
+        // outside may leave that shell running. Left behind, they are rewritten by the next install.
+        if status != nil { removeStaged() }
         passwordlessOperationFinished()
         if isPasswordless {
             logs.append("[Helper installed]")
