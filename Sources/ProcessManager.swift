@@ -327,7 +327,11 @@ final class ProcessManager {
         installProcess = nil
         for file in [tmpSudoers, tmpRun, tmpStop] { try? FileManager.default.removeItem(atPath: file) }
         passwordlessOperationFinished()
-        logs.append(isPasswordless ? "[Helper installed]" : "[The helper was not installed (exit \(status))]")
+        if isPasswordless {
+            logs.append("[Helper installed]")
+        } else {
+            logs.append(status.map { "[The helper was not installed (exit \($0))]" } ?? "[Helper install cancelled]")
+        }
         return isPasswordless
     }
 
@@ -342,9 +346,10 @@ final class ProcessManager {
         }
     }
 
-    // osascript's admin dialog, then the command as root; its exit status. onStart gets the process,
-    // for a caller that may have to take the dialog down.
-    private func runAsAdmin(onStart: (Process) -> Void = { _ in }, _ command: String) async -> Int32 {
+    // osascript's admin dialog, then the command as root; its exit status, or nil when it did not
+    // run or was ended by a signal — a disconnect taking the dialog down. onStart gets the
+    // process, for a caller that may have to do that.
+    private func runAsAdmin(onStart: (Process) -> Void = { _ in }, _ command: String) async -> Int32? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(command)) with administrator privileges"]
@@ -354,11 +359,12 @@ final class ProcessManager {
             try process.run()
         } catch {
             logs.append("[Error: \(error.localizedDescription)]")
-            return -1
+            return nil
         }
         onStart(process)
         for await _ in exits {}
-        return process.isRunning ? -1 : process.terminationStatus
+        guard !process.isRunning, process.terminationReason == .exit else { return nil }
+        return process.terminationStatus
     }
 
     // An install in another build removes this one's helper while it runs, so every connect — and
