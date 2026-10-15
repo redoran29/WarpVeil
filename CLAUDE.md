@@ -122,13 +122,12 @@ rewritten into one, since xray hands that dial to the sibling by name, past the 
 `direct`, no routing rules, which would send "direct" traffic back through the TUN. A session
 counts as Connected (`ProcessManager.isTunnelUp`) once the engine shell's own `[sing-box]
 started` line has reached the log the app tails — not when the helper launches, which without
-passwordless is a password dialog. The shell prints it only once the TUN's address, 172.19.0.1,
-is on the interface the wrapper names (`interface_name`): the app picks a free utun right before
-the helper starts, past every one that exists, the way sing-box would pick one itself, so a
-tunnel another build or client holds at that address is never taken for ours (owner,
-2026-10-15). A name taken before the shell starts sing-box is refused with a line in Logs, and
-another interface already holding the address is warned of. sing-box puts the address there
-only after reading its config and making the TUN. The status, the uptime, the
+passwordless is a password dialog. The shell names the TUN itself just before it starts sing-box
+— the first utun past every one that exists, the way sing-box would pick one, written into its
+staged config's `interface_name` — and prints the line only once that interface carries the
+TUN's address, 172.19.0.1, so a tunnel another build or client holds at that address is never
+taken for ours (owner, 2026-10-15); another interface already holding it is warned of in Logs.
+sing-box puts the address there only after reading its config and making the TUN. The status, the uptime, the
 menu-bar shield, the speed monitor and the location polling wait for it, and the window says
 Connecting until then.
 
@@ -160,8 +159,8 @@ the version (`ProcessManager` derives its sudoers, libexec, PID and log paths fr
 TUN interface — only one build can hold a tunnel at a time; the second one's sing-box fails at
 the TUN, it does not take the tunnel over; and passwordless — enabling or disabling it in one
 build removes every other build's sudoers entry and libexec directory (they are the same hole),
-so the other copy's next connect or disconnect goes through the password dialog and its toggle
-reads off until it is switched on again.
+so the other copy's next connect goes through the password dialog and its toggle reads off until
+it is switched on again.
 
 `--watch` is a rebuild-and-relaunch loop, not hot reload: in-memory state resets on every
 change, `@AppStorage` survives. Each relaunch activates the app; the window comes back at its
@@ -183,8 +182,8 @@ staged as `/Applications/.WarpVeil.app.new` and renamed in — a failed copy mus
 `/Applications` with no app after the old one is already quit.
 
 The quit goes to `application "/Applications/WarpVeil.app"` by path, because the bundle id is
-shared with any Xcode-launched copy, and waits up to 35 s — the app's own quit path waits 30 s
-for its teardown, a password dialog when passwordless is off. Engines still alive afterwards are
+shared with any Xcode-launched copy, and waits up to 35 s — the app's own quit path waits up to
+30 s for its teardown. Engines still alive afterwards are
 swept by the **installed** copy's version tag (read from its `Info.plist`), not the one being
 built: after a version bump the new `run.sh` cannot see the old tag's PID file. An xray is the
 user's — its PID file is `$TMPDIR/warpveil-<tag>-xray.pid` and it is killed without sudo; a
@@ -278,19 +277,23 @@ Write the simplest code that works. Prioritize readability over cleverness.
   all, + Add) rides on the first subscription's section header, because a section with no rows
   renders its header alone and drops the next header to footer style
 - **Quit path**: `applicationShouldTerminate` disconnects and replies `.terminateLater`, waiting
-  up to 30 s for the teardown — with passwordless off that teardown is a password dialog, so
-  anything that kills the app on a timer has to outwait it. Every quit goes through it — Cmd+Q,
-  the status menu, an update, `dev-run.sh`, `install.sh` — so nothing else stops the engines at
-  exit. A stop that fails leaves the tunnel up and the app quits anyway: xray, a child the app's
-  exit does not take down (it is reparented to launchd), keeps the tunnel working until the next
-  connect stops both
-- **A disconnect ends the session only once the root engine is gone** (owner, 2026-10-15): the
-  root stop runs first; xray, the helper and the session end when it exits 0. A stop that fails —
-  a cancelled password dialog, a sing-box that outlived `kill_pid_file` — leaves everything up and
-  the window Connected, and says so in Logs; Disconnect tries again. Before, xray went at once and
-  a failed stop left a root sing-box sending every connection to a dead port under a window that
-  read Disconnected. A restart waits for the stop and gives way if it fails; an update or a quit
-  learns it from `awaitTeardown`, which reads the session itself — no record outlives it
+  up to 30 s for the teardown, so anything that kills the app on a timer has to outwait it. Every
+  quit goes through it — Cmd+Q, the status menu, an update, `dev-run.sh`, `install.sh` — so
+  nothing else stops the engines at exit. An engine that has not stopped by then is left to the
+  next connect: xray, a child the app's exit does not take down (it is reparented to launchd), to
+  `stopOrphanedXray`, the root sing-box to `run.sh`'s `kill_pid_file`
+- **The engine shell stops its own sing-box** (owner, 2026-10-15): `run.sh` on the TERM sudo
+  passes on when the app ends the helper, the osascript shell — which no signal from the app
+  reaches — once the session file the app made for it (`$TMPDIR/warpveil-session-<uuid>`) is gone.
+  The session ends when the helper exits, which it does only after its sing-box, so a disconnect,
+  a restart and a quit ask no password and leave nothing behind a window that reads Disconnected.
+  An osascript helper whose shell has not begun — still at its own password dialog — is ended with
+  its dialog, and a shell that starts anyway finds no session file and starts nothing. A restart
+  waits for the session to end and gives way to an engine that does not stop in 30 s. The
+  privileged stop is only for an engine a crash orphaned: `install.sh`'s sweep through `stop.sh`,
+  and the next connect's `kill_pid_file`. Before, the app ran a privileged stop — a second
+  password dialog without passwordless — and the order of that stop and the helper's end was
+  changed four times in review, each order losing a case
 - **Apple Silicon only**: `ARCHS = arm64`, and `fetch-binaries.sh` pulls arm64 assets. Intel support, if ever needed, is a separate piece of work
 - **NSAllowsArbitraryLoads**: user-provided subscription URLs may be HTTP; the app's own calls (`LocationService` → `ipwho.is`) use HTTPS
 - **Version-tagged privileged paths**: sudoers, libexec, PID files and the log all carry the app version (`1.2` → `warpveil-1-2`), because `.` is illegal in a `/etc/sudoers.d/` filename. Side effect: every version bump re-asks for the password once
@@ -317,7 +320,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
   `/var/run/warpveil-<tag>/stage/`, removed by an EXIT trap however the shell ends, and only
   after `/usr/bin/jq` (macOS 15+, run under `env -i`) accepted that copy. Root never opens a
   path a caller chose: `run.sh` gets the config on stdin from the app, and the osascript command
-  reads the app's file with a `cat` running as the user (`sudo -u '#<uid>'`). The policy: top-level keys limited to `log`,
+  reads the app's file with a `cat` running as the user (`sudo -u '#<uid>'`); the only user path
+  it looks at itself is the session file, and only for whether it exists. The policy: top-level keys limited to `log`,
   `dns`, `ntp`, `inbounds`, `outbounds`, `endpoints`, `route`, `experimental`; any key ending in
   `_path`/`_directory`/`_file` (except `process_path`) or starting with `output`, `external_ui`,
   `cache_file`, `acme`, `write_to_system`, `download_url`, `geoip`, `geosite` refused; `path`
@@ -328,7 +332,7 @@ Write the simplest code that works. Prioritize readability over cleverness.
   new ones. `PATH` and `HOME` are pinned in every root shell: macOS's sudoers has no
   `secure_path` and keeps the caller's `HOME`. The only config the app hands root is the wrapper
   it builds, which names no file; the policy is what holds when something else feeds `run.sh`
-- **PID files**: `run.sh`, `stop.sh` and the osascript fallbacks kill by PID file only — one
+- **PID files**: `run.sh`, `stop.sh` and the osascript fallback kill by PID file only — one
   shared `kill_pid_file`, which checks that the PID's executable is sing-box, then waits up to
   5 s for it to exit before the file is removed; nothing else on the machine is touched. The
   file is `/var/run/warpveil-<tag>/singbox.pid`, in a root-owned directory: in `/tmp` root's
@@ -339,7 +343,7 @@ Write the simplest code that works. Prioritize readability over cleverness.
   its first line: `isRunning` is true while the server's name resolves and xray starts, so
   disconnect, restart, wake and quit tear a pending start down, and a cancelled start touches nothing. A port 10808 that is
   already taken is refused before xray starts; the wrapper starts only once xray's port accepts
-  connections; a session that never reached the helper skips the root stop; and an xray that
+  connections; and an xray that
   exits while connected disconnects. A sing-box with no PID file at our path (another build's tag, a
   hand-started one) survives, and the next connect fails with sing-box's own error in Logs. PID
   files are not deleted at launch: they are the handle on an engine a crash orphaned
@@ -358,15 +362,15 @@ Write the simplest code that works. Prioritize readability over cleverness.
   Translocation's read-only mount — is refused before anything is downloaded or stopped. The
   unpacked `WarpVeil.app` must be a real directory with this bundle id, the tag's version, newer
   than the running one, arm64; anything else is refused with its reason in the row. Then
-  `disconnect()` and `awaitTeardown`: a stop that exited non-zero, or anything of the session
-  still running after 30 s, cancels the update — the new version's tag cannot stop the old one's
-  sing-box. Once the engines are down the bundle is staged as `.WarpVeil.app.new` next to the
-  running one, wherever that is, so an app quit during the wait leaves nothing there. A `/bin/sh`
-  helper spawned before `NSApp.terminate` waits for the app to exit, moves the old bundle aside
-  and the new one in (or the old one back), removes the other copies only once an app is in place,
-  and `open -n`s it. Nothing runs as root, and a download by the app carries no quarantine. No
-  ETag: a 304 counts against GitHub's 60 requests an hour as well. Engine upgrades still ship with
-  the app: bump the pinned tags in `fetch-binaries.sh` and cut a release
+  `disconnect()` and `awaitTeardown`: anything of the session still running after 30 s cancels the
+  update — the new version's tag cannot stop the old one's sing-box. Once the engines are down the
+  bundle is staged as `.WarpVeil.app.new` next to the running one, wherever that is, so an app
+  quit during the wait leaves nothing there. A `/bin/sh` helper spawned before `NSApp.terminate`
+  waits for the app to exit, moves the old bundle aside and the new one in (or the old one back),
+  removes the other copies only once an app is in place, and `open -n`s it. Nothing runs as root,
+  and a download by the app carries no quarantine. No ETag: a 304 counts against GitHub's 60
+  requests an hour as well. Engine upgrades still ship with the app: bump the pinned tags in
+  `fetch-binaries.sh` and cut a release
 - **Public releases without a Developer ID** (owner, 2026-10-14): the zip is ad-hoc signed, so a
   browser download is quarantined and its first launch is blocked — "Apple could not verify
   “WarpVeil”…", Done / Move to Trash — on macOS 15, 26 and 27; Control-click → Open no longer
@@ -429,6 +433,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
   sorted keys, so a load that changes nothing writes nothing
 - `~/.config/warpveil/release-signing.key` — the release key's private half, 0600, the owner's
   machine only
+- `$TMPDIR/warpveil-session-<uuid>` — without passwordless, the file whose removal tells the
+  root engine shell to stop its sing-box; it lives as long as the session
 - `$TMPDIR/warpveil-update-<uuid>/` — an update's download and unpack directory, 0700, one per
   attempt, removed once the update is staged or refused; the zip goes as soon as it is unpacked.
   A quit while the engines stop leaves the unpacked app to `dirhelper`, which clears `$TMPDIR` of

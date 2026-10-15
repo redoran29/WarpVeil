@@ -19,13 +19,19 @@ final class ProcessManager {
     // TUN's address is on the interface the wrapper named. What the UI calls Connected.
     private(set) var isTunnelUp = false
     private static let engineStartedMarker = "[sing-box] started"
+    // The engine shell's line once it runs as root, before sing-box: from here only the shell can
+    // stop it.
+    private static let engineStartingMarker = "[sing-box] starting"
     private nonisolated static let tunAddress = "172.19.0.1"
 
     private var helperProcess: Process?
-    // Whether this session launched its helper — from then on a root engine may run, whatever
-    // became of the helper process.
-    private var helperLaunched = false
-    private var sessionID = 0
+    // How the helper's engine is stopped: a TERM to sudo reaches run.sh's trap; the osascript
+    // shell watches the session file instead, and once it runs as root the helper must wait for
+    // it rather than be killed.
+    private var helperStopsOnTerm = false
+    private var engineShellStarted = false
+    private var isStopping = false
+    private var sessionFile: String?
     private var xrayProcess: Process?
     private var logHandle: FileHandle?
     private var partialLogLine = Data()
@@ -153,10 +159,20 @@ final class ProcessManager {
     // osascript fallback (the bundled binary, the app's file read as the user). PATH and
     // HOME are pinned first: sudo passes the caller's through, and every name below would
     // resolve against them as root. Then stage, check, and only then kill the previous engine.
-    // The EXIT trap removes the staged copy however the shell ends — the osascript shell never
-    // sees a TERM — and the PID file once it is ours, unless a newer run.sh already wrote its own.
-    private static func engineShell(binary: String, configReader: String) -> String {
-        """
+    // The EXIT trap removes the staged copy however the shell ends, and the PID file once it is
+    // ours, unless a newer run.sh already wrote its own.
+    // The shell names the TUN itself, just before sing-box takes it — the first utun past every
+    // one that exists, the way sing-box would pick one — and prints its start line once that
+    // interface carries the address: a tunnel another build or client holds there is never ours.
+    // It also stops its own sing-box, so a disconnect needs no privileged stop: run.sh on the TERM
+    // sudo passes on when the app ends the helper, the osascript shell — which no signal from the
+    // app reaches — once the app's session file is gone. Root only tests that file for existence.
+    private static func engineShell(binary: String, configReader: String, sessionFile: String? = nil) -> String {
+        let sessionCheck = sessionFile.map {
+            "[[ -e \($0) ]] || { echo '[sing-box] not started: the session ended'; exit 0; }"
+        } ?? ""
+        let watch = sessionFile.map { "[[ -e \($0) ]] || cleanup\n    sleep 0.5" } ?? "[[ -z \"$UP\" ]] || break\n    sleep 0.1"
+        return """
         export PATH=/usr/bin:/bin:/usr/sbin:/sbin
         export HOME=/var/empty
         \(configFunctions)
@@ -165,14 +181,16 @@ final class ProcessManager {
         trap 'rm -f "$CFG"' EXIT
         check_config "$CFG"
         kill_pid_file \(singboxPidFile) sing-box || { echo '[error] previous sing-box still running'; exit 1; }
-        TUN_NAME=$(env -i /usr/bin/jq -r '[.inbounds[]? | select(.type == "tun") | .interface_name // empty][0] // empty' "$CFG")
-        if [[ -n "$TUN_NAME" ]] && ifconfig "$TUN_NAME" >/dev/null 2>&1; then
-            echo "[error] $TUN_NAME was taken since the app picked it — connect again"
-            exit 1
-        fi
+        \(sessionCheck)
+        LAST=$(ifconfig -l | tr ' ' '\\n' | sed -n 's/^utun\\([0-9][0-9]*\\)$/\\1/p' | sort -n | tail -1)
+        TUN_NAME=utun$(( ${LAST:--1} + 1 ))
+        NAMED=$(mktemp '\(stageDir)/singbox.XXXXXX') || exit 1
+        env -i /usr/bin/jq --arg name "$TUN_NAME" '(.inbounds[]? | select(.type == "tun")).interface_name = $name' "$CFG" > "$NAMED" || { rm -f "$NAMED"; exit 1; }
+        rm -f "$CFG"
+        CFG=$NAMED
         [[ "$(ifconfig)" != *"inet \(tunAddress) "* ]] || echo '[warning] another tunnel already holds \(tunAddress)'
         cd '\(stageDir)'
-        echo '[sing-box] starting...'
+        echo '\(engineStartingMarker)...'
         \(binary) run -c "$CFG" &
         VPN_PID=$!
         echo $VPN_PID > \(singboxPidFile)
@@ -185,12 +203,13 @@ final class ProcessManager {
             exit 0
         }
         trap cleanup TERM INT
+        UP=
         while kill -0 $VPN_PID 2>/dev/null; do
-            if [[ "$(ifconfig "$TUN_NAME" 2>/dev/null)" == *"inet \(tunAddress) "* ]]; then
+            if [[ -z "$UP" && "$(ifconfig "$TUN_NAME" 2>/dev/null)" == *"inet \(tunAddress) "* ]]; then
                 echo "\(engineStartedMarker) pid=$VPN_PID"
-                break
+                UP=1
             fi
-            sleep 0.1
+            \(watch)
         done
         wait
         """
@@ -443,22 +462,22 @@ final class ProcessManager {
     // edit made while the restart is pending is not lost. The delay stops during sleep, so wake
     // can re-arm a pending restart before it fires.
     private func restart(_ message: String, after delay: Duration) {
-        // A stop already out is a disconnect or a restart under way: a wake or a routing edit
-        // during its password dialog must not bring the tunnel back after it.
-        guard lastConnection != nil, teardownProcess?.isRunning != true else { return }
+        // A teardown under way is a disconnect or a restart: a wake or a routing edit during it
+        // must not bring the tunnel back after it.
+        guard lastConnection != nil, !isStopping else { return }
         logs.append(message)
         reconnectTask?.cancel()
         if isRunning { tearDownEngines() }
 
         reconnectTask = Task {
             try? await Task.sleep(for: delay, clock: .suspending)
-            // The stop takes as long as its password dialog; one that fails leaves the session up
-            // with what it started with, and the restart gives way to it — it is no longer pending,
-            // or a later wake would take it up for a session that has ended since.
-            guard await awaitTeardown(timeout: .infinity) else {
+            // An engine that does not stop leaves the session up with what it started with, and the
+            // restart gives way to it — it is no longer pending, or a later wake would take it up
+            // for a session that has ended since.
+            guard await awaitTeardown(timeout: 30) else {
                 guard !Task.isCancelled else { return }
                 reconnectTask = nil
-                logs.append("[Restart skipped — the tunnel is still up with its old settings; disconnect and connect to apply them]")
+                logs.append("[Restart skipped — the tunnel did not stop; disconnect and connect to apply the change]")
                 return
             }
             guard !Task.isCancelled, let params = lastConnection else { return }
@@ -484,11 +503,8 @@ final class ProcessManager {
         // and without passwordless ask for the password again.
         reconnectTask?.cancel()
         reconnectTask = nil
-        // A stop still running would read the PID file the new run.sh writes and kill the fresh
-        // engine or delete its only handle. Without passwordless it is the first of two password
-        // dialogs, so the connect waits for its answer, however long that takes.
         // An xray still exiting holds the port the next one needs.
-        let exiting = [teardownProcess, xrayProcess].compactMap { $0 }.filter(\.isRunning)
+        let exiting = [xrayProcess].compactMap { $0 }.filter(\.isRunning)
         if !exiting.isEmpty {
             logs.append("[Waiting for the previous engines to stop...]")
             reconnectTask = Task {
@@ -541,9 +557,8 @@ final class ProcessManager {
         // quit see it and a second connect is refused. The start waits in reconnectTask; whoever
         // cancels it — disconnect, restart, wake — tears the session down itself, so a cancelled
         // start touches nothing.
-        sessionID += 1
-        teardownProcess = nil
-        helperLaunched = false
+        engineShellStarted = false
+        isStopping = false
         isRunning = true
         // Read now, not after the lookup: the IPv6 watcher compares the host with this value as
         // soon as the session exists.
@@ -608,22 +623,6 @@ final class ProcessManager {
         return String(cString: resolved)
     }
 
-    // The TUN is named here, not by sing-box, so the engine shell can tell it from a tunnel another
-    // build or client holds at the same address: the first utun past every one that exists, the
-    // way sing-box picks one itself. One taken in the meantime makes sing-box fail, not mistake it.
-    private static func freeTunName() -> String {
-        var next = 0
-        guard let list = if_nameindex() else { return "utun\(next)" }
-        defer { if_freenameindex(list) }
-        var entry = list
-        while entry.pointee.if_index != 0, let name = entry.pointee.if_name {
-            let text = String(cString: name)
-            if text.hasPrefix("utun"), let index = Int(text.dropFirst(4)) { next = max(next, index + 1) }
-            entry += 1
-        }
-        return "utun\(next)"
-    }
-
     // A link carries an IPv6 address in brackets; xray takes it either way, the wrapper's rule
     // only bare.
     private static func ipLiteral(_ host: String) -> String? {
@@ -637,8 +636,7 @@ final class ProcessManager {
         serverAddresses: [String], dialerPath: String?, bypassDomains: [String], hostHasIPv6: Bool
     ) {
         let wrapper = BypassService.injectSingBox(
-            Self.buildTunWrapperConfig(serverAddresses: serverAddresses, dialerPath: dialerPath, tunName: Self.freeTunName()),
-            domains: bypassDomains)
+            Self.buildTunWrapperConfig(serverAddresses: serverAddresses, dialerPath: dialerPath), domains: bypassDomains)
         FileManager.default.createFile(atPath: singboxConfigFile,
                                         contents: BypassService.fitTunToHost(wrapper, hostHasIPv6: hostHasIPv6).data(using: .utf8),
                                         attributes: [.posixPermissions: 0o600])
@@ -656,7 +654,10 @@ final class ProcessManager {
             process.standardOutput = engineLog
             process.standardError = engineLog
         } else {
-            let cmd = buildNonPrivilegedShellCommand(singBoxPath: singBoxPath, configFile: singboxConfigFile)
+            let file = FileManager.default.temporaryDirectory.path + "/warpveil-session-\(UUID().uuidString)"
+            FileManager.default.createFile(atPath: file, contents: nil, attributes: [.posixPermissions: 0o600])
+            sessionFile = file
+            let cmd = buildNonPrivilegedShellCommand(singBoxPath: singBoxPath, configFile: singboxConfigFile, sessionFile: file)
             process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
             process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(cmd)) with administrator privileges"]
         }
@@ -676,7 +677,7 @@ final class ProcessManager {
         do {
             try process.run()
             helperProcess = process
-            helperLaunched = true
+            helperStopsOnTerm = isPasswordless
         } catch {
             logs.append("[Error: \(error.localizedDescription)]")
             endSession()
@@ -688,11 +689,11 @@ final class ProcessManager {
     // read by a cat running as the user, so a symlink swapped in for the app's file reaches
     // nothing the user could not read. `>>`: xray is already writing the log through the app's
     // append-mode handle.
-    private func buildNonPrivilegedShellCommand(singBoxPath: String, configFile: String) -> String {
+    private func buildNonPrivilegedShellCommand(singBoxPath: String, configFile: String, sessionFile: String) -> String {
         let readAsUser = "/usr/bin/sudo -n -u '#\(getuid())' /bin/cat \(Self.shellEscape(configFile))"
         return """
         exec >> \(Self.shellEscape(logFile)) 2>&1
-        \(Self.engineShell(binary: Self.shellEscape(singBoxPath), configReader: readAsUser))
+        \(Self.engineShell(binary: Self.shellEscape(singBoxPath), configReader: readAsUser, sessionFile: Self.shellEscape(sessionFile)))
         """
     }
 
@@ -794,7 +795,7 @@ final class ProcessManager {
     // and an address rule alone would send every other site on that edge past the VPN, so only
     // xray's own connections to them go direct. Root can read the socket list this needs (canon,
     // Gotchas); if macOS takes that away, such a server loops — it does not leak.
-    private nonisolated static func buildTunWrapperConfig(serverAddresses: [String], dialerPath: String?, tunName: String) -> String {
+    private nonisolated static func buildTunWrapperConfig(serverAddresses: [String], dialerPath: String?) -> String {
         var rules: [[String: Any]] = [
             ["action": "hijack-dns", "protocol": "dns"] as [String: Any],
             ["action": "sniff"] as [String: Any]
@@ -822,7 +823,6 @@ final class ProcessManager {
                 [
                     "type": "tun",
                     "tag": "tun-in",
-                    "interface_name": tunName,
                     // IPv6 joins at connect time, only when the host has it (fitTunToHost).
                     "address": ["\(tunAddress)/30"],
                     "auto_route": true,
@@ -860,8 +860,8 @@ final class ProcessManager {
     }
 
     // Toggling bypass with an empty list, editing the list while bypass is off, or removing and
-    // re-adding a domain changes nothing in the routing; without passwordless a reconnect is two
-    // admin prompts. While a reconnect is pending, recording the list is enough: it reads it.
+    // re-adding a domain changes nothing in the routing; without passwordless a reconnect is an
+    // admin prompt. While a reconnect is pending, recording the list is enough: it reads it.
     func reconnect(bypassDomains: [String]) {
         guard let params = lastConnection, Set(bypassDomains) != Set(params.bypassDomains) else { return }
         lastConnection?.bypassDomains = bypassDomains
@@ -877,95 +877,49 @@ final class ProcessManager {
         tearDownEngines()
     }
 
-    // The root engine goes first, and the session ends only once it is gone: a stop that fails — a
-    // password dialog cancelled — leaves the tunnel up and the session running, rather than xray
-    // gone under a root sing-box that still sends every connection to its port. A session still
-    // waiting for xray has no root engine yet: no stop, and no password dialog for one. The helper
-    // goes before the stop: one still at its own password dialog takes the dialog with it, and
-    // passwordless run.sh's TERM trap stops its sing-box. Its exit no longer speaks for the session.
+    // The engine shell stops its own sing-box: run.sh on the TERM sudo passes on when the helper
+    // ends, the osascript shell once the session file is gone. The session ends when the helper
+    // exits, which it does only after its sing-box, so nothing is left running behind a window that
+    // reads Disconnected, and no password is asked. An osascript helper whose shell has not begun —
+    // still at its password dialog — goes with its dialog; a shell that starts anyway finds no
+    // session file. A session still waiting for xray has no helper yet.
     private func tearDownEngines() {
-        guard helperLaunched else {
+        guard let helper = helperProcess else {
             endSession()
             return
         }
-        guard teardownProcess?.isRunning != true else { return }
-        let helper = helperProcess
-        helperProcess = nil
-        helper?.terminate()
-        killVPNProcesses()
+        guard !isStopping else { return }
+        isStopping = true
+        removeSessionFile()
+        if helperStopsOnTerm || !engineShellStarted { helper.terminate() }
     }
 
-    // What runs as the user goes once the root engine has: the helper exits by itself when its
-    // sing-box does.
     private func endSession() {
         helperProcess?.terminate()
         helperProcess = nil
         xrayProcess?.terminate()
+        removeSessionFile()
         stopLogTail()
+        isStopping = false
         isRunning = false
     }
 
-    // This session's root stop: running, or how it ended. Quit, restart and an update wait on it.
-    private var teardownProcess: Process?
+    private func removeSessionFile() {
+        guard let sessionFile else { return }
+        try? FileManager.default.removeItem(atPath: sessionFile)
+        self.sessionFile = nil
+    }
 
-    // The non-passwordless stop is a password dialog, so the wait is however long the user takes.
-    // True once the session ended and its xray is gone; false once its stop failed — a cancelled
-    // dialog and a sing-box that outlived kill_pid_file's wait both exit non-zero, and the tunnel
-    // is still up — or when the time runs out.
+    // Quit, restart and an update need the session over before they go on. True once it ended and
+    // its xray is gone; false when the time runs out — an engine that would not stop.
     @discardableResult
     func awaitTeardown(timeout: TimeInterval) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline, !Task.isCancelled {
-            if !isRunning, xrayProcess?.isRunning != true { return true }
-            // A stop that exited 0 ends the session a moment later; terminationStatus raises on a
-            // stop still running.
-            if isRunning, teardownProcess.map({ !$0.isRunning && $0.terminationStatus != 0 }) ?? true { return false }
+        while isRunning || xrayProcess?.isRunning == true {
+            guard Date() < deadline, !Task.isCancelled else { return false }
             try? await Task.sleep(for: .milliseconds(100))
         }
-        return false
-    }
-
-    private func killVPNProcesses() {
-        refreshPasswordless()
-        let kill = Process()
-        if isPasswordless {
-            kill.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-            kill.arguments = [Self.stopScriptPath]
-        } else {
-            // The helper stop.sh carries, inline: the libexec copy exists only in passwordless mode.
-            let cmd = """
-                export PATH=/usr/bin:/bin:/usr/sbin:/sbin
-                \(Self.killPidFileFunction)
-                kill_pid_file \(Self.shellEscape(Self.singboxPidFile)) sing-box
-                """
-            kill.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            kill.arguments = ["-e", "do shell script \(Self.appleScriptEscape(cmd)) with administrator privileges"]
-        }
-        watchStop(kill)
-        do {
-            try kill.run()
-            teardownProcess = kill
-        } catch {
-            logs.append("[Error: cannot stop the engine: \(error.localizedDescription) — the tunnel is still up]")
-        }
-    }
-
-    // A stop that succeeded ends its session; one that failed leaves it running and says so. A
-    // stop that finishes after its session already ended — the helper exits as soon as sing-box
-    // does, and a new session may have begun — touches nothing.
-    private func watchStop(_ stop: Process) {
-        let session = sessionID
-        stop.terminationHandler = { [weak self] p in
-            let status = p.terminationStatus
-            Task { @MainActor in
-                guard let self, self.sessionID == session, self.isRunning else { return }
-                if status == 0 {
-                    self.endSession()
-                } else {
-                    self.logs.append("[Disconnect did not finish (exit \(status)) — the tunnel is still up]")
-                }
-            }
-        }
+        return true
     }
 
     func clearLogs() {
@@ -1010,6 +964,7 @@ final class ProcessManager {
         guard end > pending.startIndex else { return }
         let text = String(decoding: pending[..<end], as: UTF8.self)
         let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
+        if isRunning, lines.contains(where: { $0.hasPrefix(Self.engineStartingMarker) }) { engineShellStarted = true }
         if isRunning, lines.contains(where: { $0.hasPrefix(Self.engineStartedMarker) }) { isTunnelUp = true }
         logs.append(contentsOf: lines)
         if logs.count > 600 {

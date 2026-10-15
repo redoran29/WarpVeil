@@ -82,8 +82,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // Every quit path goes through here — Cmd+Q, the status menu, an update, and dev-run.sh's and
-    // install.sh's AppleScript quit — so this is where the engines stop. A stop that fails leaves
-    // the tunnel up and the app quits anyway: its xray outlives it until the next connect.
+    // install.sh's AppleScript quit — so this is where the engines stop. An engine that has not
+    // stopped in 30 s is left to the next connect, whose run.sh replaces it.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // Synchronous: the .terminateNow path below exits without waiting for anything.
         app.ping.cancel()
