@@ -31,10 +31,10 @@ ready — what is in `main` plus the updater — and every later feature arrives
   `CHANGELOG.md` (owner, 2026-10-14).
 - 1.3 is the first release with the updater, installed by hand once; it ships before the other
   planned features (owner, 2026-10-15).
-- The engine shell prints its start line only once a utun it did not find at the start carries the
-  TUN's address, and the app stops looking at interfaces itself. It changes run.sh, which re-asks
-  the password, so it lands with the 1.3 bump, which re-asks it anyway (owner, 2026-10-15; review
-  round 5 of plans 18 and 19, `git show 18eded9:plans/18-xray-server-loop.md`).
+- The engine shell, not the app, says when the tunnel is up. It changes run.sh, which re-asks the
+  password, so it lands with the 1.3 bump, which re-asks it anyway (owner, 2026-10-15; review
+  round 5 of plans 18 and 19, `git show 18eded9:plans/18-xray-server-loop.md`). How it tells is
+  round 2's decision below.
 - Review round 2: the app names the TUN (a free utun, the way sing-box would pick one) and the
   engine shell waits for the address on exactly that interface — no comparing interface lists
   (owner, 2026-10-15).
@@ -147,3 +147,22 @@ ready — what is in `main` plus the updater — and every later feature arrives
   a failed stop leaves it up, and nothing is kept across sessions (`88ababe`, owner's decision
   above). Not run live: the stop's password dialog needs the owner — checked at the 1.3 install.
 - The version-tagged PID path stays (owner's decision above).
+
+### Review (2026-10-15, round 3)
+`/code-review 55346ab..10731ac`, findings and what was done:
+- A disconnect or a quit during the connect's own password dialog stacked a second dialog and left
+  the first up: the helper goes before the stop again (`fd83cd1`).
+- A skipped restart stayed pending for a later wake, and its line hid that the old settings run on
+  (`98bbe14`).
+- The TUN's name was picked before xray's start; a name taken before sing-box started could match
+  for a few milliseconds; the warning about a held address was gone (`7c3c4eb`).
+- The update's hold on connects covered only AppState's connect, not ProcessManager's restarts
+  (`62285db`).
+- `abandonStart` duplicated `endSession` (`68bb041`); the stop's launch was written twice
+  (`ee94b41`); an empty branch in `awaitTeardown` (`6878df2`); the Terminal install left its
+  download (`f542738`); this plan still described the replaced start-line mechanism.
+- Not changed: a quit whose stop was cancelled leaves the tunnel to the next connect, which stops
+  the old xray before it replaces the root sing-box — so a connect cancelled at its dialog leaves
+  the state an engine a crash orphaned leaves, which the canon describes (PID files).
+- Not changed: `awaitTeardown` polls every 100 ms for as long as a stop's password dialog stays
+  open — a few property reads ten times a second while the user decides.
