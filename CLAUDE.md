@@ -15,10 +15,11 @@ to code.
 
 ### 1. Plan
 
-The plan is written by a subagent on the **Fable 5** model, not by the main session:
+The plan is written by a subagent, not by the main session. It runs on the session's own
+model — no `model` override:
 
 ```
-Agent(subagent_type: "general-purpose", model: "fable", prompt: "…")
+Agent(subagent_type: "general-purpose", prompt: "…")
 ```
 
 That agent's job is done only when it has:
