@@ -153,9 +153,9 @@ final class AppState {
         }
     }
 
-    // The tunnel coming up starts the uptime and the location polling, and going down stops them
-    // — a connect, a restart and an engine's exit alike. A view cannot watch this: views come and
-    // go with the window.
+    // The tunnel coming up starts the uptime, the speed monitor and the location polling, and going
+    // down stops them — a connect, a restart and an engine's exit alike. A view cannot watch this:
+    // views come and go with the window.
     private func observeTunnel() {
         withObservationTracking {
             _ = pm.isTunnelUp
@@ -173,9 +173,11 @@ final class AppState {
         tunnelWasUp = pm.isTunnelUp
         if tunnelWasUp {
             connectedAt = Date()
+            net.start()
             startLocationTimer()
         } else {
             connectedAt = nil
+            net.stop()
             locationTimer?.invalidate()
             locationTimer = nil
             locationTask?.cancel()

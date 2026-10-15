@@ -25,7 +25,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
     private let app = AppState()
-    private var wasTunnelUp = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -142,10 +141,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 updateStatusIcon()
-                if app.pm.isTunnelUp != wasTunnelUp {
-                    wasTunnelUp = app.pm.isTunnelUp
-                    if app.pm.isTunnelUp { app.net.start() } else { app.net.stop() }
-                }
                 observeState()
             }
         }
