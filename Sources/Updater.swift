@@ -56,16 +56,20 @@ final class Updater {
 
     // MARK: - Check
 
-    // An automatic check has no one to report to, so its failure leaves the row as it was.
+    // An automatic check has no one to report to, so its failure leaves the row as it was. A
+    // status menu built before the check began still offers the update, and an install started
+    // from it owns the state from then on.
     func check(manual: Bool = false) async {
         guard state != .checking, state != .installing else { return }
         let previous = state
         state = .checking
         do {
             let latest = try await Self.latestRelease()
+            guard state == .checking else { return }
             release = latest
             state = Self.isNewer(latest.version) ? .available(latest.version) : .upToDate
         } catch {
+            guard state == .checking else { return }
             state = manual ? .failed(Self.describe(error)) : previous
         }
     }
@@ -95,6 +99,8 @@ final class Updater {
     // sing-box, and a teardown that does not finish — a password dialog left unanswered —
     // cancels the update. True once the shell has the swap: the caller quits the app.
     func install(stopEngines: () async -> Bool) async -> Bool {
+        // A second install would share the staging path and race the first one's swap.
+        guard state != .installing else { return false }
         guard let release, let key = Self.publicKey else {
             state = .failed("No update checked")
             return false
