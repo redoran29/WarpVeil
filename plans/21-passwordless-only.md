@@ -89,3 +89,19 @@ unreachable busy guard and writes the staged list once). Also:
 - A skipped restart always blamed the engine (`b04fa14`); a disconnect during a restart's stop read
   as if it did nothing (`93beae4`).
 - A removal's dialog outliving a quit or an update: covered by the same wait.
+
+### Review (2026-10-15, round 4)
+`/code-review bc7e458..051e63e`, findings and what was done:
+- Folding the helper's dialog into the wait every caller shares made a restart give up on the
+  install after 30 s and re-ask after a cancel: a restart waits for the session only and its
+  connect joins the install; a quit and an update still wait for the dialog; what blocks is named
+  in one place (`d1f1ad1`), and the update's failure names it too (`c5dbde3`).
+- A connect could start during a quit's wait: the update's hold is now a general one with its
+  reason, set by a quit too (`fc9d643`).
+- The staged scripts lost their guard against a root shell still reading them (`eb130e0`).
+- The install's and the removal's failures say why, not osascript's uninformative exit 1
+  (`f599236`); a comment listed what `isTornDown` checks (`b8ccf82`).
+- Not changed: a quit that outwaits its 30 s leaves a helper dialog behind, like an engine; answered
+  late, it can undo a newer install, and the next connect asks again.
+- Process slip: `c82885b` bundled the dialog decision with four smaller changes.
+
