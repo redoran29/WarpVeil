@@ -510,8 +510,6 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         return serializeJSON(config) ?? "{}"
     }
 
-
-
     // MARK: - xray JSON parsing (for ?format=xray)
 
     static let vpnTypesXray: Set<String> = [
@@ -530,12 +528,8 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
     // its outbound's tag.
     private func servers(in root: [String: Any]) -> [Server] {
         let outbounds = root["outbounds"] as? [[String: Any]] ?? []
-        let proxies = outbounds.filter {
-            ($0["protocol"] as? String).map(Self.vpnTypesXray.contains) == true && BypassService.serverEndpoint($0) != nil
-        }
-        let remarks = proxies.count == 1 ? root["remarks"] as? String : nil
-        return proxies.compactMap { outbound in
-            guard let proto = outbound["protocol"] as? String,
+        let listed: [Server] = outbounds.compactMap { outbound in
+            guard let proto = outbound["protocol"] as? String, Self.vpnTypesXray.contains(proto),
                   let endpoint = BypassService.serverEndpoint(outbound),
                   let host = endpoint["address"] as? String else { return nil }
             let port = endpoint["port"] as? Int ?? 0
@@ -547,11 +541,15 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
                 proxy["proxySettings"] = nil
                 proxy = BypassService.settingSockopt(proxy, "dialerProxy", tag)
             }
-            return Server(name: remarks ?? outbound["tag"] as? String ?? proto, protocolType: proto,
+            return Server(name: outbound["tag"] as? String ?? proto, protocolType: proto,
                           address: "\(host):\(port)", transport: Self.canonicalTransport(network),
                           config: xrayClientConfig(proxy, dialers: BypassService.xrayDialers(of: proxy, in: outbounds)),
                           engine: .xray)
         }
+        guard listed.count == 1, let remarks = root["remarks"] as? String else { return listed }
+        var only = listed[0]
+        only.name = remarks
+        return [only]
     }
 
     // MARK: - Manual config
