@@ -113,7 +113,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             guard !subscriptions.contains(where: { $0.servers.contains { $0.isSameNode(as: server) } }) else {
                 return .duplicateServer
             }
-            var sub = Subscription(name: server.name, isManual: true, engine: .singBox)
+            var sub = Subscription(name: server.name, isManual: true, engine: .xray)
             sub.servers = [server]
             sub.lastUpdated = Date()
             subscriptions.append(sub)
@@ -130,7 +130,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         }
 
         let name = URLComponents(string: trimmed)?.host ?? "Subscription"
-        let sub = Subscription(name: name, url: trimmed, engine: .singBox)
+        let sub = Subscription(name: name, url: trimmed, engine: .xray)
         subscriptions.append(sub)
         save()
         await refreshSubscription(sub.id)
@@ -155,18 +155,14 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
 
         let urlString = subscriptions[idx].url
 
-        // Strategy 1: fetch raw URL → decode base64 → parse vless:// URIs
+        // A list of links first, then the panel's xray format: every server runs on xray.
         if let servers = await fetchAndParseURIs(urlString), !servers.isEmpty {
-            store(servers, engine: .singBox, in: id)
+            store(servers, engine: .xray, in: id)
             return true
         }
-
-        // Strategy 2: try ?format=singbox, then ?format=xray
-        for engine in [Engine.singBox, .xray] {
-            if let servers = await fetchFormattedConfig(urlString, engine: engine), !servers.isEmpty {
-                store(servers, engine: engine, in: id)
-                return true
-            }
+        if let servers = await fetchXrayFormat(urlString), !servers.isEmpty {
+            store(servers, engine: .xray, in: id)
+            return true
         }
         return false
     }
@@ -272,12 +268,11 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         return servers.isEmpty ? nil : servers
     }
 
-    private func fetchFormattedConfig(_ urlString: String, engine: Engine) async -> [Server]? {
+    private func fetchXrayFormat(_ urlString: String) async -> [Server]? {
         guard var components = URLComponents(string: urlString) else { return nil }
         var items = components.queryItems ?? []
-        let format = engine == .singBox ? "singbox" : "xray"
         items.removeAll { $0.name == "format" }
-        items.append(URLQueryItem(name: "format", value: format))
+        items.append(URLQueryItem(name: "format", value: "xray"))
         components.queryItems = items
         guard let urlStr = components.string else { return nil }
 
@@ -285,7 +280,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
               let json = String(data: data, encoding: .utf8)
         else { return nil }
 
-        let servers = engine == .singBox ? parseSingBox(json) : parseXray(json)
+        let servers = parseXray(json)
         return servers.isEmpty ? nil : servers
     }
 
@@ -336,21 +331,9 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             }
         }
 
-        let transportType = params["type"] ?? "tcp"
-        let needsXray = transportType == "xhttp" || transportType == "splithttp"
-
-        let config: String
-        let engine: Engine
-        if needsXray {
-            config = buildXrayConfig(protocol: "vless", uuid: uuid, host: host, port: port, params: params, tag: name)
-            engine = .xray
-        } else {
-            config = buildSingBoxConfig(protocol: "vless", uuid: uuid, host: host, port: port, params: params, tag: name)
-            engine = .singBox
-        }
-
+        let config = buildXrayConfig(protocol: "vless", uuid: uuid, host: host, port: port, params: params, tag: name)
         return Server(name: name, protocolType: "vless", address: "\(host):\(port)",
-                      transport: Self.canonicalTransport(transportType), config: config, engine: engine)
+                      transport: Self.canonicalTransport(params["type"] ?? "tcp"), config: config, engine: .xray)
     }
 
     // MARK: - vmess:// URI parser
@@ -367,164 +350,19 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         let id = obj["id"] as? String ?? ""
         let name = obj["ps"] as? String ?? "vmess"
         let net = obj["net"] as? String ?? "tcp"
-        let tls = obj["tls"] as? String ?? ""
-        let sni = obj["sni"] as? String ?? ""
 
-        var outbound: [String: Any] = [
-            "type": "vmess",
-            "tag": name,
-            "server": host,
-            "server_port": port,
-            "uuid": id,
-            "security": "auto",
-            "alter_id": 0
-        ]
-
-        if net == "ws" {
-            let wsPath = obj["path"] as? String ?? "/"
-            let wsHost = obj["host"] as? String ?? ""
-            outbound["transport"] = [
-                "type": "ws",
-                "path": wsPath,
-                "headers": ["Host": wsHost]
-            ] as [String: Any]
+        // The v2rayN fields mapped onto a vless link's query, so one builder serves both;
+        // gRPC carries its service name in `path`.
+        var params: [String: String] = ["type": net]
+        for (field, param) in [("path", "path"), ("host", "host"), ("tls", "security"),
+                               ("sni", "sni"), ("fp", "fp"), ("alpn", "alpn")] {
+            if let value = obj[field] as? String, !value.isEmpty { params[param] = value }
         }
+        if net == "grpc" { params["serviceName"] = params["path"] }
 
-        if tls == "tls" {
-            outbound["tls"] = [
-                "enabled": true,
-                "server_name": sni.isEmpty ? host : sni
-            ] as [String: Any]
-        }
-
-        let config = buildSingBoxConfigFromOutbound(outbound)
+        let config = buildXrayConfig(protocol: "vmess", uuid: id, host: host, port: port, params: params, tag: name)
         return Server(name: name, protocolType: "vmess", address: "\(host):\(port)",
-                      transport: Self.canonicalTransport(net), config: config)
-    }
-
-    // MARK: - sing-box config builder from URI params
-
-    private func buildSingBoxConfig(protocol proto: String, uuid: String, host: String, port: Int, params: [String: String], tag: String) -> String {
-        var outbound: [String: Any] = [
-            "type": proto,
-            "tag": tag,
-            "server": host,
-            "server_port": port,
-            "uuid": uuid
-        ]
-
-        // Flow (for VLESS XTLS)
-        if let flow = params["flow"], !flow.isEmpty {
-            outbound["flow"] = flow
-        }
-
-        // Transport
-        let transportType = params["type"] ?? "tcp"
-        switch transportType {
-        case "ws":
-            var transport: [String: Any] = ["type": "ws"]
-            if let path = params["path"] { transport["path"] = path }
-            if let wsHost = params["host"], !wsHost.isEmpty {
-                transport["headers"] = ["Host": wsHost]
-            }
-            outbound["transport"] = transport
-        case "grpc":
-            var transport: [String: Any] = ["type": "grpc"]
-            if let sn = params["serviceName"] { transport["service_name"] = sn }
-            outbound["transport"] = transport
-        case "xhttp", "splithttp":
-            var transport: [String: Any] = ["type": "splithttp"]
-            if let path = params["path"] { transport["path"] = path }
-            if let xHost = params["host"], !xHost.isEmpty {
-                transport["host"] = xHost
-            }
-            if let mode = params["mode"], !mode.isEmpty {
-                transport["mode"] = mode
-            }
-            outbound["transport"] = transport
-        case "httpupgrade":
-            var transport: [String: Any] = ["type": "httpupgrade"]
-            if let path = params["path"] { transport["path"] = path }
-            if let hHost = params["host"], !hHost.isEmpty {
-                transport["host"] = hHost
-            }
-            outbound["transport"] = transport
-        default:
-            break // tcp — no transport block needed
-        }
-
-        // TLS / Reality
-        let security = params["security"] ?? ""
-        switch security {
-        case "tls":
-            var tls: [String: Any] = ["enabled": true]
-            if let sni = params["sni"], !sni.isEmpty { tls["server_name"] = sni }
-            if let fp = params["fp"], !fp.isEmpty {
-                tls["utls"] = ["enabled": true, "fingerprint": fp] as [String: Any]
-            }
-            if let alpn = params["alpn"], !alpn.isEmpty {
-                tls["alpn"] = alpn.components(separatedBy: ",")
-            }
-            outbound["tls"] = tls
-        case "reality":
-            var tls: [String: Any] = [
-                "enabled": true,
-                "reality": ["enabled": true] as [String: Any]
-            ]
-            if let sni = params["sni"], !sni.isEmpty { tls["server_name"] = sni }
-            if let fp = params["fp"], !fp.isEmpty {
-                tls["utls"] = ["enabled": true, "fingerprint": fp] as [String: Any]
-            }
-
-            var reality: [String: Any] = ["enabled": true]
-            if let pbk = params["pbk"] { reality["public_key"] = pbk }
-            if let sid = params["sid"] { reality["short_id"] = sid }
-            tls["reality"] = reality
-
-            outbound["tls"] = tls
-        default:
-            break
-        }
-
-        return buildSingBoxConfigFromOutbound(outbound)
-    }
-
-    private func buildSingBoxConfigFromOutbound(_ outbound: [String: Any]) -> String {
-        let tag = outbound["tag"] as? String ?? "proxy"
-        let config: [String: Any] = [
-            "log": ["level": "info"],
-            "inbounds": [
-                [
-                    "type": "tun",
-                    "tag": "tun-in",
-                    // IPv6 joins at connect time, only when the host has it (fitTunToHost).
-                    "address": ["172.19.0.1/30"],
-                    "auto_route": true,
-                    "strict_route": true
-                ] as [String: Any]
-            ],
-            "outbounds": [
-                outbound,
-                ["type": "direct", "tag": "direct"] as [String: Any]
-            ],
-            "route": [
-                "auto_detect_interface": true,
-                "default_domain_resolver": ["server": "local"] as [String: Any],
-                "final": tag,
-                "rules": [
-                    ["action": "hijack-dns", "protocol": "dns"] as [String: Any],
-                    ["action": "sniff"] as [String: Any]
-                ]
-            ] as [String: Any],
-            "dns": [
-                "servers": [
-                    ["tag": "remote", "type": "tls", "server": "1.1.1.1", "detour": tag] as [String: Any],
-                    ["tag": "local", "type": "tls", "server": "8.8.8.8"] as [String: Any]
-                ],
-                "strategy": "prefer_ipv4"
-            ] as [String: Any]
-        ]
-        return serializeJSON(config) ?? "{}"
+                      transport: Self.canonicalTransport(net), config: config, engine: .xray)
     }
 
     // MARK: - Xray config builder from URI params
@@ -532,16 +370,13 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
     private func buildXrayConfig(protocol proto: String, uuid: String, host: String, port: Int, params: [String: String], tag: String) -> String {
         let transportType = params["type"] ?? "tcp"
 
+        let user: [String: Any] = proto == "vmess"
+            ? ["id": uuid, "alterId": 0, "security": "auto"]
+            : ["id": uuid, "encryption": params["encryption"] ?? "none", "flow": params["flow"] ?? ""]
         let vnext: [String: Any] = [
             "address": host,
             "port": port,
-            "users": [
-                [
-                    "id": uuid,
-                    "encryption": params["encryption"] ?? "none",
-                    "flow": params["flow"] ?? ""
-                ] as [String: Any]
-            ]
+            "users": [user]
         ]
 
         var outbound: [String: Any] = [
@@ -575,6 +410,11 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             var grpcSettings: [String: Any] = [:]
             if let sn = params["serviceName"] { grpcSettings["serviceName"] = sn }
             streamSettings["grpcSettings"] = grpcSettings
+        case "httpupgrade":
+            var httpupgradeSettings: [String: Any] = [:]
+            if let path = params["path"] { httpupgradeSettings["path"] = path }
+            if let hHost = params["host"], !hHost.isEmpty { httpupgradeSettings["host"] = hHost }
+            streamSettings["httpupgradeSettings"] = httpupgradeSettings
         default:
             break
         }
