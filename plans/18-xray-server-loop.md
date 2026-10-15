@@ -89,3 +89,16 @@ Built in `f695e0c`. `/code-review 89fcdeb..9d857e6` findings for this plan, and 
   before the tunnel existed: Connected now means the root helper runs (`2d76c09`).
 - The reviewer noted that `fed9fbd` and `4acd038` each bundle several fixes; history is public and
   stays as it is, and this round's fixes are one commit each.
+
+### Review (2026-10-15, round 3)
+`/code-review aa6718c..13a9177`, findings for this plan, and what was done. Two places were fixed a
+third time, so their shape changed instead of a fourth patch:
+- Connected followed the helper's launch, which without passwordless is a password dialog: the
+  tunnel now counts as up when the engine shell's own `[sing-box] started` line reaches the log
+  (`1360a72`; run.sh is byte-for-byte unchanged), and one observer drives the uptime, the speed
+  monitor and the location polling (`7a70cb1`).
+- The rule's process path was the unresolved bundle path, while the kernel reports the real one
+  (`f9bff73`).
+- Not changed, recorded: the process rule makes sing-box look up the owning process of every TUN
+  connection while a hostname server is connected — the cost of the owner's choice in round 2; the
+  socket list is cached 200 ms.

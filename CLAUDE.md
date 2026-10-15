@@ -115,11 +115,13 @@ leaks (owner, 2026-10-15). The address is read from `vnext` (vless, vmess), `ser
 shadowsocks, socks) or flat in `settings`, and a config without one is refused. Every xray config
 — built from a link, taken from a panel's `?format=xray`, pasted, or stored by an earlier build
 (moved at load) — runs in the app's frame: one socks inbound on 10808, the proxy, a freedom
-outbound it dials through if it names one (`dialerProxy`, `proxySettings`), a freedom `direct`,
-no routing rules, which would send "direct" traffic back through the TUN. A session counts as
-Connected only once the root helper runs (`ProcessManager.isTunnelUp`): the status, the uptime,
-the menu-bar shield, the speed monitor and the location polling wait for it, and the window says
-Connecting until then.
+outbound it dials through if it names one (`sockopt.dialerProxy`; a `proxySettings` dialer is
+rewritten into one, since xray hands that dial to the sibling by name, past the pin), a freedom
+`direct`, no routing rules, which would send "direct" traffic back through the TUN. A session
+counts as Connected only once the engine shell's own `[sing-box] started` line reaches the log
+the app tails (`ProcessManager.isTunnelUp`) — not when the helper launches, which without
+passwordless is a password dialog: the status, the uptime, the menu-bar shield, the speed
+monitor and the location polling wait for it, and the window says Connecting until then.
 
 ---
 
@@ -310,9 +312,12 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - **Ping is a user-space measurement**: `PingService` runs a user-space xray with a socks inbound
   per server, chained into a user-space sing-box as socks outbounds behind
   `experimental.clash_api` on a free localhost port, and asks `/proxies/<Server.id>/delay` per
-  server. No sudo, no TUN. A server xray refuses at config load would take the merged xray down
-  with every row, so a refused merge is retried with one xray per server. Every tag is measured
-  in three passes over the same engines and the minimum is reported: the first request through a
+  server. No sudo, no TUN. A server's freedom dialers come along under per-server tags, so the
+  probe goes the way the connection does. A server xray refuses at config load would take the
+  merged xray down with every row, so after a refused merge each server's config is checked
+  alone with `xray run -test`, the refused ones show as failed and are named, and the merge runs
+  again without them. Every tag is measured in three passes over the same engines and the
+  minimum is reported: the first request through a
   proxy carries its REALITY/TLS handshake, which puts every server at the same ~800 ms and hides
   the real differences. Passes over all tags, not three requests in a row on one tag — that shape
   was built and measured worse: only the sing-box rows warmed up, the xray rows stayed at ~700 ms
@@ -330,7 +335,7 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - `$TMPDIR/warpveil-<tag>.log` — VPN process log, tailed by a 0.25s polling timer
 - `$TMPDIR/warpveil-singbox-<pid>.json` — the TUN wrapper's sing-box config
 - `$TMPDIR/warpveil-xray-<pid>.json` — xray config; a server given by name has it pinned to the resolved addresses
-- `$TMPDIR/warpveil-ping-{singbox,xray,xray-<n>}-<pid>.json` — ping configs, present only during a run
+- `$TMPDIR/warpveil-ping-{singbox,xray,xray-test-<n>}-<pid>.json` — ping configs, present only during a run
 - `/var/run/warpveil-<tag>/singbox.pid` — sing-box's PID, root's (directory 0755)
 - `$TMPDIR/warpveil-<tag>-xray.pid` — xray's PID, the user's
 - `/usr/local/libexec/warpveil-<tag>/{run.sh,stop.sh,sing-box}` — the passwordless install,

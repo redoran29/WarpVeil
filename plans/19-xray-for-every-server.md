@@ -96,3 +96,20 @@ was done:
 - The ping fallback started per-server xrays one after another, kept a timed-out launch's ports,
   left a refused row blank and kept a stale error: started together, stopped when not ready, failed
   rows named in the error (`b0fdf16`).
+
+### Review (2026-10-15, round 3)
+`/code-review aa6718c..13a9177`, findings for this plan, and what was done:
+- A `proxySettings` dialer reached the freedom sibling with the server's name, past the pin: it
+  is rewritten into `sockopt.dialerProxy` in the frame (`d960c48`).
+- The ping measured a server without its dialer, so a server that needs fragmentation read as
+  dead: dialers come along under per-server tags (`def1e74`).
+- The ping fallback was fixed a third time, so its shape changed: after a refused merge each
+  server's config is checked with `xray run -test`, the refused ones are failed and named, and the
+  merge runs again — no port race, no serial readiness waits, nothing marked failed on a cancel,
+  no launch blamed that xray never saw (`bed1a58`).
+- The sockopt edit existed three times: one helper (`d0b7ce6`).
+- A reframed row kept its old address and transport (`03a76f9`); remarks counted servers that
+  were not listed (`e8d6d02`).
+- Owner, 2026-10-15: a feed's stale sing-box row still counts as a duplicate when its link is
+  added again (round 2's rule kept; a dead feed is removed before its links are re-added).
+- Not changed, measured: reframing runs at every load — 500 servers load in 20–34 ms with it.
