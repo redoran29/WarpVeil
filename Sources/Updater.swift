@@ -126,13 +126,15 @@ final class Updater {
             state = .failed(error.localizedDescription)
             return false
         }
-        // Whatever the renames do, "$1" is an app at the end: the new one, or the old one back.
+        // "$1" ends as the new app or the old one back; the old one is removed only once "$1" is an
+        // app, so a rollback that failed leaves it aside rather than nowhere.
         let script = """
             export PATH=/usr/bin:/bin
             while kill -0 "$4" 2>/dev/null; do sleep 0.2; done
             rm -rf "$3"
             mv "$1" "$3" && { mv "$2" "$1" || mv "$3" "$1"; }
-            rm -rf "$2" "$3"
+            rm -rf "$2"
+            [ -d "$1" ] && rm -rf "$3"
             open -n "$1"
             """
         let helper = Process()
