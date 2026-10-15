@@ -101,6 +101,16 @@ enum BypassService {
         return serializeJSON(root) ?? json
     }
 
+    // A proxy can dial through a sibling named in `sockopt.dialerProxy` — a freedom outbound that
+    // fragments its packets, say. A freedom sibling dials the server's own address, which the
+    // wrapper routes direct, so it comes along; a proxy sibling would dial an address the wrapper
+    // knows nothing about, so it is left out and the dial fails loudly.
+    static func xrayDialers(of outbound: [String: Any], in outbounds: [[String: Any]]) -> [[String: Any]] {
+        let sockopt = (outbound["streamSettings"] as? [String: Any])?["sockopt"] as? [String: Any]
+        guard let tag = sockopt?["dialerProxy"] as? String else { return [] }
+        return outbounds.filter { ($0["protocol"] as? String) == "freedom" && ($0["tag"] as? String) == tag }
+    }
+
     // xray keeps an outbound's dial options in `streamSettings.sockopt`, which a config may not
     // have yet.
     static func settingSockopt(_ outbound: [String: Any], _ key: String, _ value: Any?) -> [String: Any] {

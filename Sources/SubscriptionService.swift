@@ -507,16 +507,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         return serializeJSON(config) ?? "{}"
     }
 
-    // A proxy can dial through a sibling — a freedom outbound that fragments its packets, say —
-    // named in `sockopt.dialerProxy` or `proxySettings.tag`. A freedom sibling dials the server's
-    // own address, which the wrapper routes direct, so it comes along; a proxy sibling would dial
-    // an address the wrapper knows nothing about, so it is left out and the dial fails loudly.
-    private static func dialers(of outbound: [String: Any], in outbounds: [[String: Any]]) -> [[String: Any]] {
-        let sockopt = (outbound["streamSettings"] as? [String: Any])?["sockopt"] as? [String: Any]
-        let tags = [sockopt?["dialerProxy"], (outbound["proxySettings"] as? [String: Any])?["tag"]]
-            .compactMap { $0 as? String }
-        return outbounds.filter { ($0["protocol"] as? String) == "freedom" && tags.contains($0["tag"] as? String ?? "") }
-    }
+
 
     // MARK: - xray JSON parsing (for ?format=xray)
 
@@ -544,9 +535,16 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
                   let host = endpoint["address"] as? String else { return nil }
             let port = endpoint["port"] as? Int ?? 0
             let network = (outbound["streamSettings"] as? [String: Any])?["network"] as? String ?? "tcp"
+            // xray hands a dial routed by proxySettings to the sibling with the server's name, past
+            // the pin; a dialerProxy dial resolves first, through it.
+            var proxy = outbound
+            if let tag = (proxy["proxySettings"] as? [String: Any])?["tag"] as? String {
+                proxy["proxySettings"] = nil
+                proxy = BypassService.settingSockopt(proxy, "dialerProxy", tag)
+            }
             return Server(name: remarks ?? outbound["tag"] as? String ?? proto, protocolType: proto,
                           address: "\(host):\(port)", transport: Self.canonicalTransport(network),
-                          config: xrayClientConfig(outbound, dialers: Self.dialers(of: outbound, in: outbounds)),
+                          config: xrayClientConfig(proxy, dialers: BypassService.xrayDialers(of: proxy, in: outbounds)),
                           engine: .xray)
         }
     }
