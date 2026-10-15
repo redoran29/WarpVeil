@@ -487,7 +487,7 @@ final class ProcessManager {
             guard await awaitTeardown(timeout: 30) else {
                 guard !Task.isCancelled else { return }
                 reconnectTask = nil
-                logs.append("[Restart skipped — the tunnel did not stop; disconnect and connect to apply the change]")
+                logs.append("[Restart skipped — the engine did not stop, and the tunnel runs with its old settings]")
                 return
             }
             guard !Task.isCancelled, let params = lastConnection else { return }
@@ -885,7 +885,7 @@ final class ProcessManager {
         // An install's dialog waits for nobody now; a removal's is left alone.
         installProcess?.terminate()
         guard isRunning else { return }
-        logs.append("[Disconnecting...]")
+        logs.append(isStopping ? "[Still stopping — the engine has not exited yet]" : "[Disconnecting...]")
         tearDownEngines()
     }
 
@@ -898,7 +898,7 @@ final class ProcessManager {
             endSession()
             return
         }
-        // One TERM: a second one inside run.sh's cleanup is ignored there anyway.
+        // One TERM: run.sh's cleanup ignores any further one.
         guard !isStopping else { return }
         isStopping = true
         helper.terminate()
