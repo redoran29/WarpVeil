@@ -332,13 +332,7 @@ final class PingService {
             guard let port = ports[server.id],
                   var outbound = proxyOutbound(of: server)
             else { continue }
-            if let interface {
-                var streamSettings = outbound["streamSettings"] as? [String: Any] ?? [:]
-                var sockopt = streamSettings["sockopt"] as? [String: Any] ?? [:]
-                sockopt["interface"] = interface
-                streamSettings["sockopt"] = sockopt
-                outbound["streamSettings"] = streamSettings
-            }
+            if let interface { outbound = BypassService.settingSockopt(outbound, "interface", interface) }
             let inboundTag = "in-\(server.id)"
             inbounds.append(["tag": inboundTag, "listen": "127.0.0.1", "port": Int(port), "protocol": "socks"])
             outbounds.append(outbound)
@@ -366,13 +360,7 @@ final class PingService {
         // Both name a sibling outbound to dial through that the merged config does not carry: the
         // server is measured without it, and its dials do not fail on the missing tag.
         outbound["proxySettings"] = nil
-        if var streamSettings = outbound["streamSettings"] as? [String: Any],
-           var sockopt = streamSettings["sockopt"] as? [String: Any] {
-            sockopt["dialerProxy"] = nil
-            streamSettings["sockopt"] = sockopt
-            outbound["streamSettings"] = streamSettings
-        }
-        return outbound
+        return BypassService.settingSockopt(outbound, "dialerProxy", nil)
     }
 
     // MARK: - Helpers

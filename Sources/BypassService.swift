@@ -96,13 +96,21 @@ enum BypassService {
         for spelling in [host, bare, bare.lowercased()] { hosts[spelling] = addresses }
         dns["hosts"] = hosts
         root["dns"] = dns
-        var streamSettings = outbounds[index]["streamSettings"] as? [String: Any] ?? [:]
-        var sockopt = streamSettings["sockopt"] as? [String: Any] ?? [:]
-        sockopt["domainStrategy"] = "ForceIP"
-        streamSettings["sockopt"] = sockopt
-        outbounds[index]["streamSettings"] = streamSettings
+        outbounds[index] = settingSockopt(outbounds[index], "domainStrategy", "ForceIP")
         root["outbounds"] = outbounds
         return serializeJSON(root) ?? json
+    }
+
+    // xray keeps an outbound's dial options in `streamSettings.sockopt`, which a config may not
+    // have yet.
+    static func settingSockopt(_ outbound: [String: Any], _ key: String, _ value: Any?) -> [String: Any] {
+        var outbound = outbound
+        var streamSettings = outbound["streamSettings"] as? [String: Any] ?? [:]
+        var sockopt = streamSettings["sockopt"] as? [String: Any] ?? [:]
+        sockopt[key] = value
+        streamSettings["sockopt"] = sockopt
+        outbound["streamSettings"] = streamSettings
+        return outbound
     }
 
     private static func serverAddress(_ outbound: [String: Any]) -> String? {
