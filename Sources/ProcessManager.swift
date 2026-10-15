@@ -469,7 +469,16 @@ final class ProcessManager {
 
     // MARK: - Connect / Disconnect
 
+    // Set while an update stops the engines and swaps the bundle: an engine started then — by a
+    // click, a wake or a routing edit — would outlive the check that they stopped, under a tag
+    // the new version cannot stop.
+    var isHeldForUpdate = false
+
     func connect(config: String, xrayPath: String, singBoxPath: String, bypassDomains: [String] = []) {
+        guard !isHeldForUpdate else {
+            logs.append("[An update is installing — connect after it]")
+            return
+        }
         guard !isRunning else { return }
         // A connect supersedes a pending restart: left alone it would connect a second time,
         // and without passwordless ask for the password again.

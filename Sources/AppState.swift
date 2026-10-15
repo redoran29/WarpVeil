@@ -90,12 +90,6 @@ final class AppState {
     }
 
     func connect() {
-        // An engine started now would outlive the update's check that the engines stopped, under
-        // a tag the new version cannot stop.
-        guard updater.state != .installing else {
-            pm.logs.append("[An update is installing — connect after it]")
-            return
-        }
         guard let server = selectedServer, let sub = selectedSubscription else {
             pm.logs.append("[Error: no server selected]")
             return
@@ -161,10 +155,11 @@ final class AppState {
     func installUpdate() {
         Task {
             let handedOver = await updater.install {
+                pm.isHeldForUpdate = true
                 disconnect()
                 return await pm.awaitTeardown(timeout: 30)
             }
-            if handedOver { quit() }
+            if handedOver { quit() } else { pm.isHeldForUpdate = false }
         }
     }
 
