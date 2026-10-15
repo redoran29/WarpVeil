@@ -109,9 +109,9 @@ final class Updater {
     // bundle next to the running one, then hands the swap to a shell that outlives this
     // process: it waits for the app to exit, renames the bundles and opens the new one. The
     // engines go down before the swap because the new version's tag cannot stop the old one's
-    // sing-box, and a teardown that does not finish — an engine that will not stop — cancels the
-    // update. True once the shell has the swap: the caller quits the app.
-    func install(stopEngines: () async -> Bool) async -> Bool {
+    // sing-box, and a teardown that does not finish cancels the update; stopEngines returns what
+    // still blocks it, or nil. True once the shell has the swap: the caller quits the app.
+    func install(stopEngines: () async -> String?) async -> Bool {
         // A second install would share the staging path and race the first one's swap.
         guard state != .installing else { return false }
         guard let release, let key = Self.publicKey else {
@@ -140,8 +140,8 @@ final class Updater {
             state = .failed(Self.describe(error))
             return false
         }
-        guard await stopEngines() else {
-            state = .failed("The tunnel did not stop — update cancelled")
+        if let blocker = await stopEngines() {
+            state = .failed("Update cancelled: \(blocker)")
             return false
         }
         // Staged only now: an app quit while the engines stop leaves nothing next to the bundle.

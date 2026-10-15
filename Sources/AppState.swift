@@ -166,7 +166,7 @@ final class AppState {
                 held = true
                 pm.isHeldForUpdate = true
                 disconnect()
-                return await pm.awaitTeardown(timeout: 30) == nil
+                return await pm.awaitTeardown(timeout: 30)
             }
             if handedOver { quit() } else if held { pm.isHeldForUpdate = false }
         }
