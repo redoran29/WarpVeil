@@ -469,14 +469,10 @@ final class ProcessManager {
             // An engine that does not stop leaves the session up with what it started with, and the
             // restart gives way to it — it is no longer pending, or a later wake would take it up
             // for a session that has ended since.
-            guard await awaitTeardown(timeout: 30) else {
+            if let blocker = await awaitTeardown(timeout: 30, helperToo: false) {
                 guard !Task.isCancelled else { return }
                 reconnectTask = nil
-                logs.append(isRunning
-                    ? "[Restart skipped — the engine did not stop, and the tunnel runs with its old settings]"
-                    : isPasswordlessBusy
-                        ? "[Restart skipped — the helper's password dialog is still open]"
-                        : "[Restart skipped — xray did not exit]")
+                logs.append("[Restart skipped: \(blocker)]")
                 return
             }
             guard !Task.isCancelled, let params = lastConnection else { return }
@@ -901,21 +897,26 @@ final class ProcessManager {
         isRunning = false
     }
 
-    // The session over, its xray gone, and no install or removal of the helper still at its dialog.
-    var isTornDown: Bool {
-        !isRunning && xrayProcess?.isRunning != true && !isPasswordlessBusy
+    // What still runs that a quit or an update has to outwait, or nil. A restart leaves the helper
+    // out: its connect joins an install under way and gets the dialog's answer.
+    func teardownBlocker(helperToo: Bool = true) -> String? {
+        if isRunning { return "the engine has not stopped" }
+        if xrayProcess?.isRunning == true { return "xray has not exited" }
+        if helperToo, isPasswordlessBusy { return "the helper's password dialog is still open" }
+        return nil
     }
 
-    // Quit, restart and an update need everything above settled before they go on; false when the
-    // time runs out.
+    var isTornDown: Bool { teardownBlocker() == nil }
+
+    // nil once nothing blocks; what still does when the time runs out.
     @discardableResult
-    func awaitTeardown(timeout: TimeInterval) async -> Bool {
+    func awaitTeardown(timeout: TimeInterval, helperToo: Bool = true) async -> String? {
         let deadline = Date().addingTimeInterval(timeout)
-        while !isTornDown {
-            guard Date() < deadline, !Task.isCancelled else { return false }
+        while let blocker = teardownBlocker(helperToo: helperToo) {
+            guard Date() < deadline, !Task.isCancelled else { return blocker }
             try? await Task.sleep(for: .milliseconds(100))
         }
-        return true
+        return nil
     }
 
     func clearLogs() {
