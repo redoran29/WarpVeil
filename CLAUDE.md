@@ -287,8 +287,10 @@ Write the simplest code that works. Prioritize readability over cleverness.
   reaches — once the session file the app made for it is gone.
   The session ends when the helper exits, which it does only after its sing-box, so a disconnect,
   a restart and a quit ask no password and leave nothing behind a window that reads Disconnected.
-  An osascript helper whose shell has not begun — still at its own password dialog — is ended with
-  its dialog, and a shell that starts anyway finds no session file and starts nothing. A restart
+  The app never ends the osascript helper: that would not reach a root shell already running, and
+  one still at its password dialog stays until the user answers it — the shell then finds no
+  session file, which it checks before anything else, and exits without touching a PID file or a
+  tunnel. A restart
   waits for the session to end and gives way to an engine that does not stop in 30 s. The
   privileged stop is only for an engine a crash orphaned: `install.sh`'s sweep through `stop.sh`,
   and the next connect's `kill_pid_file`. Before, the app ran a privileged stop — a second

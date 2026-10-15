@@ -19,18 +19,12 @@ final class ProcessManager {
     // TUN's address is on the interface the wrapper named. What the UI calls Connected.
     private(set) var isTunnelUp = false
     private static let engineStartedMarker = "[sing-box] started"
-    // The engine shell's line once it runs as root, before sing-box: from here only the shell can
-    // stop it.
-    private static let engineStartingMarker = "[sing-box] starting"
     private nonisolated static let tunAddress = "172.19.0.1"
 
     private var helperProcess: Process?
-    // How the helper's engine is stopped: a TERM to sudo reaches run.sh's trap; the osascript
-    // shell watches the session file instead, and once it runs as root the helper must wait for
-    // it rather than be killed.
-    private var helperStopsOnTerm = false
-    private var engineShellStarted = false
     private var isStopping = false
+    // Without passwordless, what the root engine shell watches: its removal stops the engine. A
+    // passwordless session has none — a TERM to sudo reaches run.sh's trap instead.
     private var sessionFile: String?
     private static let sessionDirectory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/WarpVeil")
@@ -168,7 +162,9 @@ final class ProcessManager {
     // interface carries the address: a tunnel another build or client holds there is never ours.
     // It also stops its own sing-box, so a disconnect needs no privileged stop: run.sh on the TERM
     // sudo passes on when the app ends the helper, the osascript shell — which no signal from the
-    // app reaches — once the app's session file is gone. Root only tests that file for existence.
+    // app reaches — once the app's session file is gone. Root only tests that file for existence,
+    // and first of all: a shell whose session ended while its password dialog was up exits before
+    // it touches a PID file or a tunnel.
     private static func engineShell(binary: String, configReader: String, sessionFile: String? = nil) -> String {
         let sessionCheck = sessionFile.map {
             "[[ -e \($0) ]] || { echo '[sing-box] not started: the session ended'; exit 0; }"
@@ -177,13 +173,13 @@ final class ProcessManager {
         return """
         export PATH=/usr/bin:/bin:/usr/sbin:/sbin
         export HOME=/var/empty
+        \(sessionCheck)
         \(configFunctions)
         \(killPidFileFunction)
         CFG=$(\(configReader) | stage_config) || exit 1
         trap 'rm -f "$CFG"' EXIT
         check_config "$CFG"
         kill_pid_file \(singboxPidFile) sing-box || { echo '[error] previous sing-box still running'; exit 1; }
-        \(sessionCheck)
         LAST=$(ifconfig -l | tr ' ' '\\n' | sed -n 's/^utun\\([0-9][0-9]*\\)$/\\1/p' | sort -n | tail -1)
         TUN_NAME=utun$(( ${LAST:--1} + 1 ))
         NAMED=$(mktemp '\(stageDir)/singbox.XXXXXX') || exit 1
@@ -192,7 +188,7 @@ final class ProcessManager {
         CFG=$NAMED
         [[ "$(ifconfig)" != *"inet \(tunAddress) "* ]] || echo '[warning] another tunnel already holds \(tunAddress)'
         cd '\(stageDir)'
-        echo '\(engineStartingMarker)...'
+        echo '[sing-box] starting...'
         \(binary) run -c "$CFG" &
         VPN_PID=$!
         echo $VPN_PID > \(singboxPidFile)
@@ -560,8 +556,6 @@ final class ProcessManager {
         // quit see it and a second connect is refused. The start waits in reconnectTask; whoever
         // cancels it — disconnect, restart, wake — tears the session down itself, so a cancelled
         // start touches nothing.
-        engineShellStarted = false
-        isStopping = false
         isRunning = true
         // Read now, not after the lookup: the IPv6 watcher compares the host with this value as
         // soon as the session exists.
@@ -683,7 +677,6 @@ final class ProcessManager {
         do {
             try process.run()
             helperProcess = process
-            helperStopsOnTerm = isPasswordless
         } catch {
             logs.append("[Error: \(error.localizedDescription)]")
             endSession()
@@ -886,9 +879,10 @@ final class ProcessManager {
     // The engine shell stops its own sing-box: run.sh on the TERM sudo passes on when the helper
     // ends, the osascript shell once the session file is gone. The session ends when the helper
     // exits, which it does only after its sing-box, so nothing is left running behind a window that
-    // reads Disconnected, and no password is asked. An osascript helper whose shell has not begun —
-    // still at its password dialog — goes with its dialog; a shell that starts anyway finds no
-    // session file. A session still waiting for xray has no helper yet.
+    // reads Disconnected, and no password is asked. The osascript helper is left to exit by itself:
+    // killing it would not reach a root shell already running, and one still at its password
+    // dialog stays until the user answers — a shell that starts after the session ended finds no
+    // session file and touches nothing. A session still waiting for xray has no helper yet.
     private func tearDownEngines() {
         guard let helper = helperProcess else {
             endSession()
@@ -896,8 +890,7 @@ final class ProcessManager {
         }
         guard !isStopping else { return }
         isStopping = true
-        removeSessionFile()
-        if helperStopsOnTerm || !engineShellStarted { helper.terminate() }
+        if sessionFile == nil { helper.terminate() } else { removeSessionFile() }
     }
 
     private func endSession() {
@@ -970,7 +963,6 @@ final class ProcessManager {
         guard end > pending.startIndex else { return }
         let text = String(decoding: pending[..<end], as: UTF8.self)
         let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
-        if isRunning, lines.contains(where: { $0.hasPrefix(Self.engineStartingMarker) }) { engineShellStarted = true }
         if isRunning, lines.contains(where: { $0.hasPrefix(Self.engineStartedMarker) }) { isTunnelUp = true }
         logs.append(contentsOf: lines)
         if logs.count > 600 {
