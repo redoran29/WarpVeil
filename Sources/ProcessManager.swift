@@ -179,6 +179,9 @@ final class ProcessManager {
         [[ "$(ifconfig)" != *"inet \(tunAddress) "* ]] || echo '[warning] another tunnel already holds \(tunAddress)'
         # jobs -p names sing-box from its start on, before VPN_PID does.
         cleanup() {
+            # A second TERM inside cleanup would end bash before its EXIT trap: the PID file and
+            # the staged config would stay.
+            trap '' TERM INT
             echo '[stopping...]'
             local engine
             engine=$(jobs -p)
@@ -192,8 +195,8 @@ final class ProcessManager {
         echo '[sing-box] starting...'
         \(binary) run -c "$CFG" &
         VPN_PID=$!
-        echo $VPN_PID > \(singboxPidFile)
         trap 'rm -f "$CFG"; [[ "$(cat \(singboxPidFile) 2>/dev/null)" != "$VPN_PID" ]] || rm -f \(singboxPidFile)' EXIT
+        echo $VPN_PID > \(singboxPidFile)
         while kill -0 $VPN_PID 2>/dev/null; do
             if [[ "$(ifconfig "$TUN_NAME" 2>/dev/null)" == *"inet \(tunAddress) "* ]]; then
                 echo "\(engineStartedMarker) pid=$VPN_PID"
@@ -863,6 +866,8 @@ final class ProcessManager {
             endSession()
             return
         }
+        // One TERM: a second one inside run.sh's cleanup is ignored there anyway.
+        guard !isStopping else { return }
         isStopping = true
         helper.terminate()
     }
