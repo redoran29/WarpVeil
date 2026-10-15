@@ -165,8 +165,9 @@ reads off until it is switched on again.
 change, `@AppStorage` survives. Each relaunch activates the app; the window comes back at its
 saved frame, and the dev bundle id has its own defaults so its frame is separate.
 
-The dev copy has no `WVUpdateFeed` (`build_dev` deletes it): a release is always newer than
-`<version>-dev` and would be offered, then refused for its bundle id after the whole download. A
+The dev copy has no `WVUpdateFeed` (`build_dev` deletes it): every later release is newer than
+`<version>-dev` and would be offered, then refused for its bundle id after the whole download —
+the same version is not, `1.3` < `1.3-dev` in a numeric comparison. A
 live check of the updater gives a dev copy its own feed and key with `PlistBuddy`, the way
 `build_dev` sets the version.
 
