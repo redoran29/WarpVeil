@@ -22,6 +22,7 @@ final class ProcessManager {
     private nonisolated static let tunAddress = "172.19.0.1"
 
     private var helperProcess: Process?
+    private var sessionID = 0
     private var xrayProcess: Process?
     private var logHandle: FileHandle?
     private var partialLogLine = Data()
@@ -378,15 +379,6 @@ final class ProcessManager {
         ) { [weak self] _ in
             Task { @MainActor in self?.handleWake() }
         }
-        NotificationCenter.default.addObserver(
-            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                if self?.isRunning == true {
-                    self?.disconnect()
-                }
-            }
-        }
         watchHostIPv6()
     }
 
@@ -443,13 +435,21 @@ final class ProcessManager {
     // edit made while the restart is pending is not lost. The delay stops during sleep, so wake
     // can re-arm a pending restart before it fires.
     private func restart(_ message: String, after delay: Duration) {
-        guard lastConnection != nil else { return }
+        // A stop already out is a disconnect or a restart under way: a wake or a routing edit
+        // during its password dialog must not bring the tunnel back after it.
+        guard lastConnection != nil, teardownProcess?.isRunning != true else { return }
         logs.append(message)
         reconnectTask?.cancel()
         if isRunning { tearDownEngines() }
 
         reconnectTask = Task {
             try? await Task.sleep(for: delay, clock: .suspending)
+            // The stop takes as long as its password dialog; one that fails leaves the session up,
+            // and the restart gives way to it.
+            guard await awaitTeardown(timeout: .infinity) else {
+                if !Task.isCancelled { logs.append("[Restart skipped — the tunnel is still up]") }
+                return
+            }
             guard !Task.isCancelled, let params = lastConnection else { return }
             connect(config: params.config, xrayPath: params.xrayPath, singBoxPath: params.singBoxPath,
                     bypassDomains: params.bypassDomains)
@@ -521,6 +521,8 @@ final class ProcessManager {
         // quit see it and a second connect is refused. The start waits in reconnectTask; whoever
         // cancels it — disconnect, restart, wake — tears the session down itself, so a cancelled
         // start touches nothing.
+        sessionID += 1
+        teardownProcess = nil
         isRunning = true
         // Read now, not after the lookup: the IPv6 watcher compares the host with this value as
         // soon as the session exists.
@@ -651,10 +653,7 @@ final class ProcessManager {
             let status = p.terminationStatus
             Task { @MainActor in
                 guard let self, self.isRunning, p === self.helperProcess else { return }
-                self.isRunning = false
-                self.helperProcess = nil
-                self.xrayProcess?.terminate()
-                self.stopLogTail()
+                self.endSession()
                 self.logs.append("[Disconnected (exit \(status))]")
             }
         }
@@ -862,36 +861,50 @@ final class ProcessManager {
         tearDownEngines()
     }
 
+    // The root engine goes first, and the session ends only once it is gone: a stop that fails — a
+    // password dialog cancelled — leaves the tunnel up and the session running, rather than xray
+    // gone under a root sing-box that still sends every connection to its port. A session still
+    // waiting for xray has no root engine yet: no stop, and no password dialog for one.
     private func tearDownEngines() {
-        // A session still waiting for xray has no root engine yet: no stop, and no password
-        // dialog for one.
-        let helperStarted = helperProcess != nil
+        guard helperProcess != nil else {
+            endSession()
+            return
+        }
+        guard teardownProcess?.isRunning != true else { return }
+        killVPNProcesses()
+    }
+
+    // What runs as the user goes once the root engine has: the helper exits by itself when its
+    // sing-box does.
+    private func endSession() {
         helperProcess?.terminate()
         helperProcess = nil
         xrayProcess?.terminate()
         stopLogTail()
-        if helperStarted { killVPNProcesses() }
         isRunning = false
     }
 
-    // Quit, connect and an update need to know when the engines are actually gone. The
-    // non-passwordless path puts up a password dialog, so the wait is however long the user
-    // takes. True once nothing of the session runs and the stop, if one ran, exited 0 — a
-    // cancelled dialog and a sing-box that outlived kill_pid_file's wait both exit 1. A session
-    // that never reached the helper ran no stop, and the next engine's start line drops it.
+    // This session's root stop: running, or how it ended. Quit, restart and an update wait on it.
     private var teardownProcess: Process?
 
+    // The non-passwordless stop is a password dialog, so the wait is however long the user takes.
+    // True once the session ended and its xray is gone; false once its stop failed — a cancelled
+    // dialog and a sing-box that outlived kill_pid_file's wait both exit non-zero, and the tunnel
+    // is still up — or when the time runs out.
     @discardableResult
     func awaitTeardown(timeout: TimeInterval) async -> Bool {
-        let stop = teardownProcess
-        let engines = [stop, xrayProcess].compactMap { $0 }
         let deadline = Date().addingTimeInterval(timeout)
-        while engines.contains(where: \.isRunning), Date() < deadline, !Task.isCancelled {
+        while Date() < deadline, !Task.isCancelled {
+            if !isRunning {
+                if xrayProcess?.isRunning != true { return true }
+            } else if let stop = teardownProcess, stop.isRunning || stop.terminationStatus == 0 {
+                // Still stopping, or stopped and about to end the session.
+            } else {
+                return false
+            }
             try? await Task.sleep(for: .milliseconds(100))
         }
-        // terminationStatus raises on a process that is still running.
-        guard !engines.contains(where: \.isRunning) else { return false }
-        return stop.map { $0.terminationStatus == 0 } ?? true
+        return false
     }
 
     private func killVPNProcesses() {
@@ -900,11 +913,12 @@ final class ProcessManager {
             let kill = Process()
             kill.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
             kill.arguments = [Self.stopScriptPath]
+            watchStop(kill)
             do {
                 try kill.run()
                 teardownProcess = kill
             } catch {
-                logs.append("[Error: failed to run stop script: \(error.localizedDescription)]")
+                logs.append("[Error: failed to run stop script: \(error.localizedDescription) — the tunnel is still up]")
             }
         } else {
             // The helper stop.sh carries, inline: the libexec copy exists only in passwordless mode.
@@ -916,11 +930,30 @@ final class ProcessManager {
             let kill = Process()
             kill.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
             kill.arguments = ["-e", "do shell script \(Self.appleScriptEscape(cmd)) with administrator privileges"]
+            watchStop(kill)
             do {
                 try kill.run()
                 teardownProcess = kill
             } catch {
-                logs.append("[Error: failed to run disconnect: \(error.localizedDescription)]")
+                logs.append("[Error: failed to run disconnect: \(error.localizedDescription) — the tunnel is still up]")
+            }
+        }
+    }
+
+    // A stop that succeeded ends its session; one that failed leaves it running and says so. A
+    // stop that finishes after its session already ended — the helper exits as soon as sing-box
+    // does, and a new session may have begun — touches nothing.
+    private func watchStop(_ stop: Process) {
+        let session = sessionID
+        stop.terminationHandler = { [weak self] p in
+            let status = p.terminationStatus
+            Task { @MainActor in
+                guard let self, self.sessionID == session, self.isRunning else { return }
+                if status == 0 {
+                    self.endSession()
+                } else {
+                    self.logs.append("[Disconnect did not finish (exit \(status)) — the tunnel is still up]")
+                }
             }
         }
     }
@@ -967,12 +1000,7 @@ final class ProcessManager {
         guard end > pending.startIndex else { return }
         let text = String(decoding: pending[..<end], as: UTF8.self)
         let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
-        // The start line comes after kill_pid_file found the previous engine gone, so a stop that
-        // failed before it no longer speaks for anything; until then it does, whatever connects.
-        if isRunning, lines.contains(where: { $0.hasPrefix(Self.engineStartedMarker) }) {
-            isTunnelUp = true
-            teardownProcess = nil
-        }
+        if isRunning, lines.contains(where: { $0.hasPrefix(Self.engineStartedMarker) }) { isTunnelUp = true }
         logs.append(contentsOf: lines)
         if logs.count > 600 {
             logs = Array(logs.suffix(500))

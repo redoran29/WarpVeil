@@ -81,9 +81,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         false
     }
 
-    // Every quit path goes through here — Cmd+Q, the status menu, and dev-run.sh's AppleScript
-    // quit. ProcessManager's willTerminate observer disconnects inside a Task, so a plain
-    // terminate can exit before the root-owned engines are stopped.
+    // Every quit path goes through here — Cmd+Q, the status menu, an update, and dev-run.sh's and
+    // install.sh's AppleScript quit — so this is where the engines stop. A stop that fails leaves
+    // the tunnel up and the app quits anyway: its xray outlives it until the next connect.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // Synchronous: the .terminateNow path below exits without waiting for anything.
         app.ping.cancel()
