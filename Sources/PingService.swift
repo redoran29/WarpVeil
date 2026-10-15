@@ -47,10 +47,7 @@ final class PingService {
         return URLSession(configuration: config)
     }()
 
-    private let singBoxConfigFile = FileManager.default.temporaryDirectory.path
-        + "/warpveil-ping-singbox-\(ProcessInfo.processInfo.processIdentifier).json"
-    private let xrayConfigFile = FileManager.default.temporaryDirectory.path
-        + "/warpveil-ping-xray-\(ProcessInfo.processInfo.processIdentifier).json"
+    private var configFiles: [String] = []
 
     func start(_ servers: [Server]) {
         guard !servers.isEmpty else { return }
@@ -96,11 +93,11 @@ final class PingService {
             }
             let xrayPorts = Dictionary(zip(servers.map(\.id), ports.dropFirst()),
                                        uniquingKeysWith: { first, _ in first })
-            guard await launchXray(servers, ports: xrayPorts, interface: Self.primaryInterface()),
-                  !Task.isCancelled else { return }
-            let tags = try await launchSingBox(servers, xrayPorts: xrayPorts, apiPort: apiPort)
+            let tags = await launchXray(servers, ports: xrayPorts, interface: Self.primaryInterface())
+            guard !tags.isEmpty, !Task.isCancelled else { return }
+            let measured = try await launchSingBox(tags, xrayPorts: xrayPorts, apiPort: apiPort)
             guard !Task.isCancelled else { return }
-            await measureAll(tags, apiPort: apiPort)
+            await measureAll(measured, apiPort: apiPort)
         } catch {
             // A cancel kills the engines, and the launch that was waiting on them reports it.
             guard !Task.isCancelled else { return }
@@ -191,47 +188,63 @@ final class PingService {
         return (process, output)
     }
 
-    // Reports whether xray is up; when it is not, `error` says why and the run measures nothing.
+    // The tags whose socks inbound is up. One server xray refuses at config load takes a merged
+    // config down with it, so a refused merge is retried with one xray per server; `error` keeps
+    // the reason the merge failed.
+    private func launchXray(_ servers: [Server], ports: [String: UInt16], interface: String?) async -> [String] {
+        guard let xray = ProcessManager.findBinary("xray") else {
+            error = "xray is not bundled"
+            return []
+        }
+        if let tags = await launchXray(xray, servers, ports: ports, interface: interface, name: "xray") {
+            return tags
+        }
+        guard servers.count > 1 else { return [] }
+        var tags: [String] = []
+        for (index, server) in servers.enumerated() where !Task.isCancelled {
+            tags += await launchXray(xray, [server], ports: ports, interface: interface, name: "xray-\(index)") ?? []
+        }
+        return tags
+    }
+
     // Readiness is every socks inbound accepting a connection, not a log line: a log line is
     // upstream's wording, and waiting for one that never comes hangs the whole service. Every
     // inbound, because xray starts tagged inbounds in map order — the first one listed is not
     // the first one up, and a delay test against a port nobody listens on fails in 14 ms.
-    private func launchXray(_ servers: [Server], ports: [String: UInt16], interface: String?) async -> Bool {
+    private func launchXray(
+        _ xray: String, _ servers: [Server], ports: [String: UInt16], interface: String?, name: String
+    ) async -> [String]? {
         let (config, tags) = Self.xrayConfig(servers, ports: ports, interface: interface)
         let listeningPorts = tags.compactMap { ports[$0] }
-        guard !listeningPorts.isEmpty else { return false }
-        guard let xray = ProcessManager.findBinary("xray") else {
-            error = "xray is not bundled"
-            return false
-        }
-        write(config, to: xrayConfigFile)
-        guard let (process, output) = try? launch(xray, ["run", "-config", xrayConfigFile]) else {
+        guard !listeningPorts.isEmpty else { return nil }
+        let file = write(config, name: name)
+        guard let (process, output) = try? launch(xray, ["run", "-config", file]) else {
             error = "xray did not launch"
-            return false
+            return nil
         }
         for _ in 0..<Self.readinessAttempts {
-            guard (try? await Task.sleep(for: Self.readinessInterval)) != nil else { return false }
+            guard (try? await Task.sleep(for: Self.readinessInterval)) != nil else { return nil }
             guard process.isRunning else {
                 error = "xray: \(Self.lastLine(of: readAll(output)))"
-                return false
+                return nil
             }
             if listeningPorts.allSatisfy(Self.isListening) {
                 drainInBackground(output)
-                return true
+                return tags
             }
         }
         error = "xray did not start"
-        return false
+        return nil
     }
 
     // Returns the tags actually in the config. sing-box prints nothing at the warn level, so
     // readiness is the API answering; an exit before that leaves the reason on the pipe.
-    private func launchSingBox(_ servers: [Server], xrayPorts: [String: UInt16], apiPort: UInt16) async throws -> [String] {
-        let (config, tags) = singBoxConfig(servers, xrayPorts: xrayPorts, apiPort: apiPort)
+    private func launchSingBox(_ xrayTags: [String], xrayPorts: [String: UInt16], apiPort: UInt16) async throws -> [String] {
+        let (config, tags) = singBoxConfig(xrayTags, xrayPorts: xrayPorts, apiPort: apiPort)
         guard !tags.isEmpty else { return [] }
         guard let singBox = ProcessManager.findBinary("sing-box") else { throw PingError("sing-box is not bundled") }
-        write(config, to: singBoxConfigFile)
-        let (process, output) = try launch(singBox, ["run", "-c", singBoxConfigFile])
+        let file = write(config, name: "singbox")
+        let (process, output) = try launch(singBox, ["run", "-c", file])
         for _ in 0..<Self.readinessAttempts {
             try await Task.sleep(for: Self.readinessInterval)
             guard process.isRunning else {
@@ -248,8 +261,8 @@ final class PingService {
     private func stopEngines() {
         engines.forEach { $0.terminate() }
         engines = []
-        try? FileManager.default.removeItem(atPath: singBoxConfigFile)
-        try? FileManager.default.removeItem(atPath: xrayConfigFile)
+        configFiles.forEach { try? FileManager.default.removeItem(atPath: $0) }
+        configFiles = []
     }
 
     private func readAll(_ output: Pipe) -> String {
@@ -268,13 +281,13 @@ final class PingService {
 
     // The socks outbounds are not pinned: they dial loopback, which the kernel refuses to bind to
     // a physical interface (EADDRNOTAVAIL).
-    private func singBoxConfig(_ servers: [Server], xrayPorts: [String: UInt16], apiPort: UInt16) -> (String, [String]) {
+    private func singBoxConfig(_ xrayTags: [String], xrayPorts: [String: UInt16], apiPort: UInt16) -> (String, [String]) {
         var outbounds: [[String: Any]] = []
         var tags: [String] = []
-        for server in servers {
-            guard let port = xrayPorts[server.id] else { continue }
-            outbounds.append(["type": "socks", "tag": server.id, "server": "127.0.0.1", "server_port": Int(port)])
-            tags.append(server.id)
+        for tag in xrayTags {
+            guard let port = xrayPorts[tag] else { continue }
+            outbounds.append(["type": "socks", "tag": tag, "server": "127.0.0.1", "server_port": Int(port)])
+            tags.append(tag)
         }
         let config: [String: Any] = [
             "log": ["level": "warn"],
@@ -351,10 +364,14 @@ final class PingService {
         return text
     }
 
-    // 0600: the configs carry the servers' credentials.
-    private func write(_ config: String, to path: String) {
+    // 0600: the configs carry the servers' credentials. xray picks the format by the extension.
+    private func write(_ config: String, name: String) -> String {
+        let path = FileManager.default.temporaryDirectory.path
+            + "/warpveil-ping-\(name)-\(ProcessInfo.processInfo.processIdentifier).json"
         FileManager.default.createFile(atPath: path, contents: config.data(using: .utf8),
                                        attributes: [.posixPermissions: 0o600])
+        configFiles.append(path)
+        return path
     }
 
     private static func lastLine(of text: String) -> String {
