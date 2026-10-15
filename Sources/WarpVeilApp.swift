@@ -93,10 +93,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // Synchronous: the .terminateNow path below exits without waiting for anything.
         app.ping.cancel()
-        // Before the session check: between a restart's teardown and its connect no session runs,
-        // yet the restart is pending and a helper install's dialog may be up.
+        // Always: between a restart's teardown and its connect no session runs, yet the restart is
+        // pending. Then wait for whatever still runs — the engines, an xray still exiting, a helper
+        // install or removal at its password dialog.
         app.disconnect()
-        guard app.pm.isRunning else { return .terminateNow }
+        guard !app.pm.isTornDown else { return .terminateNow }
         Task {
             await app.pm.awaitTeardown(timeout: 30)
             NSApp.reply(toApplicationShouldTerminate: true)

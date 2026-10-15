@@ -16,6 +16,9 @@ that exists. One mode: the first connect installs the helper with one password; 
 
 ### Decided
 - Only the passwordless helper; no mode that runs the engine through osascript (owner, 2026-10-15).
+- Nothing takes the install's dialog down: a disconnect ends the session at once and the install
+  runs to its end; a quit and an update wait for it as for the engines (owner, 2026-10-15, on
+  review round 3).
 - An engine that ignores TERM: TERM only for now. At the 1.3 install, a `kill -9` on the root
   sing-box and `netstat -rn` decide it: if its routes go with the TUN, a KILL after 5 s goes into
   run.sh's cleanup and `kill_pid_file`, and the "a forced kill leaves its routes behind" rule is

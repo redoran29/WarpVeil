@@ -265,18 +265,16 @@ final class ProcessManager {
         "rm -f /etc/sudoers.d/warpveil* /etc/sudoers.d/vpnswift && rm -rf /usr/local/libexec/warpveil*"
 
     private var helperInstall: Task<Bool, Never>?
-    private var installProcess: Process?
 
     // The connect's install of the helper this version runs its engine through — the one password
     // dialog the app shows, once per version, before anything of the session starts. One at a time
-    // and shared: a restart that lands while the dialog is up waits for the same answer instead of
-    // failing or asking again; a disconnect or a quit takes the dialog down. True once the install
-    // reads as working.
+    // and shared: a connect or a restart that lands while the dialog is up waits for the same answer.
+    // Nothing takes the dialog down (owner, 2026-10-15): a disconnect ends the session at once and
+    // the install runs to its end — osascript returns only once its root shell has — while a quit
+    // and an update wait for it as for the engines. True once the install reads as working.
     private func installHelper() async -> Bool {
         if let helperInstall { return await helperInstall.value }
         let install = Task { () -> Bool in
-            // Cleared by the install itself, not by whoever waited first, so a connect after it
-            // ended — a disconnect took its dialog down — asks again instead of joining it.
             defer { helperInstall = nil }
             return await runHelperInstall()
         }
@@ -285,7 +283,6 @@ final class ProcessManager {
     }
 
     private func runHelperInstall() async -> Bool {
-        guard !isPasswordlessBusy else { return false }
         guard let bundledSingBox = Self.findBinary("sing-box") else {
             logs.append("[Error: bundled sing-box not found]")
             return false
@@ -305,6 +302,8 @@ final class ProcessManager {
         let tmpSudoers = staging + "/warpveil-\(Self.versionTag)-sudoers"
         let tmpRun = staging + "/warpveil-\(Self.versionTag)-run.sh"
         let tmpStop = staging + "/warpveil-\(Self.versionTag)-stop.sh"
+        let staged = [tmpSudoers, tmpRun, tmpStop]
+        defer { for file in staged { try? FileManager.default.removeItem(atPath: file) } }
         do {
             try sudoersContent.write(toFile: tmpSudoers, atomically: true, encoding: .utf8)
             try Self.runShContent.write(toFile: tmpRun, atomically: true, encoding: .utf8)
@@ -315,32 +314,20 @@ final class ProcessManager {
             return false
         }
 
-        // The root shell removes the staged files itself once it is done with them: a disconnect
-        // that takes the dialog down after the password was typed ends osascript, not that shell,
-        // which may still be reading them.
-        let staged = [tmpRun, tmpStop, tmpSudoers].map(Self.shellEscape).joined(separator: " ")
-        let status = await runAsAdmin(onStart: { installProcess = $0 }, """
-            { \(Self.removeEveryInstallCommand) && \
+        let status = await runAsAdmin("""
+            \(Self.removeEveryInstallCommand) && \
             mkdir -p '\(Self.libexecDir)' && \
             install -m 0755 -o root -g wheel \(Self.shellEscape(bundledSingBox)) '\(Self.rootSingBoxPath)' && \
             install -m 0755 -o root -g wheel \(Self.shellEscape(tmpRun)) '\(Self.runScriptPath)' && \
             install -m 0755 -o root -g wheel \(Self.shellEscape(tmpStop)) '\(Self.stopScriptPath)' && \
-            visudo -cf \(Self.shellEscape(tmpSudoers)) && \
-            install -m 0440 -o root -g wheel \(Self.shellEscape(tmpSudoers)) '\(Self.sudoersFile)'; }
-            rc=$?
-            rm -f \(staged)
-            exit $rc
+            visudo -qcf \(Self.shellEscape(tmpSudoers)) && \
+            install -m 0440 -o root -g wheel \(Self.shellEscape(tmpSudoers)) '\(Self.sudoersFile)'
             """)
-        installProcess = nil
-        // Returned by itself: no root shell is left reading them — a cancelled dialog ran none.
-        if status != nil {
-            for file in [tmpSudoers, tmpRun, tmpStop] { try? FileManager.default.removeItem(atPath: file) }
-        }
         passwordlessOperationFinished()
         if isPasswordless {
             logs.append("[Helper installed]")
         } else {
-            logs.append(status.map { "[The helper was not installed (exit \($0))]" } ?? "[Helper install cancelled]")
+            logs.append("[The helper was not installed\(status.map { " (exit \($0))" } ?? "")]")
         }
         return isPasswordless
     }
@@ -348,7 +335,7 @@ final class ProcessManager {
     // Not during a session — a pending start or restart counts — or its next restart would ask for
     // the password out of nowhere; and not while an install or a removal is under way.
     var canRemoveHelper: Bool {
-        isPasswordless && !isPasswordlessBusy && !isRunning && reconnectTask == nil && helperInstall == nil
+        isPasswordless && !isPasswordlessBusy && !isRunning && reconnectTask == nil
     }
 
     func removePasswordless() {
@@ -363,9 +350,8 @@ final class ProcessManager {
     }
 
     // osascript's admin dialog, then the command as root; its exit status, or nil when it did not
-    // run or was ended by a signal — a disconnect taking the dialog down. onStart gets the
-    // process, for a caller that may have to do that.
-    private func runAsAdmin(onStart: (Process) -> Void = { _ in }, _ command: String) async -> Int32? {
+    // run or something outside the app ended it.
+    private func runAsAdmin(_ command: String) async -> Int32? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(command)) with administrator privileges"]
@@ -377,7 +363,6 @@ final class ProcessManager {
             logs.append("[Error: \(error.localizedDescription)]")
             return nil
         }
-        onStart(process)
         for await _ in exits {}
         guard !process.isRunning, process.terminationReason == .exit else { return nil }
         return process.terminationStatus
@@ -882,8 +867,6 @@ final class ProcessManager {
     func disconnect() {
         reconnectTask?.cancel()
         reconnectTask = nil
-        // An install's dialog waits for nobody now; a removal's is left alone.
-        installProcess?.terminate()
         guard isRunning else { return }
         logs.append(isStopping ? "[Still stopping — the engine has not exited yet]" : "[Disconnecting...]")
         tearDownEngines()
@@ -913,12 +896,17 @@ final class ProcessManager {
         isRunning = false
     }
 
-    // Quit, restart and an update need the session over before they go on. True once it ended and
-    // its xray is gone; false when the time runs out — an engine that would not stop.
+    // The session over, its xray gone, and no install or removal of the helper still at its dialog.
+    var isTornDown: Bool {
+        !isRunning && xrayProcess?.isRunning != true && !isPasswordlessBusy
+    }
+
+    // Quit, restart and an update need everything above settled before they go on; false when the
+    // time runs out.
     @discardableResult
     func awaitTeardown(timeout: TimeInterval) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
-        while isRunning || xrayProcess?.isRunning == true {
+        while !isTornDown {
             guard Date() < deadline, !Task.isCancelled else { return false }
             try? await Task.sleep(for: .milliseconds(100))
         }

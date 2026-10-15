@@ -277,7 +277,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
   all, + Add) rides on the first subscription's section header, because a section with no rows
   renders its header alone and drops the next header to footer style
 - **Quit path**: `applicationShouldTerminate` disconnects and replies `.terminateLater`, waiting
-  up to 30 s for the teardown, so anything that kills the app on a timer has to outwait it. Every
+  up to 30 s for the teardown (`ProcessManager.isTornDown`: the session over, its xray gone, no
+  helper install or removal at its dialog), so anything that kills the app on a timer has to
+  outwait it. Every
   quit goes through it — Cmd+Q, the status menu, an update, `dev-run.sh`, `install.sh` — so
   nothing else stops the engines at exit. An engine that has not stopped by then is left to the
   next connect: xray, a child the app's exit does not take down (it is reparented to launchd), to
@@ -294,8 +296,11 @@ Write the simplest code that works. Prioritize readability over cleverness.
   four times in review, each order losing a case
 - **Only the passwordless helper** (owner, 2026-10-15): the engine always starts through `sudo
   run.sh`; a connect that finds no working helper for this version installs it first, with the
-  only password dialog the app shows, before anything of the session starts. A Disconnect or a
-  quit during that dialog starts no engine, whatever the answer. Advanced shows whether the helper
+  only password dialog the app shows, before anything of the session starts. One install at a
+  time, shared: a connect or a restart during its dialog waits for the same answer. Nothing takes
+  that dialog down — a disconnect ends the session at once and the install runs to its end,
+  since osascript returns only once its root shell has; a quit and an update wait for it as for
+  the engines (owner, 2026-10-15). Advanced shows whether the helper
   is installed, with Remove. The osascript engine path went: rounds 3–6 of plan 17's review kept
   finding cases in it — a password dialog mid-session, a root shell no signal from the app
   reaches, a session file to watch, a session stuck at Connecting
@@ -366,7 +371,7 @@ Write the simplest code that works. Prioritize readability over cleverness.
   unpacked `WarpVeil.app` must be a real directory with this bundle id, the tag's version, newer
   than the running one, arm64; anything else is refused with its reason in the row. Then
   `disconnect()` and `awaitTeardown`, with every connect, a restart's too, held from there on:
-  anything of the session still running after 30 s cancels the
+  anything of the session, or a helper dialog, still open after 30 s cancels the
   update — the new version's tag cannot stop the old one's sing-box. Once the engines are down the
   bundle is staged as `.WarpVeil.app.new` next to the running one, wherever that is, so an app
   quit during the wait leaves nothing there. A `/bin/sh` helper spawned before `NSApp.terminate`
