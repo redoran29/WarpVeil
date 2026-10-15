@@ -60,3 +60,17 @@ the 1.3 install.
   the bundled sing-box's path for nothing (`a7b2047`); comments and canon still spoke of the removed
   mode (`46dda5e`).
 - An engine that ignores TERM: taken to the owner, decided above — live at the 1.3 install.
+
+### Review (2026-10-15, round 2)
+`/code-review feb5b12..c8442db`, findings and what was done, one commit each:
+- The shared install was cleared by its first waiter and shared one process field with a
+  removal (`bba657b`); a dialog a disconnect took down logged as a failure with exit 15
+  (`c04df38`); the app deleted the staged scripts while a root shell could still be installing
+  them (`2422035`).
+- A quit between a restart's teardown and its connect skipped the disconnect, leaving a pending
+  restart and an install's dialog behind the app (`5123f97`).
+- A removal could run during a pending restart, and a connect during a removal read the helper as
+  there (`6ccbac8`); the row stayed stale while the window was hidden (`434caa2`).
+- A second Disconnect while the engine was stopping said nothing true, and a skipped restart gave
+  advice that could not help (`72b1ee3`).
+- Process slip: `c3dc6e0` and `35c6bd2` each bundled two findings; history kept.
