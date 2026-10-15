@@ -145,9 +145,9 @@ final class Updater {
               let signatureAsset = release.assets.first(where: { $0.name == zipName + ".sig" })
         else { throw Failure(reason: "Release \(release.version) has no signed \(zipName)") }
 
-        let work = FileManager.default.temporaryDirectory
-            .appendingPathComponent("warpveil-update-\(ProcessInfo.processInfo.processIdentifier)")
-        try? FileManager.default.removeItem(at: work)
+        // A path of its own per attempt: Bundle(url:) caches what it read at a path for the life of
+        // the process, so a second install from the same path would check the first archive.
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("warpveil-update-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: false,
                                                 attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: work) }

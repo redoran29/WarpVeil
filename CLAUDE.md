@@ -413,8 +413,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
   sorted keys, so a load that changes nothing writes nothing
 - `~/.config/warpveil/release-signing.key` — the release key's private half, 0600, the owner's
   machine only
-- `$TMPDIR/warpveil-update-<pid>/` — an update's download and unpack directory, 0700, removed once
-  the update is staged or refused
+- `$TMPDIR/warpveil-update-<uuid>/` — an update's download and unpack directory, 0700, one per
+  attempt, removed once the update is staged or refused
 - `<bundle dir>/.WarpVeil.app.new`, `.WarpVeil.app.old` — the update being swapped in and the old
   bundle on its way out; both gone after the relaunch
 
