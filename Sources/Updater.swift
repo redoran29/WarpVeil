@@ -1,5 +1,5 @@
-import AppKit
 import CryptoKit
+import Foundation
 
 // Updates from the GitHub release feed named in Info.plist. Authenticity is our own ed25519
 // signature over the release zip, checked against WVUpdatePublicKey — not Apple's: the app is
@@ -93,11 +93,11 @@ final class Updater {
     // process: it waits for the app to exit, renames the bundles and opens the new one. The
     // engines go down before the swap because the new version's tag cannot stop the old one's
     // sing-box, and a teardown that does not finish — a password dialog left unanswered —
-    // cancels the update.
-    func install(stopEngines: () async -> Bool) async {
+    // cancels the update. True once the shell has the swap: the caller quits the app.
+    func install(stopEngines: () async -> Bool) async -> Bool {
         guard let release, let key = Self.publicKey else {
             state = .failed("No update checked")
-            return
+            return false
         }
         state = .installing
         let bundle = Bundle.main.bundleURL
@@ -107,12 +107,12 @@ final class Updater {
             try await Self.download(release, key: key, into: staged)
         } catch {
             state = .failed(Self.describe(error))
-            return
+            return false
         }
         guard await stopEngines() else {
             try? FileManager.default.removeItem(at: staged)
             state = .failed("The tunnel did not stop — update cancelled")
-            return
+            return false
         }
         // Whatever the renames do, "$1" is an app at the end: the new one, or the old one back.
         let script = """
@@ -132,9 +132,9 @@ final class Updater {
         } catch {
             try? FileManager.default.removeItem(at: staged)
             state = .failed(error.localizedDescription)
-            return
+            return false
         }
-        NSApp.terminate(nil)
+        return true
     }
 
     // The signature is checked over the zip's bytes before anything unpacks it, so ditto only

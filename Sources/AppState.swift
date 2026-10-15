@@ -147,13 +147,15 @@ final class AppState {
     }
 
     // disconnect() also cancels a pending start or restart, which would otherwise bring engines
-    // up while the app is on its way out.
+    // up while the app is on its way out. The quit is the usual one, through
+    // applicationShouldTerminate; the swap waits for this process to exit.
     func installUpdate() {
         Task {
-            await updater.install {
+            let handedOver = await updater.install {
                 disconnect()
                 return await pm.awaitTeardown(timeout: 30)
             }
+            if handedOver { NSApp.terminate(nil) }
         }
     }
 
