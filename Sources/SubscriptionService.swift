@@ -76,7 +76,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         // Keys minted for a file that predates them, and configs moved into the frame, must reach
         // the disk before a selection can point at one — but only then: the file is shared with
         // other builds.
-        if let rewritten = try? JSONEncoder().encode(subscriptions), rewritten != data {
+        if let rewritten = try? Self.encoder.encode(subscriptions), rewritten != data {
             try? rewritten.write(to: filePath, options: .atomic)
         }
     }
@@ -105,8 +105,16 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         }
     }
 
+    // Sorted, or the key order changes with every launch's hash seed and load() rewrites a file
+    // other builds share each time it runs.
+    private static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return encoder
+    }()
+
     func save() {
-        guard let data = try? JSONEncoder().encode(subscriptions) else { return }
+        guard let data = try? Self.encoder.encode(subscriptions) else { return }
         try? data.write(to: filePath, options: .atomic)
     }
 
