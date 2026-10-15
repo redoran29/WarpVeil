@@ -90,6 +90,11 @@ final class AppState {
     }
 
     func connect() {
+        // During the download: a session started now would be stopped again for the swap.
+        guard updater.state != .installing else {
+            pm.logs.append("[An update is installing — connect after it]")
+            return
+        }
         guard let server = selectedServer, let sub = selectedSubscription else {
             pm.logs.append("[Error: no server selected]")
             return
@@ -153,16 +158,18 @@ final class AppState {
     // disconnect() also cancels a pending start or restart, which would otherwise bring engines
     // up while the app is on its way out. The swap waits for this process to exit.
     func installUpdate() {
-        // The hold is also what marks an install under way: a second one, from a menu built
-        // before the first began, must not release the first one's hold when it is refused.
-        guard !pm.isHeldForUpdate else { return }
-        pm.isHeldForUpdate = true
         Task {
+            // Held from the stop on, not during the download: a wake or a routing restart then is
+            // still the user's tunnel, and should the update fail it has to come back. Only the
+            // install that set the hold releases it — a second one, refused, never set it.
+            var held = false
             let handedOver = await updater.install {
+                held = true
+                pm.isHeldForUpdate = true
                 disconnect()
                 return await pm.awaitTeardown(timeout: 30)
             }
-            if handedOver { quit() } else { pm.isHeldForUpdate = false }
+            if handedOver { quit() } else if held { pm.isHeldForUpdate = false }
         }
     }
 

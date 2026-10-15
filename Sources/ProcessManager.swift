@@ -494,9 +494,9 @@ final class ProcessManager {
 
     // MARK: - Connect / Disconnect
 
-    // Set from an update's start until it hands the swap over or fails: an engine started then —
-    // by a click, a wake or a routing edit — could outlive the check that the engines stopped,
-    // under a tag the new version cannot stop.
+    // Set from an update's stop until it hands the swap over or fails: an engine started then — by
+    // a click, a wake or a routing edit — would outlive the check that the engines stopped, under
+    // a tag the new version cannot stop.
     var isHeldForUpdate = false
 
     func connect(config: String, xrayPath: String, singBoxPath: String, bypassDomains: [String] = []) {

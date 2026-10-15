@@ -366,7 +366,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
   Translocation's read-only mount — is refused before anything is downloaded or stopped. The
   unpacked `WarpVeil.app` must be a real directory with this bundle id, the tag's version, newer
   than the running one, arm64; anything else is refused with its reason in the row. Then
-  `disconnect()` and `awaitTeardown`: anything of the session still running after 30 s cancels the
+  `disconnect()` and `awaitTeardown`, with every connect, a restart's too, held from there on:
+  anything of the session still running after 30 s cancels the
   update — the new version's tag cannot stop the old one's sing-box. Once the engines are down the
   bundle is staged as `.WarpVeil.app.new` next to the running one, wherever that is, so an app
   quit during the wait leaves nothing there. A `/bin/sh` helper spawned before `NSApp.terminate`
