@@ -331,8 +331,8 @@ final class PingService {
     }
 
     private func readAll(_ output: Pipe) -> String {
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8) ?? ""
+        // One invalid byte must not drop the reason with the rest of the output.
+        String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     }
 
     // Nothing reads an engine's output once it is up, and a full pipe buffer would block the
