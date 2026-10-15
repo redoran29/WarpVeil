@@ -102,3 +102,11 @@ third time, so their shape changed instead of a fourth patch:
 - Not changed, recorded: the process rule makes sing-box look up the owning process of every TUN
   connection while a hostname server is connected — the cost of the owner's choice in round 2; the
   socket list is cached 200 ms.
+
+### Review (2026-10-15, round 4)
+`/code-review 13a9177..67366bc`, findings for this plan, and what was done:
+- `URL.resolvingSymlinksInPath()` strips `/private`, so the process rule missed an app run from App
+  Translocation (a regression from round 3): `realpath(3)` (`abe1dc2`).
+- Connected was fixed a fourth time in shape: the start line is printed right after sing-box is
+  backgrounded, before the TUN exists, so the TUN's address on an interface is now required too
+  (`221c7be`), and a log chunk with an invalid byte no longer drops the line (`8a54c99`).

@@ -113,3 +113,14 @@ was done:
 - Owner, 2026-10-15: a feed's stale sing-box row still counts as a duplicate when its link is
   added again (round 2's rule kept; a dead feed is removed before its links are re-added).
 - Not changed, measured: reframing runs at every load — 500 servers load in 20–34 ms with it.
+
+### Review (2026-10-15, round 4)
+`/code-review 13a9177..67366bc`, findings for this plan, and what was done:
+- The ping deleted a dialer the frame does not carry and measured a direct dial for a server whose
+  connect fails: the name stays (`fcdf38f`).
+- The ping fallback's edges: -test only after the merge exited, one retry whatever the cause, a
+  single or all-refused list marked and named, names in list order, -test awaited without holding a
+  pool thread, no error from a cancelled run (`3fdd50e`).
+- remarks applied after listing (`57ad388`); `hasTraffic`, which nothing read, removed (`c3dda5b`).
+- From now on a canon change lands in the commit of the behaviour it describes (round 4 noted
+  that round 3's landed later, in one docs commit).
