@@ -88,12 +88,16 @@ final class AppState {
             return
         }
 
-        let engine = server.engine ?? sub.engine
+        // Every server runs on xray; a sing-box config stored by an earlier build is a manual one
+        // (feeds are rebuilt at launch) and has to be added again.
+        guard (server.engine ?? sub.engine) == .xray else {
+            pm.logs.append("[Error: \(server.name) is a sing-box config — add it again as a link or an xray config]")
+            return
+        }
         pm.connect(
             config: server.config,
-            engine: engine,
-            binaryPath: ProcessManager.findBinary(engine.rawValue) ?? "",
-            singBoxPath: ProcessManager.findBinary(Engine.singBox.rawValue) ?? "",
+            xrayPath: ProcessManager.findBinary("xray") ?? "",
+            singBoxPath: ProcessManager.findBinary("sing-box") ?? "",
             bypassDomains: activeBypassDomains
         )
         connectedAt = Date()
@@ -120,7 +124,7 @@ final class AppState {
     func pingAll() {
         guard isBootstrapped else { return }
         ping.start(subs.subscriptions.flatMap { sub in
-            sub.servers.map { (server: $0, engine: $0.engine ?? sub.engine) }
+            sub.servers.filter { ($0.engine ?? sub.engine) == .xray }
         })
     }
 

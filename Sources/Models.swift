@@ -1,6 +1,8 @@
 import Foundation
 
-enum Engine: String, Codable, CaseIterable {
+// Every server runs on xray now. sing-box stays a case because files written by earlier builds
+// carry it, and a stored manual config of that kind is refused at connect, not lost at load.
+enum Engine: String, Codable {
     case singBox = "sing-box"
     case xray = "xray"
 }
@@ -48,11 +50,11 @@ struct Subscription: Codable, Identifiable {
     var name: String
     var url: String
     var isManual: Bool = false
-    var engine: Engine = .singBox
+    var engine: Engine = .xray
     var servers: [Server]
     var lastUpdated: Date?
 
-    init(name: String, url: String = "", isManual: Bool = false, engine: Engine = .singBox) {
+    init(name: String, url: String = "", isManual: Bool = false, engine: Engine = .xray) {
         self.id = UUID()
         self.name = name
         self.url = url

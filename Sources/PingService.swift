@@ -9,17 +9,17 @@ enum PingResult: Equatable {
 }
 
 // The real round trip through each proxy, not a TCP handshake: a CDN front completes a
-// handshake instantly while the node behind it is dead. A user-space sing-box carries every
-// server as an outbound behind its Clash API, whose delay test sends one HEAD request through
-// that outbound. xray servers sit behind a user-space xray with a SOCKS inbound each and are
-// chained in as socks outbounds — the shape the tunnel already uses for them. No sudo, no TUN.
+// handshake instantly while the node behind it is dead. Every server sits behind a user-space
+// xray with a SOCKS inbound each, chained into a user-space sing-box as a socks outbound behind
+// its Clash API, whose delay test sends one HEAD request through that outbound — the shape the
+// tunnel uses. No sudo, no TUN.
 // Every tag is measured in several passes over the same engines and the minimum is reported: the
 // first request through a proxy pays its REALITY/TLS handshake, which puts every server at
 // ~800 ms and hides the ~50 ms that actually separate them.
-// Every outbound's dial is bound to the primary interface, so a tunnel that is up does not
+// Every server's dial is bound to the primary interface, so a tunnel that is up does not
 // swallow the probe. The bind covers the dial, not name resolution: a server given as a
-// hostname is still resolved by the system resolver, which the tunnel's hijack-dns catches
-// while it is up, and that lookup lands inside the measured time.
+// hostname is still resolved by the system resolver, and that lookup lands inside the
+// measured time.
 @Observable
 @MainActor
 final class PingService {
@@ -40,10 +40,6 @@ final class PingService {
     private static let readinessAttempts = 100
     private static let readinessInterval = Duration.milliseconds(30)
 
-    // sing-box 1.14 moved wireguard to `endpoints` and rejects the type inside `outbounds`. One
-    // such server in a feed would fail the merged config, and with it every other server's row.
-    private static let singBoxPingTypes = SubscriptionService.vpnTypesSingBox.subtracting(["wireguard"])
-
     private let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.httpMaximumConnectionsPerHost = PingService.concurrency
@@ -56,7 +52,7 @@ final class PingService {
     private let xrayConfigFile = FileManager.default.temporaryDirectory.path
         + "/warpveil-ping-xray-\(ProcessInfo.processInfo.processIdentifier).json"
 
-    func start(_ servers: [(server: Server, engine: Engine)]) {
+    func start(_ servers: [Server]) {
         guard !servers.isEmpty else { return }
         generation += 1
         let run = generation
@@ -70,7 +66,7 @@ final class PingService {
             // Runs never overlap: the engines and the config files are shared.
             await previous?.value
             guard run == generation else { return }
-            for entry in servers { results[entry.server.id] = .measuring }
+            for server in servers { results[server.id] = .measuring }
             await measure(servers)
             results = results.filter { $0.value != .measuring }
             // A superseded run must not clear the flag its successor has already raised.
@@ -88,27 +84,21 @@ final class PingService {
 
     // MARK: - Run
 
-    private func measure(_ servers: [(server: Server, engine: Engine)]) async {
+    private func measure(_ servers: [Server]) async {
         defer { stopEngines() }
         do {
             // A cancel that lands while this run is still parked on the previous one has no
             // engines to stop yet, so the check has to happen before each launch.
             guard !Task.isCancelled else { return }
-            let xrayServers = servers.filter { $0.engine == .xray }.map(\.server)
-            let ports = Self.freePorts(1 + xrayServers.count)
-            guard let apiPort = ports.first, ports.count == 1 + xrayServers.count else {
+            let ports = Self.freePorts(1 + servers.count)
+            guard let apiPort = ports.first, ports.count == 1 + servers.count else {
                 throw PingError("no free local port")
             }
-            var xrayPorts = Dictionary(zip(xrayServers.map(\.id), ports.dropFirst()),
+            let xrayPorts = Dictionary(zip(servers.map(\.id), ports.dropFirst()),
                                        uniquingKeysWith: { first, _ in first })
-            let interface = Self.primaryInterface()
-            // An xray that will not start costs the xray rows their value, not the whole run:
-            // the sing-box servers in the same list never needed it.
-            if !xrayServers.isEmpty, await !launchXray(xrayServers, ports: xrayPorts, interface: interface) {
-                xrayPorts = [:]
-            }
-            guard !Task.isCancelled else { return }
-            let tags = try await launchSingBox(servers, xrayPorts: xrayPorts, apiPort: apiPort, interface: interface)
+            guard await launchXray(servers, ports: xrayPorts, interface: Self.primaryInterface()),
+                  !Task.isCancelled else { return }
+            let tags = try await launchSingBox(servers, xrayPorts: xrayPorts, apiPort: apiPort)
             guard !Task.isCancelled else { return }
             await measureAll(tags, apiPort: apiPort)
         } catch {
@@ -201,7 +191,7 @@ final class PingService {
         return (process, output)
     }
 
-    // Reports whether the xray leg is usable; the caller drops the xray rows rather than the run.
+    // Reports whether xray is up; when it is not, `error` says why and the run measures nothing.
     // Readiness is every socks inbound accepting a connection, not a log line: a log line is
     // upstream's wording, and waiting for one that never comes hangs the whole service. Every
     // inbound, because xray starts tagged inbounds in map order — the first one listed is not
@@ -236,10 +226,8 @@ final class PingService {
 
     // Returns the tags actually in the config. sing-box prints nothing at the warn level, so
     // readiness is the API answering; an exit before that leaves the reason on the pipe.
-    private func launchSingBox(
-        _ servers: [(server: Server, engine: Engine)], xrayPorts: [String: UInt16], apiPort: UInt16, interface: String?
-    ) async throws -> [String] {
-        let (config, tags) = singBoxConfig(servers, xrayPorts: xrayPorts, apiPort: apiPort, interface: interface)
+    private func launchSingBox(_ servers: [Server], xrayPorts: [String: UInt16], apiPort: UInt16) async throws -> [String] {
+        let (config, tags) = singBoxConfig(servers, xrayPorts: xrayPorts, apiPort: apiPort)
         guard !tags.isEmpty else { return [] }
         guard let singBox = ProcessManager.findBinary("sing-box") else { throw PingError("sing-box is not bundled") }
         write(config, to: singBoxConfigFile)
@@ -279,27 +267,14 @@ final class PingService {
     // MARK: - Configs
 
     // The socks outbounds are not pinned: they dial loopback, which the kernel refuses to bind to
-    // a physical interface (EADDRNOTAVAIL). sing-box happens to skip the bind for loopback, but
-    // the config should not lean on that.
-    private func singBoxConfig(
-        _ servers: [(server: Server, engine: Engine)], xrayPorts: [String: UInt16], apiPort: UInt16, interface: String?
-    ) -> (String, [String]) {
+    // a physical interface (EADDRNOTAVAIL).
+    private func singBoxConfig(_ servers: [Server], xrayPorts: [String: UInt16], apiPort: UInt16) -> (String, [String]) {
         var outbounds: [[String: Any]] = []
         var tags: [String] = []
-        for entry in servers {
-            var outbound: [String: Any]?
-            switch entry.engine {
-            case .singBox:
-                outbound = Self.proxyOutbound(of: entry.server, types: Self.singBoxPingTypes, typeKey: "type")
-                if let interface { outbound?["bind_interface"] = interface }
-            case .xray:
-                outbound = xrayPorts[entry.server.id].map {
-                    ["type": "socks", "tag": entry.server.id, "server": "127.0.0.1", "server_port": Int($0)]
-                }
-            }
-            guard let outbound else { continue }
-            outbounds.append(outbound)
-            tags.append(entry.server.id)
+        for server in servers {
+            guard let port = xrayPorts[server.id] else { continue }
+            outbounds.append(["type": "socks", "tag": server.id, "server": "127.0.0.1", "server_port": Int(port)])
+            tags.append(server.id)
         }
         let config: [String: Any] = [
             "log": ["level": "warn"],
@@ -318,7 +293,7 @@ final class PingService {
         var tags: [String] = []
         for server in servers {
             guard let port = ports[server.id],
-                  var outbound = proxyOutbound(of: server, types: SubscriptionService.vpnTypesXray, typeKey: "protocol")
+                  var outbound = proxyOutbound(of: server)
             else { continue }
             if let interface {
                 var streamSettings = outbound["streamSettings"] as? [String: Any] ?? [:]
@@ -344,16 +319,15 @@ final class PingService {
 
     // Every builder and parser puts the proxy first. Anything else — a pasted config whose first
     // outbound is a selector — would take the whole merged config down, so it is left out.
-    private static func proxyOutbound(of server: Server, types: Set<String>, typeKey: String) -> [String: Any]? {
+    private static func proxyOutbound(of server: Server) -> [String: Any]? {
         guard let data = server.config.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               var outbound = (root["outbounds"] as? [[String: Any]])?.first,
-              let type = outbound[typeKey] as? String, types.contains(type)
+              let type = outbound["protocol"] as? String, SubscriptionService.vpnTypesXray.contains(type)
         else { return nil }
         outbound["tag"] = server.id
-        // Both name a sibling outbound to dial through that the merged config does not carry, and
+        // It names a sibling outbound to dial through that the merged config does not carry, and
         // a missing dependency is fatal for every row rather than for this one.
-        outbound["detour"] = nil
         outbound["proxySettings"] = nil
         return outbound
     }

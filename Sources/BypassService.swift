@@ -4,11 +4,11 @@ enum BypassService {
 
     // MARK: - sing-box config injection
 
-    // Goes into whichever sing-box holds the TUN: the server config, or the wrapper in front
-    // of xray. A TUN connection arrives as an IP destination and its domain exists only after
-    // the sniff action, so the rule has to sit after the first `sniff` — before it, it never
-    // matches. Only an unconditional one counts: a sniff limited to an inbound or a protocol may
-    // never run for the TUN's connections, or never read their SNI.
+    // Goes into the sing-box that holds the TUN in front of xray. A TUN connection arrives as an
+    // IP destination and its domain exists only after the sniff action, so the rule has to sit
+    // after the first `sniff` — before it, it never matches. Only an unconditional one counts: a
+    // sniff limited to an inbound or a protocol may never run for the TUN's connections, or never
+    // read their SNI.
     static func injectSingBox(_ json: String, domains: [String]) -> String {
         guard !domains.isEmpty,
               var root = parseJSON(json) else { return json }
@@ -131,44 +131,6 @@ enum BypassService {
 
     // The top-level sections a root sing-box may get; ProcessManager.configPolicy refuses the rest.
     static let configSections = ["log", "dns", "ntp", "inbounds", "outbounds", "endpoints", "route", "experimental"]
-
-    // The root sing-box refuses a config that names a file (ProcessManager.configPolicy).
-    // Provider templates often carry a few such keys the tunnel does not need — a cache file, a
-    // dashboard, a log file — so those are dropped here instead of failing the connect. Anything
-    // else that touches a file still fails it, by name, in Logs.
-    static func dropUnneededFileKeys(_ json: String) -> (json: String, dropped: [String]) {
-        guard var root = parseJSON(json) else { return (json, []) }
-        // A section in another case is kept, not dropped: sing-box would read "Inbounds" as the
-        // inbounds, and the policy refuses it by name instead of a tunnel starting without them.
-        var dropped = root.keys.filter { !configSections.contains($0.lowercased()) }.sorted()
-        dropped.forEach { root[$0] = nil }
-        if var log = root["log"] as? [String: Any] {
-            dropped += removeKeys(["output"], from: &log).map { "log." + $0 }
-            root["log"] = log
-        }
-        if var experimental = root["experimental"] as? [String: Any] {
-            dropped += removeKeys(["cache_file"], from: &experimental).map { "experimental." + $0 }
-            if var api = experimental["clash_api"] as? [String: Any] {
-                let dashboard: Set = ["external_ui", "external_ui_download_url", "external_ui_download_detour"]
-                dropped += removeKeys(dashboard, from: &api).map { "experimental.clash_api." + $0 }
-                experimental["clash_api"] = api
-            }
-            root["experimental"] = experimental
-        }
-        if var route = root["route"] as? [String: Any] {
-            dropped += removeKeys(["geoip", "geosite"], from: &route).map { "route." + $0 }
-            root["route"] = route
-        }
-        guard !dropped.isEmpty else { return (json, []) }
-        return (serializeJSON(root) ?? json, dropped)
-    }
-
-    // Case-insensitive, the way sing-box matches field names.
-    private static func removeKeys(_ names: Set<String>, from object: inout [String: Any]) -> [String] {
-        let matches = object.keys.filter { names.contains($0.lowercased()) }.sorted()
-        matches.forEach { object[$0] = nil }
-        return matches
-    }
 
     // MARK: - Domain input
 

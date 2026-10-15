@@ -183,8 +183,7 @@ final class ProcessManager {
         kill_pid_file \(singboxPidFile) sing-box
         """
 
-    private var lastConnection: (config: String, engine: Engine,
-                                  binaryPath: String, singBoxPath: String,
+    private var lastConnection: (config: String, xrayPath: String, singBoxPath: String,
                                   bypassDomains: [String])?
     private var wakeObserver: Any?
     private var reconnectTask: Task<Void, Never>?
@@ -425,8 +424,7 @@ final class ProcessManager {
         reconnectTask = Task {
             try? await Task.sleep(for: delay, clock: .suspending)
             guard !Task.isCancelled, let params = lastConnection else { return }
-            connect(config: params.config, engine: params.engine,
-                    binaryPath: params.binaryPath, singBoxPath: params.singBoxPath,
+            connect(config: params.config, xrayPath: params.xrayPath, singBoxPath: params.singBoxPath,
                     bypassDomains: params.bypassDomains)
             reconnectCount += 1
         }
@@ -435,8 +433,7 @@ final class ProcessManager {
     // MARK: - Connect / Disconnect
 
     func connect(
-        config: String, engine: Engine,
-        binaryPath: String, singBoxPath: String = "",
+        config: String, xrayPath: String, singBoxPath: String,
         bypassDomains: [String] = [], resolvedAddresses: [String]? = nil
     ) {
         guard !isRunning else { return }
@@ -456,7 +453,7 @@ final class ProcessManager {
                     try? await Task.sleep(for: .milliseconds(100))
                 }
                 guard !Task.isCancelled else { return }
-                connect(config: config, engine: engine, binaryPath: binaryPath, singBoxPath: singBoxPath,
+                connect(config: config, xrayPath: xrayPath, singBoxPath: singBoxPath,
                         bypassDomains: bypassDomains, resolvedAddresses: resolvedAddresses)
             }
             return
@@ -465,8 +462,8 @@ final class ProcessManager {
             logs.append("[Error: no config provided]")
             return
         }
-        guard FileManager.default.isExecutableFile(atPath: binaryPath) else {
-            logs.append("[Error: binary not found at \(binaryPath)]")
+        guard FileManager.default.isExecutableFile(atPath: xrayPath) else {
+            logs.append("[Error: binary not found at \(xrayPath)]")
             return
         }
 
@@ -474,7 +471,7 @@ final class ProcessManager {
         // name is resolved here, once, and both engines get the same addresses. getaddrinfo
         // blocks, so the connect parks itself like the stop wait above and re-enters with the
         // answer; a restart re-enters without one and resolves again, on the network it has.
-        let serverHost = engine == .xray ? BypassService.xrayServerHost(config) : nil
+        let serverHost = BypassService.xrayServerHost(config)
         let serverName = serverHost.flatMap { IPv4Address($0) == nil && IPv6Address($0) == nil ? $0 : nil }
         if let name = serverName, resolvedAddresses == nil {
             logs.append("[Resolving \(name)...]")
@@ -486,49 +483,28 @@ final class ProcessManager {
                     logs.append("[Error: \(name) does not resolve]")
                     return
                 }
-                connect(config: config, engine: engine, binaryPath: binaryPath, singBoxPath: singBoxPath,
+                connect(config: config, xrayPath: xrayPath, singBoxPath: singBoxPath,
                         bypassDomains: bypassDomains, resolvedAddresses: addresses)
             }
             return
         }
         let serverAddresses = resolvedAddresses ?? serverHost.map { [$0] } ?? []
 
-        lastConnection = (config, engine, binaryPath, singBoxPath, bypassDomains)
+        lastConnection = (config, xrayPath, singBoxPath, bypassDomains)
 
-        // Whichever sing-box holds the TUN gets the bypass rule and the host's IP families.
-        let hostHasIPv6 = hostIPv6State() ?? true
-        tunHasIPv6 = hostHasIPv6
-        func prepareTunConfig(_ json: String) -> String {
-            let injected = BypassService.injectSingBox(json, domains: bypassDomains)
-            return BypassService.fitTunToHost(injected, hostHasIPv6: hostHasIPv6)
-        }
-
-        let finalConfig: String
-        let configFile: String
-        switch engine {
-        case .singBox:
-            let fitted = BypassService.dropUnneededFileKeys(config)
-            if !fitted.dropped.isEmpty {
-                logs.append("[Config] dropped \(fitted.dropped.joined(separator: ", ")) — the root engine touches no files")
-            }
-            finalConfig = prepareTunConfig(fitted.json)
-            configFile = singboxConfigFile
-        case .xray:
-            finalConfig = serverName.map { BypassService.pinXrayServer(config, host: $0, addresses: serverAddresses) } ?? config
-            configFile = xrayConfigFile
-        }
-
-        FileManager.default.createFile(atPath: configFile, contents: finalConfig.data(using: .utf8),
+        let xrayConfig = serverName.map { BypassService.pinXrayServer(config, host: $0, addresses: serverAddresses) } ?? config
+        FileManager.default.createFile(atPath: xrayConfigFile, contents: xrayConfig.data(using: .utf8),
                                         attributes: [.posixPermissions: 0o600])
 
-        // The wrapper is the only sing-box in the xray topology, so the bypass rule goes there:
-        // xray gets IP destinations over SOCKS and never sees a domain.
-        if engine == .xray {
-            let wrapper = Self.buildTunWrapperConfig(serverAddresses: serverAddresses)
-            let finalWrapper = prepareTunConfig(wrapper)
-            FileManager.default.createFile(atPath: singboxConfigFile, contents: finalWrapper.data(using: .utf8),
-                                            attributes: [.posixPermissions: 0o600])
-        }
+        // The wrapper is the only sing-box, so the bypass rule and the host's IP families go
+        // there: xray gets IP destinations over SOCKS and never sees a domain.
+        let hostHasIPv6 = hostIPv6State() ?? true
+        tunHasIPv6 = hostHasIPv6
+        let wrapper = BypassService.injectSingBox(Self.buildTunWrapperConfig(serverAddresses: serverAddresses),
+                                                  domains: bypassDomains)
+        FileManager.default.createFile(atPath: singboxConfigFile,
+                                        contents: BypassService.fitTunToHost(wrapper, hostHasIPv6: hostHasIPv6).data(using: .utf8),
+                                        attributes: [.posixPermissions: 0o600])
 
         if !bypassDomains.isEmpty {
             logs.append("[Bypass] \(bypassDomains.count) domain(s) will route direct")
@@ -553,15 +529,11 @@ final class ProcessManager {
         // The session starts here, before any engine is up, so disconnect, restart, wake and
         // quit see it and a second connect is refused.
         isRunning = true
-        guard engine == .xray else {
-            startHelper(singBoxPath: binaryPath, log: engineLog)
-            return
-        }
         // The wrapper sends everything to xray's port, so it starts once xray listens. The start
         // waits in reconnectTask; whoever cancels it — disconnect, restart, wake — tears the
         // session down itself, so a cancelled start touches nothing.
         reconnectTask = Task {
-            let started = await startXray(binaryPath: binaryPath, configFile: configFile, log: engineLog)
+            let started = await startXray(binaryPath: xrayPath, configFile: xrayConfigFile, log: engineLog)
             guard !Task.isCancelled else { return }
             reconnectTask = nil
             guard started else {

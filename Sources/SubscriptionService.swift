@@ -9,6 +9,7 @@ enum AddResult {
     case refreshing(String)
     case emptyFeed
     case invalidJSON
+    case noXrayServer
     case refreshFailed(String)
 }
 
@@ -157,11 +158,11 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
 
         // A list of links first, then the panel's xray format: every server runs on xray.
         if let servers = await fetchAndParseURIs(urlString), !servers.isEmpty {
-            store(servers, engine: .xray, in: id)
+            store(servers, in: id)
             return true
         }
         if let servers = await fetchXrayFormat(urlString), !servers.isEmpty {
-            store(servers, engine: .xray, in: id)
+            store(servers, in: id)
             return true
         }
         return false
@@ -191,9 +192,9 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         return result
     }
 
-    private func store(_ servers: [Server], engine: Engine, in id: UUID) {
+    private func store(_ servers: [Server], in id: UUID) {
         guard let idx = subscriptions.firstIndex(where: { $0.id == id }) else { return }
-        subscriptions[idx].engine = engine
+        subscriptions[idx].engine = .xray
         subscriptions[idx].servers = keepingIDs(from: subscriptions[idx].servers, servers)
         subscriptions[idx].lastUpdated = Date()
         save()
@@ -476,49 +477,6 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         return serializeJSON(config) ?? "{}"
     }
 
-    // MARK: - sing-box JSON parsing (for ?format=singbox)
-
-    static let vpnTypesSingBox: Set<String> = [
-        "vless", "vmess", "trojan", "shadowsocks", "shadowtls",
-        "hysteria", "hysteria2", "tuic", "wireguard"
-    ]
-
-    private static let serviceTypesSingBox: Set<String> = [
-        "direct", "block", "dns", "selector", "urltest"
-    ]
-
-    private func parseSingBox(_ json: String) -> [Server] {
-        guard let data = json.data(using: .utf8),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let outbounds = root["outbounds"] as? [[String: Any]]
-        else { return [] }
-
-        let serviceOutbounds = outbounds.filter {
-            guard let type = $0["type"] as? String else { return false }
-            return Self.serviceTypesSingBox.contains(type)
-        }
-
-        var servers: [Server] = []
-        for ob in outbounds {
-            guard let type = ob["type"] as? String,
-                  Self.vpnTypesSingBox.contains(type) else { continue }
-
-            let name = ob["tag"] as? String ?? type
-            let host = ob["server"] as? String ?? "?"
-            let port = ob["server_port"] as? Int ?? 0
-            let address = "\(host):\(port)"
-            let transport = Self.canonicalTransport((ob["transport"] as? [String: Any])?["type"] as? String ?? "tcp")
-
-            var modifiedRoot = root
-            modifiedRoot["outbounds"] = [ob] + serviceOutbounds
-            let config = serializeJSON(modifiedRoot) ?? ""
-
-            servers.append(Server(name: name, protocolType: type, address: address,
-                                  transport: transport, config: config))
-        }
-        return servers
-    }
-
     // MARK: - xray JSON parsing (for ?format=xray)
 
     static let vpnTypesXray: Set<String> = [
@@ -581,20 +539,13 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
               (try? JSONSerialization.jsonObject(with: data)) != nil
         else { return .invalidJSON }
 
-        var sub = Subscription(name: name, isManual: true, engine: .singBox)
+        // Every server runs on xray, so a sing-box config — or any JSON with no xray server in
+        // it — is refused rather than stored as something that cannot connect.
+        let servers = parseXray(json)
+        guard !servers.isEmpty else { return .noXrayServer }
 
-        let singBoxServers = parseSingBox(json)
-        let xrayServers = singBoxServers.isEmpty ? parseXray(json) : []
-        if !singBoxServers.isEmpty {
-            sub.engine = .singBox
-            sub.servers = singBoxServers
-        } else if !xrayServers.isEmpty {
-            sub.engine = .xray
-            sub.servers = xrayServers
-        } else {
-            sub.servers = [Server(name: name, protocolType: "custom", address: "—", transport: "", config: json)]
-        }
-
+        var sub = Subscription(name: name, isManual: true, engine: .xray)
+        sub.servers = servers
         sub.lastUpdated = Date()
         subscriptions.append(sub)
         save()

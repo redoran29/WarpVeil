@@ -384,6 +384,7 @@ private extension AddResult {
         case .refreshing(let name): "Already added — \(name) is refreshing now"
         case .emptyFeed: "Could not load a subscription from this link"
         case .invalidJSON: "This is not valid JSON"
+        case .noXrayServer: "No xray server in this config — paste an xray config, or a vless:// or vmess:// link under URL"
         case .refreshFailed(let name): "Could not refresh \(name) — its servers are unchanged"
         }
     }
