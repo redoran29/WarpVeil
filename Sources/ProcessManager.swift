@@ -278,10 +278,12 @@ final class ProcessManager {
             \(user) ALL=(root) NOPASSWD: \(Self.stopScriptPath)
 
             """
-        // Version-tagged temp paths so concurrent installs of different app versions don't collide.
-        let tmpSudoers = "/private/tmp/warpveil-\(Self.versionTag)-sudoers"
-        let tmpRun = "/private/tmp/warpveil-\(Self.versionTag)-run.sh"
-        let tmpStop = "/private/tmp/warpveil-\(Self.versionTag)-stop.sh"
+        // The user's own 0700 $TMPDIR, not /private/tmp, where another account could plant these
+        // names first and keep every connect from installing.
+        let staging = FileManager.default.temporaryDirectory.path
+        let tmpSudoers = staging + "/warpveil-\(Self.versionTag)-sudoers"
+        let tmpRun = staging + "/warpveil-\(Self.versionTag)-run.sh"
+        let tmpStop = staging + "/warpveil-\(Self.versionTag)-stop.sh"
         do {
             try sudoersContent.write(toFile: tmpSudoers, atomically: true, encoding: .utf8)
         } catch {
