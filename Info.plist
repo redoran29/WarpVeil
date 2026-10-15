@@ -27,5 +27,7 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>WVUpdatePublicKey</key>
+	<string>O5b3lI0eLG3/T4/gyj3tiFZe9IoJ1YV70LxR5QEKh/c=</string>
 </dict>
 </plist>
