@@ -54,3 +54,21 @@ broken today; the public build (plan 17) brings servers that are not. Backlog 18
 - The old plan compared three mechanisms and verified the pinning end to end in user space (xray
   `dns.hosts` plus `sockopt.domainStrategy: UseIP` dialed the pinned address and kept the SNI):
   `git show 975f8b4:plans/xray-hostname-server.md`.
+
+### Review (2026-10-15, round 1)
+Built in `f695e0c`. `/code-review 89fcdeb..9d857e6` findings for this plan, and what was done:
+- The lookup ran before the session started, so Disconnect could not cancel it, a routing edit made
+  during it was lost, and a wake during it restarted the previous server: the lookup now runs inside
+  the session, after `lastConnection` and `isRunning` are set.
+- A failed lookup after a wake or a network change ended the session for good: retried every 2 s for
+  half a minute while the session is not cancelled.
+- `UseIP` dials by name through the system resolver when the pin misses, which can loop: now
+  `ForceIP`. Racing several pinned addresses (`happyEyeballs`) was tried and dropped — the TUN
+  completes every TCP handshake itself, so a dead address won every race (canon, Gotchas).
+- A bracketed IPv6 literal was taken for a name, and a scoped `fe80::…%en0` answer made an invalid
+  `ip_cidr`: literals are checked without brackets, scoped answers dropped.
+- A config with no readable server address connected with no server rule and looped: refused.
+- **Open for the owner:** a hostname server behind a CDN puts the CDN's edge addresses into the
+  direct rule, so other sites on those addresses leave outside the VPN. Kept as built until the
+  owner picks between the address rule, an address-and-process rule for xray, or binding xray's
+  dials to the physical interface.

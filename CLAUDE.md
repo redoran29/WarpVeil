@@ -100,13 +100,17 @@ user and started by the app, with a sing-box TUN wrapper in front of it that hol
 decision. Only that wrapper runs as root, and its server rule is by address, so it does not care
 who dialed. The bypass rule goes into it through `BypassService.injectSingBox`. xray's own
 connection to its server enters the TUN as well and is routed `direct` by address (`ip_cidr`),
-never by name. A server given as a hostname is resolved by the app at connect
-(`BypassService.resolveAddresses`, off the main actor — `connect` parks itself the way it waits
-for a stop), every address goes into the wrapper's rule, and the xray config gets the same
-addresses pinned in xray's own DNS (`dns.hosts` + `sockopt.domainStrategy: UseIP`,
-`BypassService.pinXrayServer`), so xray cannot dial one the wrapper does not route direct. The
-address is read from `vnext` (vless, vmess) or `servers` (trojan, shadowsocks, socks); an
-IP-literal server's xray config is written as the subscription produced it.
+never by name. A server given as a hostname is resolved by the app at connect, inside the
+session and off the main actor, retried for half a minute while a network settles
+(`BypassService.resolveAddresses`); every address goes into the wrapper's rule, and the xray
+config gets the same addresses pinned in xray's own DNS (`dns.hosts` +
+`sockopt.domainStrategy: ForceIP`, `BypassService.pinXrayServer`), so xray cannot dial one the
+wrapper does not route direct — ForceIP fails a dial the pin misses where UseIP would ask the
+system resolver. The address is read from `vnext` (vless, vmess) or `servers` (trojan,
+shadowsocks, socks), and a config without one is refused. Every xray config — built from a link,
+taken from a panel's `?format=xray` or pasted — runs in the app's frame: one socks inbound on
+10808, the proxy, a freedom outbound, no routing rules, which would send "direct" traffic back
+through the TUN.
 
 ---
 
@@ -272,8 +276,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
   (`$TMPDIR/warpveil-<tag>-xray.pid`), read by `ProcessManager.stopOrphanedXray` at the next
   connect under the same rule (`proc_pidpath` ends in `/xray`; one that outlives the wait keeps
   its file and stops the connect) and by `install.sh`/`dev-run.sh`. A connect is a session from
-  its first line: `isRunning` is true while xray starts, so disconnect, restart, wake and quit
-  tear a pending start down, and a cancelled start touches nothing. A port 10808 that is
+  its first line: `isRunning` is true while the server's name resolves and xray starts, so
+  disconnect, restart, wake and quit tear a pending start down, and a cancelled start touches nothing. A port 10808 that is
   already taken is refused before xray starts; the wrapper starts only once xray's port accepts
   connections; a session that never reached the helper skips the root stop; and an xray that
   exits while connected disconnects. A sing-box with no PID file at our path (another build's tag, a
@@ -297,8 +301,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - **Ping is a user-space measurement**: `PingService` runs a user-space xray with a socks inbound
   per server, chained into a user-space sing-box as socks outbounds behind
   `experimental.clash_api` on a free localhost port, and asks `/proxies/<Server.id>/delay` per
-  server. No sudo, no TUN. Every tag is measured in three passes over the same engines and the
-  minimum is reported: the first request through a
+  server. No sudo, no TUN. A server xray refuses at config load would take the merged xray down
+  with every row, so a refused merge is retried with one xray per server. Every tag is measured
+  in three passes over the same engines and the minimum is reported: the first request through a
   proxy carries its REALITY/TLS handshake, which puts every server at the same ~800 ms and hides
   the real differences. Passes over all tags, not three requests in a row on one tag — that shape
   was built and measured worse: only the sing-box rows warmed up, the xray rows stayed at ~700 ms
@@ -316,7 +321,7 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - `$TMPDIR/warpveil-<tag>.log` — VPN process log, tailed by a 0.25s polling timer
 - `$TMPDIR/warpveil-singbox-<pid>.json` — the TUN wrapper's sing-box config
 - `$TMPDIR/warpveil-xray-<pid>.json` — xray config; a server given by name has it pinned to the resolved addresses
-- `$TMPDIR/warpveil-ping-{singbox,xray}-<pid>.json` — ping configs, present only during a run
+- `$TMPDIR/warpveil-ping-{singbox,xray,xray-<n>}-<pid>.json` — ping configs, present only during a run
 - `/var/run/warpveil-<tag>/singbox.pid` — sing-box's PID, root's (directory 0755)
 - `$TMPDIR/warpveil-<tag>-xray.pid` — xray's PID, the user's
 - `/usr/local/libexec/warpveil-<tag>/{run.sh,stop.sh,sing-box}` — the passwordless install,
@@ -381,6 +386,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - The wrapper's server rule is `ip_cidr`, never `domain_suffix`: xray's dial to its server arrives
   as an IP, and what a sniff would read is the REALITY camouflage SNI, not the server's name — a
   domain rule for the server never matches and the dial loops back into xray
+- The TUN's stack completes every TCP handshake itself, so a dial through it "connects" to any
+  address, dead or alive: xray's `happyEyeballs` races nothing there (measured: a dead pinned
+  address won every race), and a TCP connect is no reachability check
 - sing-box's `process_path`/`process_name` rules read `net.inet.tcp.pcblist_n`, which macOS 27
   answers with the header alone for a process without `com.apple.private.network.statistics`
   (`netstat` has it, the bundled engines do not) and in full for root — measured 2026-10-15, 48

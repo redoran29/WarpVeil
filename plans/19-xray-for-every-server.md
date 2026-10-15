@@ -65,3 +65,18 @@ only as the root TUN layer in front of it, the way the xhttp servers already run
   sing-box first (same file).
 - Xray 26.3.27 has a Hysteria 2 client (`infra/conf/hysteria.go`, version 2 only) and no tuic. Every
   Xray release after 26.3.27 is a prerelease (GitHub, 2026-10-15).
+
+### Review (2026-10-15, round 1)
+Built in `54e2aec` and `da8863f`. `/code-review 89fcdeb..9d857e6` findings for this plan, and what
+was done:
+- A sing-box server an earlier build stored could not be re-added (the duplicate check matched the
+  dead row), and a feed's server got manual-config advice: the duplicate check skips sing-box rows,
+  and a feed's row says to refresh the feed.
+- Every link config bound an unused, unauthenticated HTTP proxy on 10809: gone.
+- One server xray refuses at load took every ping row down: a refused merge is retried one xray per
+  server, and sing-box gets only the tags xray actually serves.
+- A panel's or pasted xray config ran as given — its own inbounds, routing to direct (which loops
+  through the TUN), log files: every config now runs in the app's frame. A panel serving an array of
+  configs is read, each named by `remarks`; a config with no readable server address is not listed.
+- The sing-box binary was no longer checked before a connect: both engines are.
+- The server-address lookup existed twice: the Servers list reads `BypassService.serverEndpoint`.
