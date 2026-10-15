@@ -59,9 +59,10 @@ final class Updater {
     // MARK: - Check
 
     // Asked hourly: a day after the last check that got an answer, so a failed one — offline
-    // right after a wake — is tried again within the hour instead of the next day.
+    // right after a wake — is tried again within the hour instead of the next day. An answer
+    // dated ahead — a clock set back since — counts as due.
     func checkIfDue() async {
-        if let lastAnswered, Date().timeIntervalSince(lastAnswered) < 24 * 3600 { return }
+        if let lastAnswered, (0..<24 * 3600).contains(Date().timeIntervalSince(lastAnswered)) { return }
         await check()
     }
 

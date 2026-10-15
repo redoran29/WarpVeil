@@ -143,8 +143,9 @@ final class AppState {
 
     // MARK: - Updates
 
-    // Once after launch, then daily: the app lives in the menu bar for weeks at a time. The
-    // first check waits out the TUN coming up under an auto-connect.
+    // Once after launch, then asked hourly and due a day after the last answer: the app lives in
+    // the menu bar for weeks at a time. The first check waits out the TUN coming up under an
+    // auto-connect.
     private func startUpdateChecks() {
         Task {
             try? await Task.sleep(for: .seconds(15))
