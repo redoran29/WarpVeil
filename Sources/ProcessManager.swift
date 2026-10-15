@@ -476,6 +476,9 @@ final class ProcessManager {
             }
             return
         }
+        // The previous stop has exited, and how is nobody's business now: a sing-box it left
+        // behind is run.sh's kill_pid_file's to deal with.
+        teardownProcess = nil
         guard !config.isEmpty else {
             logs.append("[Error: no config provided]")
             return
@@ -852,16 +855,24 @@ final class ProcessManager {
         isRunning = false
     }
 
-    // Quit and connect need to know when the engines are actually gone. The non-passwordless
-    // path puts up a password dialog, so the wait is however long the user takes.
+    // Quit, connect and an update need to know when the engines are actually gone. The
+    // non-passwordless path puts up a password dialog, so the wait is however long the user
+    // takes. True once nothing of the session runs and the stop, if one ran, exited 0 — a
+    // cancelled dialog and a sing-box that outlived kill_pid_file's wait both exit 1. A session
+    // that never reached the helper ran no stop, and connect drops the previous one.
     private var teardownProcess: Process?
 
-    func awaitTeardown(timeout: TimeInterval) async {
-        guard let process = teardownProcess else { return }
+    @discardableResult
+    func awaitTeardown(timeout: TimeInterval) async -> Bool {
+        let stop = teardownProcess
+        let engines = [stop, xrayProcess].compactMap { $0 }
         let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning, Date() < deadline, !Task.isCancelled {
+        while engines.contains(where: \.isRunning), Date() < deadline, !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(100))
         }
+        // terminationStatus raises on a process that is still running.
+        guard !engines.contains(where: \.isRunning) else { return false }
+        return stop.map { $0.terminationStatus == 0 } ?? true
     }
 
     private func killVPNProcesses() {
