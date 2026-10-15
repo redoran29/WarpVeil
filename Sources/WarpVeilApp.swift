@@ -87,8 +87,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // Synchronous: the .terminateNow path below exits without waiting for anything.
         app.ping.cancel()
-        guard app.pm.isRunning else { return .terminateNow }
+        // Before the session check: between a restart's teardown and its connect no session runs,
+        // yet the restart is pending and a helper install's dialog may be up.
         app.disconnect()
+        guard app.pm.isRunning else { return .terminateNow }
         Task {
             await app.pm.awaitTeardown(timeout: 30)
             NSApp.reply(toApplicationShouldTerminate: true)
