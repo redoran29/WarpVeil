@@ -136,7 +136,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             _ = app.pm.isRunning
             _ = app.pm.isTunnelUp
             _ = app.loc.flag
-            _ = app.net.hasTraffic
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }

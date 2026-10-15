@@ -5,7 +5,6 @@ import Darwin
 final class NetworkMonitor {
     var downloadBPS: Double = 0
     var uploadBPS: Double = 0
-    var hasTraffic = false
 
     private var timer: Timer?
     private var lastIn: UInt64 = 0
@@ -27,7 +26,6 @@ final class NetworkMonitor {
         timer = nil
         downloadBPS = 0
         uploadBPS = 0
-        hasTraffic = false
     }
 
     private func tick() {
@@ -41,7 +39,6 @@ final class NetworkMonitor {
             guard let self else { return }
             downloadBPS = Double(dIn)
             uploadBPS = Double(dOut)
-            hasTraffic = dIn > 1024 || dOut > 1024
         }
     }
 
