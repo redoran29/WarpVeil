@@ -437,7 +437,7 @@ final class ProcessManager {
     func connect(
         config: String, engine: Engine,
         binaryPath: String, singBoxPath: String = "",
-        bypassDomains: [String] = []
+        bypassDomains: [String] = [], resolvedAddresses: [String]? = nil
     ) {
         guard !isRunning else { return }
         // A connect supersedes a pending restart: left alone it would connect a second time,
@@ -456,8 +456,8 @@ final class ProcessManager {
                     try? await Task.sleep(for: .milliseconds(100))
                 }
                 guard !Task.isCancelled else { return }
-                connect(config: config, engine: engine, binaryPath: binaryPath,
-                        singBoxPath: singBoxPath, bypassDomains: bypassDomains)
+                connect(config: config, engine: engine, binaryPath: binaryPath, singBoxPath: singBoxPath,
+                        bypassDomains: bypassDomains, resolvedAddresses: resolvedAddresses)
             }
             return
         }
@@ -469,6 +469,29 @@ final class ProcessManager {
             logs.append("[Error: binary not found at \(binaryPath)]")
             return
         }
+
+        // xray dials its server by name while the wrapper routes that dial by address, so a
+        // name is resolved here, once, and both engines get the same addresses. getaddrinfo
+        // blocks, so the connect parks itself like the stop wait above and re-enters with the
+        // answer; a restart re-enters without one and resolves again, on the network it has.
+        let serverHost = engine == .xray ? BypassService.xrayServerHost(config) : nil
+        let serverName = serverHost.flatMap { IPv4Address($0) == nil && IPv6Address($0) == nil ? $0 : nil }
+        if let name = serverName, resolvedAddresses == nil {
+            logs.append("[Resolving \(name)...]")
+            reconnectTask = Task {
+                let addresses = await Task.detached { BypassService.resolveAddresses(of: name) }.value
+                guard !Task.isCancelled else { return }
+                reconnectTask = nil
+                guard !addresses.isEmpty else {
+                    logs.append("[Error: \(name) does not resolve]")
+                    return
+                }
+                connect(config: config, engine: engine, binaryPath: binaryPath, singBoxPath: singBoxPath,
+                        bypassDomains: bypassDomains, resolvedAddresses: addresses)
+            }
+            return
+        }
+        let serverAddresses = resolvedAddresses ?? serverHost.map { [$0] } ?? []
 
         lastConnection = (config, engine, binaryPath, singBoxPath, bypassDomains)
 
@@ -491,7 +514,7 @@ final class ProcessManager {
             finalConfig = prepareTunConfig(fitted.json)
             configFile = singboxConfigFile
         case .xray:
-            finalConfig = config
+            finalConfig = serverName.map { BypassService.pinXrayServer(config, host: $0, addresses: serverAddresses) } ?? config
             configFile = xrayConfigFile
         }
 
@@ -501,7 +524,7 @@ final class ProcessManager {
         // The wrapper is the only sing-box in the xray topology, so the bypass rule goes there:
         // xray gets IP destinations over SOCKS and never sees a domain.
         if engine == .xray {
-            let wrapper = Self.buildTunWrapperConfig(serverIP: Self.extractServerIP(from: config))
+            let wrapper = Self.buildTunWrapperConfig(serverAddresses: serverAddresses)
             let finalWrapper = prepareTunConfig(wrapper)
             FileManager.default.createFile(atPath: singboxConfigFile, contents: finalWrapper.data(using: .utf8),
                                             attributes: [.posixPermissions: 0o600])
@@ -700,50 +723,21 @@ final class ProcessManager {
         return SCError() == kSCStatusNoKey ? false : nil
     }
 
-    private nonisolated static func extractServerIP(from config: String) -> String? {
-        guard let data = config.data(using: .utf8),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let outbounds = root["outbounds"] as? [[String: Any]]
-        else { return nil }
-
-        for ob in outbounds {
-            // xray format: settings.vnext[0].address
-            if let settings = ob["settings"] as? [String: Any],
-               let vnext = settings["vnext"] as? [[String: Any]],
-               let first = vnext.first,
-               let addr = first["address"] as? String {
-                return addr
-            }
-            // sing-box format: server
-            if let server = ob["server"] as? String {
-                return server
-            }
-        }
-        return nil
-    }
-
-    private nonisolated static func buildTunWrapperConfig(serverIP: String?) -> String {
+    private nonisolated static func buildTunWrapperConfig(serverAddresses: [String]) -> String {
         var rules: [[String: Any]] = [
             ["action": "hijack-dns", "protocol": "dns"] as [String: Any],
             ["action": "sniff"] as [String: Any]
         ]
 
-        // CRITICAL: route VPN server directly to avoid routing loop.
-        // ip_cidr for literal IP addresses; domain_suffix for hostnames.
-        if let addr = serverIP {
-            if IPv4Address(addr) != nil || IPv6Address(addr) != nil {
-                rules.insert([
-                    "action": "route",
-                    "outbound": "direct",
-                    "ip_cidr": ["\(addr)/\(addr.contains(":") ? 128 : 32)"]
-                ] as [String: Any], at: 0)
-            } else {
-                rules.insert([
-                    "action": "route",
-                    "outbound": "direct",
-                    "domain_suffix": [addr]
-                ] as [String: Any], at: 0)
-            }
+        // xray's own connection to the server enters the TUN too; without this rule it would be
+        // handed back to xray. By address only: the connection arrives as an IP, before sniff,
+        // and the SNI a sniff would read is the REALITY camouflage name, never the server's.
+        if !serverAddresses.isEmpty {
+            rules.insert([
+                "action": "route",
+                "outbound": "direct",
+                "ip_cidr": serverAddresses.map { "\($0)/\($0.contains(":") ? 128 : 32)" }
+            ] as [String: Any], at: 0)
         }
 
         let config: [String: Any] = [

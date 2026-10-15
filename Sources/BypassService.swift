@@ -66,6 +66,67 @@ enum BypassService {
         return serializeJSON(root) ?? json
     }
 
+    // MARK: - xray server
+
+    // The proxy outbound's address as the subscription wrote it: an IP literal or a name.
+    // vless and vmess carry it in `vnext`, trojan, shadowsocks and socks in `servers`.
+    static func xrayServerHost(_ json: String) -> String? {
+        guard let root = parseJSON(json),
+              let outbounds = root["outbounds"] as? [[String: Any]] else { return nil }
+        return outbounds.lazy.compactMap(serverAddress).first
+    }
+
+    // xray dials its server by name; the wrapper in front of it routes that dial by address.
+    // Pinning the name in xray's own DNS to the addresses the app resolved makes both engines
+    // use the same ones — xray's own lookup could answer differently (round-robin, a CDN).
+    static func pinXrayServer(_ json: String, host: String, addresses: [String]) -> String {
+        guard !addresses.isEmpty, var root = parseJSON(json),
+              var outbounds = root["outbounds"] as? [[String: Any]],
+              let index = outbounds.firstIndex(where: { serverAddress($0) == host }) else { return json }
+        var dns = root["dns"] as? [String: Any] ?? [:]
+        var hosts = dns["hosts"] as? [String: Any] ?? [:]
+        hosts[host] = addresses
+        dns["hosts"] = hosts
+        root["dns"] = dns
+        var streamSettings = outbounds[index]["streamSettings"] as? [String: Any] ?? [:]
+        var sockopt = streamSettings["sockopt"] as? [String: Any] ?? [:]
+        sockopt["domainStrategy"] = "UseIP"
+        streamSettings["sockopt"] = sockopt
+        outbounds[index]["streamSettings"] = streamSettings
+        root["outbounds"] = outbounds
+        return serializeJSON(root) ?? json
+    }
+
+    private static func serverAddress(_ outbound: [String: Any]) -> String? {
+        guard let settings = outbound["settings"] as? [String: Any] else { return nil }
+        let first = (settings["vnext"] as? [[String: Any]])?.first
+            ?? (settings["servers"] as? [[String: Any]])?.first
+        return first?["address"] as? String
+    }
+
+    // getaddrinfo blocks, so callers run it off the main actor. AI_ADDRCONFIG drops the
+    // families the host has no address for — what every app's own lookup gets.
+    static func resolveAddresses(of host: String) -> [String] {
+        var hints = addrinfo()
+        hints.ai_socktype = SOCK_STREAM
+        hints.ai_flags = AI_ADDRCONFIG
+        var list: UnsafeMutablePointer<addrinfo>?
+        guard getaddrinfo(host, nil, &hints, &list) == 0, let first = list else { return [] }
+        defer { freeaddrinfo(first) }
+        var addresses: [String] = []
+        var node: UnsafeMutablePointer<addrinfo>? = first
+        while let info = node {
+            var buffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            if getnameinfo(info.pointee.ai_addr, info.pointee.ai_addrlen,
+                           &buffer, socklen_t(buffer.count), nil, 0, NI_NUMERICHOST) == 0 {
+                let address = String(cString: buffer)
+                if !addresses.contains(address) { addresses.append(address) }
+            }
+            node = info.pointee.ai_next
+        }
+        return addresses
+    }
+
     // MARK: - Root safety
 
     // The top-level sections a root sing-box may get; ProcessManager.configPolicy refuses the rest.
