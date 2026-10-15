@@ -260,10 +260,29 @@ final class ProcessManager {
         return root == bundle
     }
 
+    // Every build's install: another tag's run.sh is the old hole for as long as its entry exists,
+    // and the pre-rename `vpnswift` entry pointed at a script in /private/tmp anyone can create.
+    private static let removeEveryInstallCommand =
+        "rm -f /etc/sudoers.d/warpveil* /etc/sudoers.d/vpnswift && rm -rf /usr/local/libexec/warpveil*"
+
+    private var helperInstall: Task<Bool, Never>?
+    private var adminProcess: Process?
+
     // The connect's install of the helper this version runs its engine through — the one password
-    // dialog the app shows, once per version, before anything of the session starts. True once the
-    // install reads as working.
+    // dialog the app shows, once per version, before anything of the session starts. One at a time
+    // and shared: a restart that lands while the dialog is up waits for the same answer instead of
+    // failing or asking again; a disconnect or a quit takes the dialog down. True once the install
+    // reads as working.
     private func installHelper() async -> Bool {
+        if let helperInstall { return await helperInstall.value }
+        let install = Task { await runHelperInstall() }
+        helperInstall = install
+        let installed = await install.value
+        helperInstall = nil
+        return installed
+    }
+
+    private func runHelperInstall() async -> Bool {
         guard !isPasswordlessBusy else { return false }
         guard let bundledSingBox = Self.findBinary("sing-box") else {
             logs.append("[Error: bundled sing-box not found]")
@@ -286,48 +305,24 @@ final class ProcessManager {
         let tmpStop = staging + "/warpveil-\(Self.versionTag)-stop.sh"
         do {
             try sudoersContent.write(toFile: tmpSudoers, atomically: true, encoding: .utf8)
-        } catch {
-            logs.append("[Error: failed to write sudoers temp file: \(error.localizedDescription)]")
-            passwordlessOperationFinished()
-            return false
-        }
-
-        do {
             try Self.runShContent.write(toFile: tmpRun, atomically: true, encoding: .utf8)
             try Self.stopShContent.write(toFile: tmpStop, atomically: true, encoding: .utf8)
         } catch {
-            logs.append("[Error: failed to write helper scripts: \(error.localizedDescription)]")
+            logs.append("[Error: cannot stage the helper: \(error.localizedDescription)]")
             passwordlessOperationFinished()
             return false
         }
 
-        // One osascript call. Every other build's entry goes first — an older run.sh with the
-        // hole stays exploitable for as long as its sudoers line exists, and the pre-rename
-        // `vpnswift` entry pointed at a script in /private/tmp that anyone can create.
-        let shellCmd = """
-            rm -f /etc/sudoers.d/warpveil* /etc/sudoers.d/vpnswift && \
-            rm -rf /usr/local/libexec/warpveil* && \
+        let status = await runAsAdmin("""
+            \(Self.removeEveryInstallCommand) && \
             mkdir -p '\(Self.libexecDir)' && \
             install -m 0755 -o root -g wheel \(Self.shellEscape(bundledSingBox)) '\(Self.rootSingBoxPath)' && \
             install -m 0755 -o root -g wheel \(Self.shellEscape(tmpRun)) '\(Self.runScriptPath)' && \
             install -m 0755 -o root -g wheel \(Self.shellEscape(tmpStop)) '\(Self.stopScriptPath)' && \
-            rm -f \(Self.shellEscape(tmpRun)) \(Self.shellEscape(tmpStop)) && \
             visudo -cf \(Self.shellEscape(tmpSudoers)) && \
-            install -m 0440 -o root -g wheel \(Self.shellEscape(tmpSudoers)) '\(Self.sudoersFile)' && \
-            rm -f \(Self.shellEscape(tmpSudoers))
-            """
-
-        let status: Int32 = await withCheckedContinuation { continuation in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(shellCmd)) with administrator privileges"]
-            process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(returning: -1)
-            }
-        }
+            install -m 0440 -o root -g wheel \(Self.shellEscape(tmpSudoers)) '\(Self.sudoersFile)'
+            """)
+        for file in [tmpSudoers, tmpRun, tmpStop] { try? FileManager.default.removeItem(atPath: file) }
         passwordlessOperationFinished()
         logs.append(isPasswordless ? "[Helper installed]" : "[The helper was not installed (exit \(status))]")
         return isPasswordless
@@ -336,28 +331,32 @@ final class ProcessManager {
     func removePasswordless() {
         guard !isPasswordlessBusy else { return }
         isPasswordlessBusy = true
+        Task {
+            if await runAsAdmin(Self.removeEveryInstallCommand) == 0 {
+                logs.append("[Helper removed — the next connect installs it again]")
+            }
+            passwordlessOperationFinished()
+        }
+    }
 
-        // Every build's: the other tags' entries are the same hole.
-        let shellCmd = "rm -f /etc/sudoers.d/warpveil* /etc/sudoers.d/vpnswift && rm -rf /usr/local/libexec/warpveil*"
+    // osascript's admin dialog, then the command as root; its exit status. Kept in adminProcess
+    // while it runs, so a disconnect can take an install's dialog down.
+    private func runAsAdmin(_ command: String) async -> Int32 {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(shellCmd)) with administrator privileges"]
-        process.terminationHandler = { [weak self] p in
-            let status = p.terminationStatus
-            Task { @MainActor in
-                guard let self else { return }
-                if status == 0 {
-                    self.logs.append("[Helper removed — the next connect installs it again]")
-                }
-                self.passwordlessOperationFinished()
-            }
-        }
+        process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(command)) with administrator privileges"]
+        let (exits, exit) = AsyncStream.makeStream(of: Never.self)
+        process.terminationHandler = { _ in exit.finish() }
         do {
             try process.run()
         } catch {
             logs.append("[Error: \(error.localizedDescription)]")
-            passwordlessOperationFinished()
+            return -1
         }
+        adminProcess = process
+        for await _ in exits {}
+        adminProcess = nil
+        return process.isRunning ? -1 : process.terminationStatus
     }
 
     // An install in another build removes this one's helper while it runs, so every connect
@@ -854,6 +853,8 @@ final class ProcessManager {
     func disconnect() {
         reconnectTask?.cancel()
         reconnectTask = nil
+        // An install's dialog waits for nobody now; a removal's is left alone.
+        if helperInstall != nil { adminProcess?.terminate() }
         guard isRunning else { return }
         logs.append("[Disconnecting...]")
         tearDownEngines()
