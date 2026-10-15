@@ -910,11 +910,10 @@ final class ProcessManager {
         logHandle = handle
 
         // Poll log file every 0.25s instead of DispatchSource (which fires per-write, hundreds/sec)
+        // The timer runs on the main run loop: reading and appending in one step keeps a later
+        // read — endSession's last one — from landing before this one.
         logDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            let data = handle.readDataToEndOfFile()
-            Task { @MainActor [weak self] in
-                self?.appendLog(data)
-            }
+            MainActor.assumeIsolated { self?.appendLog(handle.readDataToEndOfFile()) }
         }
     }
 
