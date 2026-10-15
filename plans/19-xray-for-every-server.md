@@ -125,8 +125,17 @@ was done:
 - From now on a canon change lands in the commit of the behaviour it describes (round 4 noted
   that round 3's landed later, in one docs commit).
 
-### Where it stopped (2026-10-15, session end)
-Plans 18 and 19 are built; four review rounds are fixed or decided. Round 4's fixes (`abe1dc2`..`c3dda5b`)
-are committed but not installed — the installed build is `67366bc`. Next: `./install.sh` and a live
-check (Chicago 1, a hostname server via an sslip.io name, bypass), `/code-review 67366bc..HEAD` as
-round 5, then close both plans; plan 17 after that.
+### Review (2026-10-15, round 5)
+`/code-review 67366bc..4120724`, findings for this plan, and what was done:
+- The ping fallback was fixed a fourth time, so its shape changed (`7e63cb8`): an attempt returns
+  how it ended and the error is set once, so a retry no longer leaves a stale error over a full
+  list or loses its own reason; `-test` runs ten at a time, with the engines (a cancel kills it),
+  stopped after 10 s, and only exit 23 counts as refused, so a test that could not launch or hung
+  blames no one; refused servers are named with xray's reason, one line per reason; the retry
+  waits three times as long.
+- An engine's output was dropped whole on one invalid byte (`20761ae`).
+- A blank `remarks` or outbound tag named a server blank (`02c773b`).
+- Checked: a harness on the real `PingService` — 25 refused tests peak at 10 at once, a cancel
+  during them leaves no process and no error, a hung test is killed at 10 s and blamed on no one;
+  the owner's eight servers all measure (290–388 ms), and with a broken one added the eight still
+  do and the broken one is named with its reason.

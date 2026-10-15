@@ -110,3 +110,16 @@ third time, so their shape changed instead of a fourth patch:
 - Connected was fixed a fourth time in shape: the start line is printed right after sing-box is
   backgrounded, before the TUN exists, so the TUN's address on an interface is now required too
   (`221c7be`), and a log chunk with an invalid byte no longer drops the line (`8a54c99`).
+
+### Review (2026-10-15, round 5)
+`/code-review 67366bc..4120724`, findings for this plan, and what was done:
+- Connected took the TUN's address on any interface, so a tunnel another build or client already
+  holds at 172.19.0.1 read as ours until our sing-box failed. Owner, 2026-10-15: the engine shell
+  prints its start line only once a utun it did not find at the start carries the address — a
+  run.sh change, which re-asks the password, so it lands with 1.3's version bump, which re-asks it
+  anyway (plan 17).
+- A log read could end inside a line or a character, and a start line cut in two left the session
+  at Connecting: only complete lines are taken (`f80f8dd`).
+- The final-read comment sat on `checkTunnel` (`61e5a78`).
+- Live, on the installed `7e63cb8`: the menu reads Connected; on `4120724`, Chicago 1 with a
+  bypassed domain, and a server given by an sslip.io name with the process rule.
