@@ -87,5 +87,5 @@ the owner, decided above: nothing takes the dialog down, and a quit and an updat
 (`c82885b`, which also makes a quit during a pending start wait for xray again, drops the
 unreachable busy guard and writes the staged list once). Also:
 - A skipped restart always blamed the engine (`b04fa14`); a disconnect during a restart's stop read
-  as if it did nothing (this commit's neighbour).
+  as if it did nothing (`93beae4`).
 - A removal's dialog outliving a quit or an update: covered by the same wait.
