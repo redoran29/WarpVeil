@@ -496,6 +496,10 @@ final class ProcessManager {
         // cancels it — disconnect, restart, wake — tears the session down itself, so a cancelled
         // start touches nothing.
         isRunning = true
+        // Read now, not after the lookup: the IPv6 watcher compares the host with this value as
+        // soon as the session exists.
+        let hostHasIPv6 = hostIPv6State() ?? true
+        tunHasIPv6 = hostHasIPv6
         reconnectTask = Task {
             // xray dials a server given by name while the wrapper routes that dial by address,
             // so the name is resolved here and both engines get the same addresses.
@@ -513,7 +517,7 @@ final class ProcessManager {
                 xrayConfig = BypassService.pinXrayServer(config, host: serverHost, addresses: addresses)
             }
             writeConfigs(xray: xrayConfig, serverAddresses: addresses, dialerPath: isName ? xrayPath : nil,
-                         bypassDomains: bypassDomains)
+                         bypassDomains: bypassDomains, hostHasIPv6: hostHasIPv6)
             // The wrapper sends everything to xray's port, so it starts once xray listens.
             let started = await startXray(binaryPath: xrayPath, configFile: xrayConfigFile, log: engineLog)
             guard !Task.isCancelled else { return }
@@ -549,11 +553,11 @@ final class ProcessManager {
 
     // The wrapper is the only sing-box, so the bypass rule and the host's IP families go there:
     // xray gets IP destinations over SOCKS and never sees a domain.
-    private func writeConfigs(xray: String, serverAddresses: [String], dialerPath: String?, bypassDomains: [String]) {
+    private func writeConfigs(
+        xray: String, serverAddresses: [String], dialerPath: String?, bypassDomains: [String], hostHasIPv6: Bool
+    ) {
         FileManager.default.createFile(atPath: xrayConfigFile, contents: xray.data(using: .utf8),
                                         attributes: [.posixPermissions: 0o600])
-        let hostHasIPv6 = hostIPv6State() ?? true
-        tunHasIPv6 = hostHasIPv6
         let wrapper = BypassService.injectSingBox(
             Self.buildTunWrapperConfig(serverAddresses: serverAddresses, dialerPath: dialerPath), domains: bypassDomains)
         FileManager.default.createFile(atPath: singboxConfigFile,
