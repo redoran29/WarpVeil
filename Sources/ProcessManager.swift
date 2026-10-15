@@ -521,8 +521,7 @@ final class ProcessManager {
                 }
                 xrayConfig = BypassService.pinXrayServer(config, host: serverHost, addresses: addresses)
             }
-            // The kernel reports the executable's real path, symlinks resolved.
-            let dialerPath = isName ? URL(fileURLWithPath: xrayPath).resolvingSymlinksInPath().path : nil
+            let dialerPath = isName ? Self.kernelPath(xrayPath) : nil
             writeConfigs(xray: xrayConfig, serverAddresses: addresses, dialerPath: dialerPath,
                          bypassDomains: bypassDomains, hostHasIPv6: hostHasIPv6)
             // The wrapper sends everything to xray's port, so it starts once xray listens.
@@ -551,6 +550,15 @@ final class ProcessManager {
         }
         if !Task.isCancelled { logs.append("[Error: \(host) does not resolve]") }
         return []
+    }
+
+    // The executable's path as the kernel reports it and sing-box compares it: symlinks resolved,
+    // and `/private` kept — URL's own resolution strips it, which an app run from App
+    // Translocation's `/private/var/folders/…` would then never match.
+    private static func kernelPath(_ path: String) -> String {
+        guard let resolved = realpath(path, nil) else { return path }
+        defer { free(resolved) }
+        return String(cString: resolved)
     }
 
     // A link carries an IPv6 address in brackets; xray takes it either way, the wrapper's rule
