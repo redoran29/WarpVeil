@@ -184,3 +184,22 @@ ready — what is in `main` plus the updater — and every later feature arrives
   utun, the start line, the stop on the session file's removal and on TERM, no start once the
   session file is gone, the warning for a held address, the engine exiting by itself, no staged
   file left. Not run live: the root path needs the owner's password — at the 1.3 install.
+
+### Review (2026-10-15, round 5)
+`/code-review bb46c51..db37c68`, findings and what was done:
+- The session file sat in `$TMPDIR`, which `dirhelper` clears of files untouched for 3 days, so a
+  session without passwordless would have stopped by itself: Application Support (`c1595ea`).
+- Killing the osascript helper hung on the shell's starting line, read late from a log every copy
+  of the version shares, and a late shell ran `kill_pid_file` before it looked at the session: the
+  helper is left to exit by itself, and the shell checks the session first (`c98559b`).
+- The shell's stop waited on sing-box without limit, and a TERM right after the start orphaned it:
+  the trap comes first and ends with a KILL after 5 s (`5b09001`).
+- A requested disconnect logged an exit code like a dead engine (`481771a`).
+- The update's hold from the start of the download turned away a wake's or a routing edit's restart,
+  undoing round 4's ask in part: the hold on engine starts begins at the stop again, a Connect click
+  during the download is refused by AppState, and only the install that set the hold releases it —
+  round 4's two cases still hold (`f1a11ba`).
+- Leftovers: the xray wait (`e76fa03`); stale comments on the stop's password and on the copy that
+  runs (`dd41624`).
+- Process slips, history kept as it is: `04b0fc4` bundled the shell's naming of the TUN with the
+  new stop, and the plan was corrected in `db37c68` rather than in `04b0fc4`.
