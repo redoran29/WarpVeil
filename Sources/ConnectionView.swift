@@ -11,7 +11,7 @@ struct ConnectionView: View {
             statusSection
                 .padding(.bottom, 16)
 
-            if app.pm.isRunning {
+            if app.pm.isTunnelUp {
                 statsSection
                     .frame(maxWidth: 360)
                     .padding(.bottom, 20)
@@ -55,9 +55,9 @@ struct ConnectionView: View {
 
     private var statusSection: some View {
         VStack(spacing: 4) {
-            Text(app.pm.isRunning ? "Connected" : "Disconnected")
+            Text(app.pm.isTunnelUp ? "Connected" : app.pm.isRunning ? "Connecting…" : "Disconnected")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(app.pm.isRunning ? .green : .secondary)
+                .foregroundStyle(app.pm.isTunnelUp ? .green : .secondary)
 
             // In its own column the button no longer sits under the list, so it has to say
             // what it would connect to.
@@ -67,7 +67,7 @@ struct ConnectionView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
 
-            if let connectedAt = app.connectedAt, app.pm.isRunning {
+            if let connectedAt = app.connectedAt, app.pm.isTunnelUp {
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
                     Text(uptimeString(from: connectedAt))
                         .font(.system(size: 30, weight: .light, design: .monospaced))

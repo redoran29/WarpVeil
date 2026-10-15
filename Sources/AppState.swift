@@ -15,6 +15,7 @@ final class AppState {
     let ping = PingService()
 
     var connectedAt: Date?
+    private var tunnelWasUp = false
 
     // Servers load synchronously in SubscriptionService.init, so the Servers page appears with a
     // stale set. Pinging it would measure ids that refreshAll is about to replace.
@@ -33,7 +34,7 @@ final class AppState {
 
     init() {
         selectedServerID = defaults.string(forKey: "selectedServerID") ?? ""
-        observeReconnects()
+        observeTunnel()
     }
 
     // MARK: - Settings
@@ -102,17 +103,10 @@ final class AppState {
             singBoxPath: ProcessManager.findBinary("sing-box") ?? "",
             bypassDomains: activeBypassDomains
         )
-        connectedAt = Date()
-        startLocationTimer()
     }
 
     func disconnect() {
         pm.disconnect()
-        connectedAt = nil
-        locationTimer?.invalidate()
-        locationTimer = nil
-        locationTask?.cancel()
-        locationTask = redetectLocation()
     }
 
     func removeSubscription(_ id: UUID) {
@@ -159,17 +153,33 @@ final class AppState {
         }
     }
 
-    // A view can no longer watch reconnectCount: views come and go with the window.
-    private func observeReconnects() {
+    // The tunnel coming up starts the uptime and the location polling, and going down stops them
+    // — a connect, a restart and an engine's exit alike. A view cannot watch this: views come and
+    // go with the window.
+    private func observeTunnel() {
         withObservationTracking {
-            _ = pm.reconnectCount
+            _ = pm.isTunnelUp
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                connectedAt = Date()
-                startLocationTimer()
-                observeReconnects()
+                tunnelChanged()
+                observeTunnel()
             }
+        }
+    }
+
+    private func tunnelChanged() {
+        guard pm.isTunnelUp != tunnelWasUp else { return }
+        tunnelWasUp = pm.isTunnelUp
+        if tunnelWasUp {
+            connectedAt = Date()
+            startLocationTimer()
+        } else {
+            connectedAt = nil
+            locationTimer?.invalidate()
+            locationTimer = nil
+            locationTask?.cancel()
+            locationTask = redetectLocation()
         }
     }
 }

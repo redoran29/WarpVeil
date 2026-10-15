@@ -8,6 +8,9 @@ import SystemConfiguration
 final class ProcessManager {
     var logs: [String] = []
     var isRunning = false
+    // The session starts before any engine — while a name resolves and xray comes up — and the
+    // tunnel counts as up once the root helper runs. What the UI calls Connected is this.
+    var isTunnelUp: Bool { isRunning && helperProcess != nil }
 
     private var helperProcess: Process?
     private var xrayProcess: Process?
@@ -187,7 +190,6 @@ final class ProcessManager {
                                   bypassDomains: [String])?
     private var wakeObserver: Any?
     private var reconnectTask: Task<Void, Never>?
-    var reconnectCount = 0
     private var ipv6Watcher: SCDynamicStore?
     private var ipv6CheckTask: Task<Void, Never>?
     private var tunHasIPv6 = false
@@ -426,7 +428,6 @@ final class ProcessManager {
             guard !Task.isCancelled, let params = lastConnection else { return }
             connect(config: params.config, xrayPath: params.xrayPath, singBoxPath: params.singBoxPath,
                     bypassDomains: params.bypassDomains)
-            reconnectCount += 1
         }
     }
 
@@ -599,6 +600,7 @@ final class ProcessManager {
             Task { @MainActor in
                 guard let self, self.isRunning, p === self.helperProcess else { return }
                 self.isRunning = false
+                self.helperProcess = nil
                 self.xrayProcess?.terminate()
                 self.stopLogTail()
                 self.logs.append("[Disconnected (exit \(status))]")

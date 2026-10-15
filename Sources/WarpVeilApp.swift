@@ -25,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
     private let app = AppState()
-    private var wasRunning = false
+    private var wasTunnelUp = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -103,9 +103,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
 
-        let status = app.pm.isRunning
+        let status = app.pm.isTunnelUp
             ? "Connected — \(app.loc.flag) \(app.loc.ip)"
-            : "Disconnected"
+            : app.pm.isRunning ? "Connecting…" : "Disconnected"
         menu.addItem(NSMenuItem(title: status, action: nil, keyEquivalent: ""))
 
         menu.addItem(.separator())
@@ -135,15 +135,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func observeState() {
         withObservationTracking {
             _ = app.pm.isRunning
+            _ = app.pm.isTunnelUp
             _ = app.loc.flag
             _ = app.net.hasTraffic
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 updateStatusIcon()
-                if app.pm.isRunning != wasRunning {
-                    wasRunning = app.pm.isRunning
-                    if app.pm.isRunning { app.net.start() } else { app.net.stop() }
+                if app.pm.isTunnelUp != wasTunnelUp {
+                    wasTunnelUp = app.pm.isTunnelUp
+                    if app.pm.isTunnelUp { app.net.start() } else { app.net.stop() }
                 }
                 observeState()
             }
@@ -153,7 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateStatusIcon() {
         guard let button = statusItem.button else { return }
 
-        let iconName = app.pm.isRunning ? "checkmark.shield.fill" : "shield.slash"
+        let iconName = app.pm.isTunnelUp ? "checkmark.shield.fill" : app.pm.isRunning ? "shield" : "shield.slash"
         button.image = NSImage(systemSymbolName: iconName, accessibilityDescription: "WarpVeil")
         button.title = app.loc.flag.isEmpty ? "" : " \(app.loc.flag)"
     }
