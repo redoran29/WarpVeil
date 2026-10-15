@@ -511,11 +511,10 @@ final class ProcessManager {
             return
         }
         // An xray still exiting holds the port the next one needs.
-        let exiting = [xrayProcess].compactMap { $0 }.filter(\.isRunning)
-        if !exiting.isEmpty {
-            logs.append("[Waiting for the previous engines to stop...]")
+        if let xray = xrayProcess, xray.isRunning {
+            logs.append("[Waiting for the previous xray to stop...]")
             reconnectTask = Task {
-                while exiting.contains(where: \.isRunning), !Task.isCancelled {
+                while xray.isRunning, !Task.isCancelled {
                     try? await Task.sleep(for: .milliseconds(100))
                 }
                 guard !Task.isCancelled else { return }
