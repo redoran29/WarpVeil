@@ -32,6 +32,8 @@ final class ProcessManager {
     private var engineShellStarted = false
     private var isStopping = false
     private var sessionFile: String?
+    private static let sessionDirectory = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/WarpVeil")
     private var xrayProcess: Process?
     private var logHandle: FileHandle?
     private var partialLogLine = Data()
@@ -655,7 +657,10 @@ final class ProcessManager {
             process.standardOutput = engineLog
             process.standardError = engineLog
         } else {
-            let file = FileManager.default.temporaryDirectory.path + "/warpveil-session-\(UUID().uuidString)"
+            // Not in $TMPDIR: dirhelper deletes files there untouched for 3 days, and a stat by the
+            // root shell does not touch it — a session older than that would stop by itself.
+            let file = Self.sessionDirectory.appendingPathComponent("session-\(UUID().uuidString)").path
+            try? FileManager.default.createDirectory(at: Self.sessionDirectory, withIntermediateDirectories: true)
             FileManager.default.createFile(atPath: file, contents: nil, attributes: [.posixPermissions: 0o600])
             sessionFile = file
             let cmd = buildNonPrivilegedShellCommand(singBoxPath: singBoxPath, configFile: singboxConfigFile, sessionFile: file)

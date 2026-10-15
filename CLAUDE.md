@@ -284,7 +284,7 @@ Write the simplest code that works. Prioritize readability over cleverness.
   `stopOrphanedXray`, the root sing-box to `run.sh`'s `kill_pid_file`
 - **The engine shell stops its own sing-box** (owner, 2026-10-15): `run.sh` on the TERM sudo
   passes on when the app ends the helper, the osascript shell — which no signal from the app
-  reaches — once the session file the app made for it (`$TMPDIR/warpveil-session-<uuid>`) is gone.
+  reaches — once the session file the app made for it is gone.
   The session ends when the helper exits, which it does only after its sing-box, so a disconnect,
   a restart and a quit ask no password and leave nothing behind a window that reads Disconnected.
   An osascript helper whose shell has not begun — still at its own password dialog — is ended with
@@ -433,8 +433,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
   sorted keys, so a load that changes nothing writes nothing
 - `~/.config/warpveil/release-signing.key` — the release key's private half, 0600, the owner's
   machine only
-- `$TMPDIR/warpveil-session-<uuid>` — without passwordless, the file whose removal tells the
-  root engine shell to stop its sing-box; it lives as long as the session
+- `~/Library/Application Support/WarpVeil/session-<uuid>` — without passwordless, the empty file
+  whose removal tells the root engine shell to stop its sing-box; it lives as long as the session.
+  Not in `$TMPDIR`: `dirhelper` would delete it after 3 days, and the shell's stat does not touch it
 - `$TMPDIR/warpveil-update-<uuid>/` — an update's download and unpack directory, 0700, one per
   attempt, removed once the update is staged or refused; the zip goes as soon as it is unpacked.
   A quit while the engines stop leaves the unpacked app to `dirhelper`, which clears `$TMPDIR` of
