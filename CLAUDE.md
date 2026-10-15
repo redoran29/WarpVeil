@@ -337,23 +337,24 @@ Write the simplest code that works. Prioritize readability over cleverness.
   GitHub's `releases/latest`, the newest release that is neither a draft nor a prerelease — 15 s
   after bootstrap, then a day after the last check that got an answer (asked hourly, so one that
   failed offline after a wake is retried within the hour), and on Check for Updates in Advanced;
-  a version numerically newer
-  than the running one shows Install there and `Update to X…` in the status menu. Homegrown, since
-  the canon takes no packages (no Sparkle); no toggle, no notification, no dialog, and it installs
-  only on a click. Authenticity is our own ed25519 signature over the release zip (`<zip>.sig`,
-  made by `release.sh`), checked against `WVUpdatePublicKey` before anything unpacks it — the
-  app's own signature is ad-hoc and proves nothing. The unpacked `WarpVeil.app` must be a real
-  directory with this bundle id, the tag's version, newer than the running one, arm64; anything
-  else is refused with its reason in the row. Then `disconnect()` and `awaitTeardown`: a stop
-  that exited non-zero, or anything of the session still running after 30 s, cancels the update
-  — the new version's tag cannot stop the old one's sing-box. Only then is the bundle staged as
-  `.WarpVeil.app.new` next to the running one, wherever that is, so an app quit during the wait
-  leaves nothing there. A `/bin/sh` helper spawned before
+  a version numerically newer than the running one shows Install there and `Update to X…` in the
+  status menu. Homegrown, since the canon takes no packages (no Sparkle); no toggle, no
+  notification, no dialog, and it installs only on a click. Authenticity is our own ed25519
+  signature over the release zip (`<zip>.sig`, made by `release.sh`), checked against
+  `WVUpdatePublicKey` before anything unpacks it — the app's own signature is ad-hoc and proves
+  nothing. The unpacked `WarpVeil.app` must be a real directory with this bundle id, the tag's
+  version, newer than the running one, arm64; anything else is refused with its reason in the
+  row. Then `disconnect()` and `awaitTeardown`: a stop that exited non-zero, or anything of the
+  session still running after 30 s, cancels the update — the new version's tag cannot stop the
+  old one's sing-box. A stop that failed keeps speaking through later sessions that never reach
+  the engine, until a new engine shell's start line shows the previous engine gone. Once the
+  engines are down the bundle is staged as `.WarpVeil.app.new` next to the running one, wherever
+  that is, so an app quit during the wait leaves nothing there. A `/bin/sh` helper spawned before
   `NSApp.terminate` waits for the app to exit, moves the old bundle aside and the new one in (or
-  the old one back) and `open -n`s whatever is there. Nothing runs as root, and a download by the
-  app carries no quarantine. No ETag: a 304 counts against GitHub's 60 requests an hour as well.
-  Engine upgrades still ship with the app: bump the pinned tags in `fetch-binaries.sh` and cut a
-  release
+  the old one back), removes the old one only once an app is in place, and `open -n`s it.
+  Nothing runs as root, and a download by the app carries no quarantine. No ETag: a 304 counts
+  against GitHub's 60 requests an hour as well. Engine upgrades still ship with the app: bump the
+  pinned tags in `fetch-binaries.sh` and cut a release
 - **Public releases without a Developer ID** (owner, 2026-10-14): the zip is ad-hoc signed, so a
   browser download is quarantined and its first launch is blocked — "Apple could not verify
   “WarpVeil”…", Done / Move to Trash — on macOS 15, 26 and 27; Control-click → Open no longer

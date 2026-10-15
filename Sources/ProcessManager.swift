@@ -482,9 +482,6 @@ final class ProcessManager {
             }
             return
         }
-        // The previous stop has exited, and how is nobody's business now: a sing-box it left
-        // behind is run.sh's kill_pid_file's to deal with.
-        teardownProcess = nil
         guard !config.isEmpty else {
             logs.append("[Error: no config provided]")
             return
@@ -865,7 +862,7 @@ final class ProcessManager {
     // non-passwordless path puts up a password dialog, so the wait is however long the user
     // takes. True once nothing of the session runs and the stop, if one ran, exited 0 — a
     // cancelled dialog and a sing-box that outlived kill_pid_file's wait both exit 1. A session
-    // that never reached the helper ran no stop, and connect drops the previous one.
+    // that never reached the helper ran no stop, and the next engine's start line drops it.
     private var teardownProcess: Process?
 
     @discardableResult
@@ -954,7 +951,12 @@ final class ProcessManager {
         guard end > pending.startIndex else { return }
         let text = String(decoding: pending[..<end], as: UTF8.self)
         let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
-        if isRunning, lines.contains(where: { $0.hasPrefix(Self.engineStartedMarker) }) { isTunnelUp = true }
+        // The start line comes after kill_pid_file found the previous engine gone, so a stop that
+        // failed before it no longer speaks for anything; until then it does, whatever connects.
+        if isRunning, lines.contains(where: { $0.hasPrefix(Self.engineStartedMarker) }) {
+            isTunnelUp = true
+            teardownProcess = nil
+        }
         logs.append(contentsOf: lines)
         if logs.count > 600 {
             logs = Array(logs.suffix(500))
