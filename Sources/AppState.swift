@@ -153,9 +153,12 @@ final class AppState {
     // disconnect() also cancels a pending start or restart, which would otherwise bring engines
     // up while the app is on its way out. The swap waits for this process to exit.
     func installUpdate() {
+        // The hold is also what marks an install under way: a second one, from a menu built
+        // before the first began, must not release the first one's hold when it is refused.
+        guard !pm.isHeldForUpdate else { return }
+        pm.isHeldForUpdate = true
         Task {
             let handedOver = await updater.install {
-                pm.isHeldForUpdate = true
                 disconnect()
                 return await pm.awaitTeardown(timeout: 30)
             }
