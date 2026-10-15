@@ -128,3 +128,22 @@ ready — what is in `main` plus the updater — and every later feature arrives
 - For the owner: the root PID file carries the version tag, so no other version can find a running
   engine — the root of the update's all-or-nothing teardown and of `install.sh`'s sweep by the old
   tag. Default: kept (CLAUDE.md, "Version-tagged privileged paths").
+
+### Review (2026-10-15, round 2)
+`/code-review 9d4896a..55346ab`, findings and what was done:
+- Staging after the stop found an unwritable directory only after the tunnel was down: the
+  directory is checked before anything (`e101b72`).
+- The swap still deleted the new bundle when its rollback failed too (`712d12d`).
+- A connect during the update's wait could start an engine the swap then left behind (`1548d33`).
+- `NSApp.terminate` left the updater for AppState, which the canon also keeps AppKit out of: the
+  delegate hands AppState its quit (`fa87f68`).
+- An older check could write over a newer one (`69182d3`); an answer dated ahead held checks off
+  (`9b5d05f`); the status rule existed twice (`895f075`); staging ran on the main actor
+  (`99c9101`); the zip stayed until the end of the install (`9021d5d`); the Terminal install
+  downloaded to a fixed name in `/tmp` (`48aeb32`).
+- Connected, changed a fifth time: the app names the TUN and the shell waits on that interface
+  (`f632ca3`, owner's decision above) — which also removes the loop's `set -e` trap and the 2 s wait.
+- The failed-stop record, changed a fourth time: a session ends only once its root engine is gone,
+  a failed stop leaves it up, and nothing is kept across sessions (`88ababe`, owner's decision
+  above). Not run live: the stop's password dialog needs the owner — checked at the 1.3 install.
+- The version-tagged PID path stays (owner's decision above).
