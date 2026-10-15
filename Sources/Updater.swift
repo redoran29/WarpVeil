@@ -93,8 +93,7 @@ final class Updater {
         guard let feed else { throw Failure(reason: "No update feed in Info.plist") }
         guard publicKey != nil else { throw Failure(reason: "No update key in Info.plist") }
         let (data, response) = try await URLSession.shared.data(from: feed)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard status == 200 else { throw Failure(reason: "The update feed answered HTTP \(status)") }
+        try requireOK(response, from: "The update feed")
         guard let release = try? JSONDecoder().decode(Release.self, from: data)
         else { throw Failure(reason: "The update feed is not a GitHub release") }
         return release
@@ -191,7 +190,7 @@ final class Updater {
         let archive = work.appendingPathComponent(zipName)
         try FileManager.default.moveItem(at: try await fetch(zip.url), to: archive)
         let (encoded, response) = try await URLSession.shared.data(from: signatureAsset.url)
-        try requireOK(response, from: signatureAsset.url)
+        try requireOK(response, from: signatureAsset.name)
         guard let signature = Data(base64Encoded: encoded, options: .ignoreUnknownCharacters),
               key.isValidSignature(signature, for: try Data(contentsOf: archive, options: .mappedIfSafe))
         else { throw Failure(reason: "The signature does not match — not installed") }
@@ -208,7 +207,7 @@ final class Updater {
     private nonisolated static func fetch(_ url: URL) async throws -> URL {
         let (file, response) = try await URLSession.shared.download(from: url)
         do {
-            try requireOK(response, from: url)
+            try requireOK(response, from: url.lastPathComponent)
         } catch {
             try? FileManager.default.removeItem(at: file)
             throw error
@@ -216,9 +215,9 @@ final class Updater {
         return file
     }
 
-    private nonisolated static func requireOK(_ response: URLResponse, from url: URL) throws {
+    private nonisolated static func requireOK(_ response: URLResponse, from source: String) throws {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard status == 200 else { throw Failure(reason: "\(url.lastPathComponent): HTTP \(status)") }
+        guard status == 200 else { throw Failure(reason: "\(source) answered HTTP \(status)") }
     }
 
     // Waited for without holding a thread of the pool.
