@@ -79,3 +79,44 @@ ready — what is in `main` plus the updater — and every later feature arrives
 - The old plan holds the verified facts — the GitHub API, quarantine and Gatekeeper on macOS 15–27,
   translocation, App Management — and the full design:
   `git show 975f8b4:plans/in-app-updater.md`.
+
+### Built (2026-10-15)
+- Step 1: `055d5a0`, `977b323`, `1859a07`. The key is `~/.config/warpveil/release-signing.key`
+  (0600). Checked: `release.sh`'s guards in a throwaway repo with a fake `gh` — each refusal of the
+  first check, a `gh` failure other than "release not found", a key that is not a seed; a clean tree
+  passes. A 5 MB file signed with the real key verifies against `WVUpdatePublicKey`; with one byte
+  changed it does not.
+- Step 2: `b3e57f1`, `cb95b41`, `f0c7e41`. Checked: the real `Updater` against a local feed — a good
+  release staged, eleven hostile ones refused with their reason, nothing escaped, no work directory
+  left, eight check outcomes. A dev copy on a local feed: the launch check offered the release;
+  a wrong signature, no signature, another bundle id and an older version inside a newer tag were
+  refused with the reason in the row, an older tag read Up to date; the good one quit, swapped and
+  relaunched into the new version at the same path — no quarantine, a valid seal, nothing left.
+  An ad-hoc app replaced itself in `/Applications` and relaunched with no App Management prompt.
+  Not checked: an install with the tunnel up — a dev copy cannot take the TUN while the installed
+  app holds it; the first real one is 1.3 → 1.4.
+- Step 3 so far: `b399876` (the engine shell's start line; checked with a stand-in `ifconfig` for a
+  fresh start, a tunnel already held, a held one that goes, and a TERM before the TUN), `5f96111`
+  (1.3), `9d4896a` (README). Left: the owner's word, the release, 1.3 on the owner's Mac, the
+  clean-account check.
+
+### Review (2026-10-15, round 1)
+`/code-review 3777f09..9d4896a`, findings and what was done:
+- `Bundle(url:)` caches per path, so a second install checked the first archive: a directory per
+  attempt (`39bea04`).
+- A failed stop was forgotten at the next connect, and an update could swap past a live root
+  engine: kept until a new engine shell shows the previous one gone (`ce1f85b`).
+- A failed automatic check waited a day: asked hourly, due a day after the last answer (`5fbb331`).
+- A second install, or a check finishing during one, could run two swaps (`c018e49`).
+- A TUN name freed and reused after the snapshot left the session at Connecting; a held address
+  cost 2 s with no word in the log (`b2e3e87`).
+- The swap could delete both bundles when its rollback failed (`84bb9e0`); the bundle was staged
+  before the engines stopped (`847ed6c`); download temp files stayed behind (`047af15`).
+- The Terminal install merged into a running older copy (`6315016`).
+- The quit moved out of the updater (`a8e2358`); a dead timer property (`5fbb331`); a wrong statement
+  about `-dev` versions (`168600d`).
+- Not changed: a cancelled stop throws the verified download away, so a retry downloads again — a
+  rare path, and a staged copy kept across attempts is state to invalidate when the release changes.
+- For the owner: the root PID file carries the version tag, so no other version can find a running
+  engine — the root of the update's all-or-nothing teardown and of `install.sh`'s sweep by the old
+  tag. Default: kept (CLAUDE.md, "Version-tagged privileged paths").
