@@ -35,12 +35,13 @@ ready — what is in `main` plus the updater — and every later feature arrives
   password, so it lands with the 1.3 bump, which re-asks it anyway (owner, 2026-10-15; review
   round 5 of plans 18 and 19, `git show 18eded9:plans/18-xray-server-loop.md`). How it tells is
   round 2's decision below.
-- Review round 2: the app names the TUN (a free utun, the way sing-box would pick one) and the
-  engine shell waits for the address on exactly that interface — no comparing interface lists
-  (owner, 2026-10-15).
-- Review round 2: a stop that fails — a cancelled password dialog — leaves the tunnel up and the
-  session running, with a line in Logs; xray and the session end only once the root engine is
-  gone (owner, 2026-10-15).
+- Review round 2: the TUN is named (a free utun, the way sing-box would pick one) and the engine
+  shell waits for the address on exactly that interface — no comparing interface lists (owner,
+  2026-10-15). Since round 4 the shell picks the name itself, right before sing-box starts.
+- Review round 4, replacing round 2's "a failed stop leaves the tunnel up": the engine shell stops
+  its own sing-box — run.sh on the TERM sudo relays, the osascript shell once the app's session
+  file is gone — and the session ends when the helper exits; the app runs no privileged stop and a
+  disconnect asks no password (owner, 2026-10-15).
 - Review rounds 1–2: the root PID file keeps its version tag (CLAUDE.md, "Version-tagged
   privileged paths"); the update keeps stopping the engines before the swap (owner, 2026-10-15).
 
@@ -166,3 +167,20 @@ ready — what is in `main` plus the updater — and every later feature arrives
   the state an engine a crash orphaned leaves, which the canon describes (PID files).
 - Not changed: `awaitTeardown` polls every 100 ms for as long as a stop's password dialog stays
   open — a few property reads ten times a second while the user decides.
+
+### Review (2026-10-15, round 4)
+`/code-review 10731ac..bb46c51`, findings and what was done:
+- Round 3's "helper before the stop" (`fd83cd1`) undid part of the owner's round-2 decision without
+  asking — a breach of the canon's rule for findings that undo a pass. Each order of stop and
+  helper lost a case: stacked dialogs, a session stuck at Connecting, Connected with no TUN. Taken
+  to the owner as a construction question: the engine shell stops its own sing-box and the app's
+  privileged stop is gone (`04b0fc4`).
+- The TUN's name was still picked before the password dialog: the shell picks it (`04b0fc4`).
+- The update's hold started after the download, a refused second install released the first's
+  hold, and a restart the hold refused stayed pending for a wake (`380edc5`).
+- The inline osascript stop duplicated stop.sh, and `awaitTeardown` leaned on short-circuiting: both
+  went with the privileged stop (`04b0fc4`).
+- Checked: the shell in both variants with a stand-in `ifconfig` and engine — the name past every
+  utun, the start line, the stop on the session file's removal and on TERM, no start once the
+  session file is gone, the warning for a held address, the engine exiting by itself, no staged
+  file left. Not run live: the root path needs the owner's password — at the 1.3 install.
