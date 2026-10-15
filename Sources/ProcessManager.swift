@@ -359,9 +359,9 @@ final class ProcessManager {
         return process.isRunning ? -1 : process.terminationStatus
     }
 
-    // An install in another build removes this one's helper while it runs, so every connect
-    // re-reads it. Not while an install or a removal is under way.
-    private func refreshPasswordless() {
+    // An install in another build removes this one's helper while it runs, so every connect — and
+    // the Advanced page — re-reads it. Not while an install or a removal is under way.
+    func refreshPasswordless() {
         guard !isPasswordlessBusy else { return }
         isPasswordless = rootCopyMatches && Self.scriptsInstalled()
     }

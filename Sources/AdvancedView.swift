@@ -13,16 +13,20 @@ struct AdvancedView: View {
                     Text("Connect on app launch")
                 }
 
-                // Installed by the connect that needs it; the row only says so and takes it away.
+                // Installed by the connect that needs it; the row only says so and takes it away —
+                // not mid-session, or the next restart would ask for the password out of nowhere.
                 LabeledContent {
                     if app.pm.isPasswordless {
                         Button("Remove") { app.pm.removePasswordless() }
+                            .disabled(app.pm.isRunning)
                     }
                 } label: {
                     Text("Helper")
                     Text(helperStatus)
                 }
                 .disabled(app.pm.isPasswordlessBusy)
+                // Another build's install removes this one's helper without this page knowing.
+                .onAppear { app.pm.refreshPasswordless() }
             }
 
             Section("Components") {
