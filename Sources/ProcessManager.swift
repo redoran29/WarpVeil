@@ -656,9 +656,11 @@ final class ProcessManager {
             let status = p.terminationStatus
             Task { @MainActor in
                 guard let self, self.isRunning, p === self.helperProcess else { return }
-                // An exit code only for an engine that ended without being asked.
-                self.logs.append(self.isStopping ? "[Disconnected]" : "[Disconnected (exit \(status))]")
+                // After endSession, whose last read brings the engine's final lines — the reason it
+                // stopped — in first. An exit code only for an engine that ended without being asked.
+                let requested = self.isStopping
                 self.endSession()
+                self.logs.append(requested ? "[Disconnected]" : "[Disconnected (exit \(status))]")
             }
         }
 
