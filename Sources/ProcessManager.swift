@@ -472,7 +472,11 @@ final class ProcessManager {
             guard await awaitTeardown(timeout: 30) else {
                 guard !Task.isCancelled else { return }
                 reconnectTask = nil
-                logs.append("[Restart skipped — the engine did not stop, and the tunnel runs with its old settings]")
+                logs.append(isRunning
+                    ? "[Restart skipped — the engine did not stop, and the tunnel runs with its old settings]"
+                    : isPasswordlessBusy
+                        ? "[Restart skipped — the helper's password dialog is still open]"
+                        : "[Restart skipped — xray did not exit]")
                 return
             }
             guard !Task.isCancelled, let params = lastConnection else { return }
