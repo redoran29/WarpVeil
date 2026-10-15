@@ -35,6 +35,14 @@ ready — what is in `main` plus the updater — and every later feature arrives
   TUN's address, and the app stops looking at interfaces itself. It changes run.sh, which re-asks
   the password, so it lands with the 1.3 bump, which re-asks it anyway (owner, 2026-10-15; review
   round 5 of plans 18 and 19, `git show 18eded9:plans/18-xray-server-loop.md`).
+- Review round 2: the app names the TUN (a free utun, the way sing-box would pick one) and the
+  engine shell waits for the address on exactly that interface — no comparing interface lists
+  (owner, 2026-10-15).
+- Review round 2: a stop that fails — a cancelled password dialog — leaves the tunnel up and the
+  session running, with a line in Logs; xray and the session end only once the root engine is
+  gone (owner, 2026-10-15).
+- Review rounds 1–2: the root PID file keeps its version tag (CLAUDE.md, "Version-tagged
+  privileged paths"); the update keeps stopping the engines before the swap (owner, 2026-10-15).
 
 ### Open for the owner
 - A version bump re-asks the password twice on the first connect (a new tag, then the passwordless
