@@ -177,7 +177,8 @@ final class ProcessManager {
         \(configFunctions)
         \(killPidFileFunction)
         CFG=$(\(configReader) | stage_config) || exit 1
-        trap 'rm -f "$CFG"' EXIT
+        NAMED=
+        trap 'rm -f "$CFG" ${NAMED:+"$NAMED"}' EXIT
         check_config "$CFG"
         kill_pid_file \(singboxPidFile) sing-box || { echo '[error] previous sing-box still running'; exit 1; }
         LAST=$(ifconfig -l | tr ' ' '\\n' | sed -n 's/^utun\\([0-9][0-9]*\\)$/\\1/p' | sort -n | tail -1)
@@ -187,17 +188,14 @@ final class ProcessManager {
         rm -f "$CFG"
         CFG=$NAMED
         [[ "$(ifconfig)" != *"inet \(tunAddress) "* ]] || echo '[warning] another tunnel already holds \(tunAddress)'
-        # Set before sing-box starts, so a TERM that lands right after the start still stops it ($!
-        # is set before VPN_PID is). It is the only stop the app sends, so it ends with a KILL
-        # rather than waiting on an engine that does not exit.
+        # Set before sing-box starts, so a TERM that lands right after the start still stops it:
+        # jobs -p names sing-box before VPN_PID does, and is empty, not unset, before the start.
+        # It waits for sing-box, which exits on TERM — no SIGKILL, for kill_pid_file's reason.
         cleanup() {
             echo '[stopping...]'
-            local engine=${!:-}
-            if [[ -n "$engine" ]]; then
-                kill $engine 2>/dev/null || true
-                for _ in $(seq 50); do kill -0 $engine 2>/dev/null || break; sleep 0.1; done
-                kill -9 $engine 2>/dev/null || true
-            fi
+            local engine
+            engine=$(jobs -p)
+            [[ -z "$engine" ]] || kill $engine 2>/dev/null || true
             wait
             echo '[stopped]'
             exit 0
