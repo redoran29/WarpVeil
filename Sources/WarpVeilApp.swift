@@ -81,6 +81,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         false
     }
 
+    // Another build's install removes this one's helper while this app is in the background; the
+    // window is hidden, not rebuilt, so the Advanced page's own re-read does not cover a return.
+    func applicationDidBecomeActive(_ notification: Notification) {
+        app.pm.refreshPasswordless()
+    }
+
     // Every quit path goes through here — Cmd+Q, the status menu, an update, and dev-run.sh's and
     // install.sh's AppleScript quit — so this is where the engines stop. An engine that has not
     // stopped in 30 s is left to the next connect, whose run.sh replaces it.
