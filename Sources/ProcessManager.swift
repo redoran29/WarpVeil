@@ -7,10 +7,14 @@ import SystemConfiguration
 @MainActor
 final class ProcessManager {
     var logs: [String] = []
-    var isRunning = false
-    // The session starts before any engine — while a name resolves and xray comes up — and the
-    // tunnel counts as up once the root helper runs. What the UI calls Connected is this.
-    var isTunnelUp: Bool { isRunning && helperProcess != nil }
+    var isRunning = false {
+        didSet { if !isRunning { isTunnelUp = false } }
+    }
+    // The session starts before any engine — while a name resolves, xray comes up and, without
+    // passwordless, a password dialog waits — and the tunnel counts as up once the engine shell
+    // says sing-box started: its own line, not upstream's wording. What the UI calls Connected.
+    private(set) var isTunnelUp = false
+    private static let engineStartedMarker = "[sing-box] started"
 
     private var helperProcess: Process?
     private var xrayProcess: Process?
@@ -156,7 +160,7 @@ final class ProcessManager {
         \(binary) run -c "$CFG" &
         VPN_PID=$!
         echo $VPN_PID > \(singboxPidFile)
-        echo "[sing-box] started pid=$VPN_PID"
+        echo "\(engineStartedMarker) pid=$VPN_PID"
         trap 'rm -f "$CFG"; [[ "$(cat \(singboxPidFile) 2>/dev/null)" != "$VPN_PID" ]] || rm -f \(singboxPidFile)' EXIT
         cleanup() {
             echo '[stopping...]'
@@ -895,7 +899,9 @@ final class ProcessManager {
 
     private func appendLog(_ data: Data) {
         guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-        logs.append(contentsOf: text.components(separatedBy: .newlines).filter { !$0.isEmpty })
+        let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
+        if isRunning, lines.contains(where: { $0.hasPrefix(Self.engineStartedMarker) }) { isTunnelUp = true }
+        logs.append(contentsOf: lines)
         if logs.count > 600 {
             logs = Array(logs.suffix(500))
         }
