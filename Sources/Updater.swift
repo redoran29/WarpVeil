@@ -49,6 +49,7 @@ final class Updater {
 
     private var release: Release?
     private var lastAnswered: Date?
+    private var checkGeneration = 0
 
     private static let feed = (Bundle.main.object(forInfoDictionaryKey: "WVUpdateFeed") as? String).flatMap(URL.init)
     private static let publicKey = (Bundle.main.object(forInfoDictionaryKey: "WVUpdatePublicKey") as? String)
@@ -66,19 +67,22 @@ final class Updater {
 
     // An automatic check has no one to report to, so its failure leaves the row as it was. A
     // status menu built before the check began still offers the update, and an install started
-    // from it owns the state from then on.
+    // from it owns the state from then on — a check that comes back after that, or after a
+    // newer check began, writes nothing.
     func check(manual: Bool = false) async {
         guard state != .checking, state != .installing else { return }
+        checkGeneration += 1
+        let generation = checkGeneration
         let previous = state
         state = .checking
         do {
             let latest = try await Self.latestRelease()
             lastAnswered = Date()
-            guard state == .checking else { return }
+            guard generation == checkGeneration, state == .checking else { return }
             release = latest
             state = Self.isNewer(latest.version) ? .available(latest.version) : .upToDate
         } catch {
-            guard state == .checking else { return }
+            guard generation == checkGeneration, state == .checking else { return }
             state = manual ? .failed(Self.describe(error)) : previous
         }
     }
