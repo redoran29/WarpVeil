@@ -872,7 +872,8 @@ final class ProcessManager {
         reconnectTask?.cancel()
         reconnectTask = nil
         guard isRunning else { return }
-        logs.append(isStopping ? "[Still stopping — the engine has not exited yet]" : "[Disconnecting...]")
+        // The stop may be a restart's, which this click has just turned into a disconnect.
+        logs.append(isStopping ? "[Disconnecting — the engine is already stopping]" : "[Disconnecting...]")
         tearDownEngines()
     }
 
