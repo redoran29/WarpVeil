@@ -35,11 +35,10 @@ The power button, uptime, traffic stats and location sit in the right-hand colum
 
 The app is not notarized by Apple, so the first launch is blocked with a dialog saying Apple could not verify it. Click **Done**, open **System Settings → Privacy & Security**, scroll to **Security**, click **Open Anyway** next to the WarpVeil line and enter your password. The button stays for about an hour after the blocked launch; Control-click → Open does not work since macOS 15.
 
-Or from Terminal, with no dialog — a `curl` download carries no quarantine (the release page has the exact URL):
+Or from Terminal, with no dialog — a `curl` download carries no quarantine (the release page has the exact URL). Quit WarpVeil first if an older version runs; the command replaces it only once the download succeeded:
 
 ```bash
-curl -L -o /tmp/WarpVeil.zip https://github.com/redoran29/WarpVeil/releases/download/v<version>/WarpVeil-<version>-macOS.zip
-ditto -x -k /tmp/WarpVeil.zip /Applications && open /Applications/WarpVeil.app
+curl -fL -o /tmp/WarpVeil.zip https://github.com/redoran29/WarpVeil/releases/download/v<version>/WarpVeil-<version>-macOS.zip && rm -rf /Applications/WarpVeil.app && ditto -x -k /tmp/WarpVeil.zip /Applications && open /Applications/WarpVeil.app
 ```
 
 Later releases install themselves: Advanced → Updates in the window, or "Update to …" in the menu-bar menu. Quit from the app menu or from the menu-bar icon.
