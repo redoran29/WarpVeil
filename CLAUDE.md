@@ -352,6 +352,14 @@ Write the simplest code that works. Prioritize readability over cleverness.
   address, and `strict_route` does nothing on macOS
 - `dscacheutil -q host` prints AAAA records the system resolver will not hand to apps; what an
   app gets is `getaddrinfo` — check IPv6 behaviour with that
+- System DNS stays outside the tunnel, by the owner's decision (2026-10-15): the CLI sing-box
+  cannot bring it in. mDNSResponder sends every query bound to its resolver's interface
+  (`if_index` in `scutil --dns`) — a side TUN holding a `/32` to the LAN resolver caught
+  `dig @resolver` but no `getaddrinfo` lookup, even after `killall -HUP mDNSResponder` — and
+  `tun.dns_mode: native` does nothing outside the SFM app (SagerNet/sing-box#4183). Only
+  NetworkExtension sets a resolver safely; a root script rewriting configd's DNS leaves the
+  network broken when it dies. A resolver outside the LAN is reached through the TUN, but the
+  builders' `hijack-dns` sits before `sniff` and never fires: those queries ride the proxy as UDP
 - sing-box's JSON decoder matches field names case-insensitively with Unicode folding: `OUTPUT`
   and `timeſtamp` reach `output` and `timestamp`. Anything that filters config keys compares
   them lowercased and refuses non-ASCII keys
