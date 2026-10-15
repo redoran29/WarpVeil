@@ -124,3 +124,9 @@ was done:
 - remarks applied after listing (`57ad388`); `hasTraffic`, which nothing read, removed (`c3dda5b`).
 - From now on a canon change lands in the commit of the behaviour it describes (round 4 noted
   that round 3's landed later, in one docs commit).
+
+### Where it stopped (2026-10-15, session end)
+Plans 18 and 19 are built; four review rounds are fixed or decided. Round 4's fixes (`abe1dc2`..`c3dda5b`)
+are committed but not installed — the installed build is `67366bc`. Next: `./install.sh` and a live
+check (Chicago 1, a hostname server via an sslip.io name, bypass), `/code-review 67366bc..HEAD` as
+round 5, then close both plans; plan 17 after that.
