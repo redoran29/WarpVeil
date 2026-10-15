@@ -79,6 +79,10 @@ enum BypassService {
     // xray dials its server by name; the wrapper in front of it routes that dial by address.
     // Pinning the name in xray's own DNS to the addresses the app resolved makes both engines
     // use the same ones — xray's own lookup could answer differently (round-robin, a CDN).
+    // ForceIP, not UseIP: a name the pin misses fails the dial instead of going to the system
+    // resolver, whose answer the wrapper may not route direct. With several addresses xray picks
+    // one at random; happy eyeballs cannot do better here, because xray's dial enters the TUN,
+    // whose stack completes every TCP handshake itself — each address "connects" at once.
     static func pinXrayServer(_ json: String, host: String, addresses: [String]) -> String {
         guard !addresses.isEmpty, var root = parseJSON(json),
               var outbounds = root["outbounds"] as? [[String: Any]],
@@ -90,7 +94,7 @@ enum BypassService {
         root["dns"] = dns
         var streamSettings = outbounds[index]["streamSettings"] as? [String: Any] ?? [:]
         var sockopt = streamSettings["sockopt"] as? [String: Any] ?? [:]
-        sockopt["domainStrategy"] = "UseIP"
+        sockopt["domainStrategy"] = "ForceIP"
         streamSettings["sockopt"] = sockopt
         outbounds[index]["streamSettings"] = streamSettings
         root["outbounds"] = outbounds
@@ -117,10 +121,11 @@ enum BypassService {
         var node: UnsafeMutablePointer<addrinfo>? = first
         while let info = node {
             var buffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            // A scoped (link-local) address, `fe80::1%en0`, is no server and no ip_cidr.
             if getnameinfo(info.pointee.ai_addr, info.pointee.ai_addrlen,
                            &buffer, socklen_t(buffer.count), nil, 0, NI_NUMERICHOST) == 0 {
                 let address = String(cString: buffer)
-                if !addresses.contains(address) { addresses.append(address) }
+                if !address.contains("%"), !addresses.contains(address) { addresses.append(address) }
             }
             node = info.pointee.ai_next
         }
