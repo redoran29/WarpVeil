@@ -48,6 +48,7 @@ final class Updater {
     }
 
     private var release: Release?
+    private var lastAnswered: Date?
 
     private static let feed = (Bundle.main.object(forInfoDictionaryKey: "WVUpdateFeed") as? String).flatMap(URL.init)
     private static let publicKey = (Bundle.main.object(forInfoDictionaryKey: "WVUpdatePublicKey") as? String)
@@ -55,6 +56,13 @@ final class Updater {
         .flatMap { try? Curve25519.Signing.PublicKey(rawRepresentation: $0) }
 
     // MARK: - Check
+
+    // Asked hourly: a day after the last check that got an answer, so a failed one — offline
+    // right after a wake — is tried again within the hour instead of the next day.
+    func checkIfDue() async {
+        if let lastAnswered, Date().timeIntervalSince(lastAnswered) < 24 * 3600 { return }
+        await check()
+    }
 
     // An automatic check has no one to report to, so its failure leaves the row as it was. A
     // status menu built before the check began still offers the update, and an install started
@@ -65,6 +73,7 @@ final class Updater {
         state = .checking
         do {
             let latest = try await Self.latestRelease()
+            lastAnswered = Date()
             guard state == .checking else { return }
             release = latest
             state = Self.isNewer(latest.version) ? .available(latest.version) : .upToDate

@@ -31,7 +31,6 @@ final class AppState {
 
     private var locationTimer: Timer?
     private var locationTask: Task<Void, Never>?
-    private var updateTimer: Timer?
     private let defaults = UserDefaults.standard
 
     init() {
@@ -139,10 +138,10 @@ final class AppState {
     private func startUpdateChecks() {
         Task {
             try? await Task.sleep(for: .seconds(15))
-            await updater.check()
+            await updater.checkIfDue()
         }
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.updater.check() }
+        Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.updater.checkIfDue() }
         }
     }
 

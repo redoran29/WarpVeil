@@ -335,7 +335,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - **Bundled binaries only**: `ProcessManager.findBinary` resolves engines from `Bundle.main.resourcePath` and nowhere else — Homebrew, MacPorts and `$PATH` are ignored. The bundle is what xray, the ping and the non-passwordless path run; the passwordless `run.sh` runs the root-owned copy made from it at install
 - **In-app updates** (owner, 2026-10-14): `Updater` reads `WVUpdateFeed` from `Info.plist` —
   GitHub's `releases/latest`, the newest release that is neither a draft nor a prerelease — 15 s
-  after bootstrap, every 24 h, and on Check for Updates in Advanced; a version numerically newer
+  after bootstrap, then a day after the last check that got an answer (asked hourly, so one that
+  failed offline after a wake is retried within the hour), and on Check for Updates in Advanced;
+  a version numerically newer
   than the running one shows Install there and `Update to X…` in the status menu. Homegrown, since
   the canon takes no packages (no Sparkle); no toggle, no notification, no dialog, and it installs
   only on a click. Authenticity is our own ed25519 signature over the release zip (`<zip>.sig`,
