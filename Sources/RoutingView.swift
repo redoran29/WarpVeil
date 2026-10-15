@@ -62,8 +62,8 @@ struct RoutingView: View {
         .onChange(of: bypassEnabled) { scheduleReconnect() }
     }
 
-    // Every routing change tears the tunnel down and back up, which without passwordless mode
-    // means an admin prompt. Adding three domains should cost one, not three.
+    // Every routing change tears the tunnel down and back up. Adding three domains should cost one
+    // reconnect, not three.
     private func scheduleReconnect() {
         reconnectTask?.cancel()
         reconnectTask = Task {

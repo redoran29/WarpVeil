@@ -13,8 +13,8 @@ final class ProcessManager {
             isTunnelUp = false
         }
     }
-    // The session starts before any engine — while a name resolves, xray comes up and, without
-    // passwordless, a password dialog waits. The tunnel counts as up once the engine shell says
+    // The session starts before any engine — while the helper installs, a name resolves and xray
+    // comes up. The tunnel counts as up once the engine shell says
     // sing-box started — its own line, not upstream's wording — which it prints only once the
     // TUN's address is on the interface the wrapper named. What the UI calls Connected.
     private(set) var isTunnelUp = false
@@ -234,12 +234,12 @@ final class ProcessManager {
 
     // MARK: - Passwordless mode
 
-    // Passwordless is on only while the installed scripts are the ones this build would install
-    // and the root-owned sing-box is the bundled one. Only an explicit install writes to
-    // /usr/local/libexec, so after a script change or an engine bump an existing install would
-    // keep running the old files indefinitely; instead it reads as off, the log says why, and
-    // the toggle re-installs. The bundle cannot change under a running app and the root copy
-    // only through install/remove, so the 83 MB comparison runs at launch and after those.
+    // The helper reads as installed only while its scripts are the ones this build would install
+    // and the root-owned sing-box is the bundled one. Only an install writes to /usr/local/libexec,
+    // so after a script change or an engine bump an existing install would keep running the old
+    // files indefinitely; instead it reads as not installed, and the next connect re-installs it.
+    // The bundle cannot change under a running app and the root copy only through install or
+    // removal, so the 83 MB comparison runs at launch and after those.
     private var rootCopyMatches = ProcessManager.rootCopyMatchesBundle()
     var isPasswordless = false
     var isPasswordlessBusy = false
@@ -365,8 +365,8 @@ final class ProcessManager {
         isPasswordless = rootCopyMatches && Self.scriptsInstalled()
     }
 
-    // Called on both success and failure of install/remove — reconciles isPasswordless
-    // with the actual filesystem state (in case optimistic flip was wrong) and clears busy.
+    // Called on both success and failure of an install or a removal — reads the helper's state
+    // from the filesystem again and clears busy.
     private func passwordlessOperationFinished() {
         rootCopyMatches = Self.rootCopyMatchesBundle()
         isPasswordlessBusy = false
@@ -375,7 +375,7 @@ final class ProcessManager {
 
     // Any warpveil sudoers entry that is not this build's working install: this tag's with changed
     // scripts or a bumped engine, the tag of the version an update replaced, or the pre-rename
-    // vpnswift entry. Each one is an old hole until a toggle removes it.
+    // vpnswift entry. Each one is an old hole until an install or a removal clears it.
     private static var otherInstallExists: Bool {
         ((try? FileManager.default.contentsOfDirectory(atPath: "/etc/sudoers.d")) ?? [])
             .contains { $0.hasPrefix("warpveil") || $0 == "vpnswift" }
@@ -481,8 +481,7 @@ final class ProcessManager {
     // The engine is the helper's root-owned sing-box; the bundled one is the install's to copy.
     func connect(config: String, xrayPath: String, bypassDomains: [String] = []) {
         guard !isRunning else { return }
-        // A connect supersedes a pending restart: left alone it would connect a second time,
-        // and without passwordless ask for the password again.
+        // A connect supersedes a pending restart: left alone it would connect a second time.
         reconnectTask?.cancel()
         reconnectTask = nil
         // After the pending restart is dropped, so a refused one is not left for a wake to take up.
@@ -840,8 +839,8 @@ final class ProcessManager {
     }
 
     // Toggling bypass with an empty list, editing the list while bypass is off, or removing and
-    // re-adding a domain changes nothing in the routing; without passwordless a reconnect is an
-    // admin prompt. While a reconnect is pending, recording the list is enough: it reads it.
+    // re-adding a domain changes nothing in the routing, and a reconnect drops the tunnel for a
+    // moment. While a reconnect is pending, recording the list is enough: it reads it.
     func reconnect(bypassDomains: [String]) {
         guard let params = lastConnection, Set(bypassDomains) != Set(params.bypassDomains) else { return }
         lastConnection?.bypassDomains = bypassDomains

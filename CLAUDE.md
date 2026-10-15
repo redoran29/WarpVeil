@@ -351,7 +351,7 @@ Write the simplest code that works. Prioritize readability over cleverness.
   hand-started one) survives, and the next connect fails with sing-box's own error in Logs. PID
   files are not deleted at launch: they are the handle on an engine a crash orphaned
 - **JSONSerialization, not Codable**: the server pin rewrites arbitrary xray configs from feeds and needs untyped JSON
-- **Bundled binaries only**: `ProcessManager.findBinary` resolves engines from `Bundle.main.resourcePath` and nowhere else — Homebrew, MacPorts and `$PATH` are ignored. The bundle is what xray, the ping and the non-passwordless path run; the passwordless `run.sh` runs the root-owned copy made from it at install
+- **Bundled binaries only**: `ProcessManager.findBinary` resolves engines from `Bundle.main.resourcePath` and nowhere else — Homebrew, MacPorts and `$PATH` are ignored. The bundle is what xray and the ping run; `run.sh` runs the root-owned copy the helper's install made from it
 - **In-app updates** (owner, 2026-10-14): `Updater` reads `WVUpdateFeed` from `Info.plist` —
   GitHub's `releases/latest`, the newest release that is neither a draft nor a prerelease — 15 s
   after bootstrap, then a day after the last check that got an answer (asked hourly, so one that
