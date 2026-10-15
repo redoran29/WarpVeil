@@ -496,7 +496,8 @@ final class ProcessManager {
             if let blocker = await awaitTeardown(timeout: .seconds(30), sessionOnly: true) {
                 guard !Task.isCancelled else { return }
                 reconnectTask = nil
-                logs.append("[Restart skipped: \(blocker)]")
+                // The only blocker of a session-only wait is the engine, so the change never applied.
+                logs.append("[Restart skipped: \(blocker) — the tunnel keeps its old settings]")
                 return
             }
             guard !Task.isCancelled, let params = lastConnection else { return }
