@@ -65,12 +65,12 @@ Sources/
 ├── AdvancedView.swift         # Auto-connect, passwordless, components, grouped Form
 ├── LogView.swift              # VPN log with copy and clear, drawn as a grouped-Form card
 ├── ProcessManager.swift       # VPN process lifecycle, sudo/passwordless, config policy, log tailing, sleep/wake
-├── SubscriptionService.swift  # Subscription fetch, vless:// and vmess:// parsing, config building
+├── SubscriptionService.swift  # Subscription fetch, vless:// and vmess:// parsing, xray config building
 ├── SetupService.swift         # Bundled-binary detection & version reporting
 ├── LocationService.swift      # Public IP & geolocation via ipwho.is (HTTPS)
 ├── NetworkMonitor.swift       # Real-time upload/download speed
-├── PingService.swift          # Proxy delay via a user-space sing-box and its Clash API
-├── BypassService.swift        # Connect-time sing-box fitting: bypass rule, TUN IP families, file keys; domain input
+├── PingService.swift          # Proxy delay via user-space xray behind a sing-box Clash API
+├── BypassService.swift        # Connect-time fitting: bypass rule, TUN IP families, xray server pin; domain input
 └── Models.swift               # Server, Subscription, Engine types
 ```
 
@@ -95,14 +95,18 @@ is, or make the value observable the way the selection is.
 committed to `Binaries/` and copied in by the Xcode "Bundle VPN Binaries" build phase.
 `./fetch-binaries.sh` refreshes them — pinned tags, SHA-256 verified.
 
-**Two connection topologies.** A sing-box server runs as a single process. An xray server
-(needed for `xhttp`/`splithttp`, which sing-box does not implement) runs as a SOCKS proxy on
-port 10808 with a sing-box TUN wrapper in front of it; all routing decisions then live in that
-wrapper, because it is the only sing-box in the topology. xray runs as the user, started by the
-app — only the sing-box that holds the TUN runs as root, and the wrapper's server rule is by
-address, so it does not care who dialed. The bypass rule goes into it through
-the same `BypassService.injectSingBox` that handles a sing-box server config; the xray config is
-written as the subscription produced it.
+**One connection topology.** Every server runs on xray: a SOCKS proxy on port 10808, run as the
+user and started by the app, with a sing-box TUN wrapper in front of it that holds every routing
+decision. Only that wrapper runs as root, and its server rule is by address, so it does not care
+who dialed. The bypass rule goes into it through `BypassService.injectSingBox`. xray's own
+connection to its server enters the TUN as well and is routed `direct` by address (`ip_cidr`),
+never by name. A server given as a hostname is resolved by the app at connect
+(`BypassService.resolveAddresses`, off the main actor — `connect` parks itself the way it waits
+for a stop), every address goes into the wrapper's rule, and the xray config gets the same
+addresses pinned in xray's own DNS (`dns.hosts` + `sockopt.domainStrategy: UseIP`,
+`BypassService.pinXrayServer`), so xray cannot dial one the wrapper does not route direct. The
+address is read from `vnext` (vless, vmess) or `servers` (trojan, shadowsocks, socks); an
+IP-literal server's xray config is written as the subscription produced it.
 
 ---
 
@@ -258,10 +262,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
   refused connect never takes a tunnel down. It is a denylist of sing-box's file, directory,
   exec and system-state keys (`ProcessManager.configPolicy`), so a sing-box bump is reviewed for
   new ones. `PATH` and `HOME` are pinned in every root shell: macOS's sudoers has no
-  `secure_path` and keeps the caller's `HOME`. The keys a provider template carries by default
-  and the tunnel does not need — a cache file, a dashboard, a log file, `geoip`/`geosite`, extra
-  top-level sections — are dropped app-side first (`BypassService.dropUnneededFileKeys`), with
-  a log line
+  `secure_path` and keeps the caller's `HOME`. The only config the app hands root is the wrapper
+  it builds, which names no file; the policy is what holds when something else feeds `run.sh`
 - **PID files**: `run.sh`, `stop.sh` and the osascript fallbacks kill by PID file only — one
   shared `kill_pid_file`, which checks that the PID's executable is sing-box, then waits up to
   5 s for it to exit before the file is removed; nothing else on the machine is touched. The
@@ -277,23 +279,32 @@ Write the simplest code that works. Prioritize readability over cleverness.
   exits while connected disconnects. A sing-box with no PID file at our path (another build's tag, a
   hand-started one) survives, and the next connect fails with sing-box's own error in Logs. PID
   files are not deleted at launch: they are the handle on an engine a crash orphaned
-- **JSONSerialization, not Codable**: bypass injection rewrites arbitrary user configs and needs untyped JSON
+- **JSONSerialization, not Codable**: the server pin rewrites arbitrary xray configs from feeds and needs untyped JSON
 - **Bundled binaries only**: `ProcessManager.findBinary` resolves engines from `Bundle.main.resourcePath` and nowhere else — Homebrew, MacPorts and `$PATH` are ignored. The bundle is what xray, the ping and the non-passwordless path run; the passwordless `run.sh` runs the root-owned copy made from it at install
 - **Binary upgrades ship with the app**: no in-app updater; bump the pinned tags in `fetch-binaries.sh` and cut a release
 - **No routing modes, no Clash API in the tunnel** (owner, 2026-10-15): Global and Rule are the
   bypass toggle off and on, and Direct is a disconnect. An active connections page was the one
   other user of a production Clash API and was dropped too — debugging goes through Logs
-- **Ping is a user-space measurement**: `PingService` runs the bundled sing-box with every server
-  as an outbound behind `experimental.clash_api` on a free localhost port and asks
-  `/proxies/<Server.id>/delay` per server; xray servers run behind a user-space xray with a socks
-  inbound each and are chained in as socks outbounds. No sudo, no TUN. Every tag is measured in
-  three passes over the same engines and the minimum is reported: the first request through a
+- **xray for every server, sing-box only as the TUN** (owner, 2026-10-15): Xray servers from
+  v26.7.11 default to `minClientVer: 26.3.27` for REALITY, and sing-box (1.14.3 too) announces
+  1.8.1, so such a server answers it as its camouflage target; from v26.9.8 they also require an
+  `X25519MLKEM768` key share (SagerNet/sing-box#4520). The bundled xray is 26.3.27, the last stable
+  release, which meets that default exactly — a server that raises it needs a newer xray, which
+  runs as the user. Feeds are read as links, then as `?format=xray`; a pasted sing-box JSON is
+  refused. A sing-box config an earlier build stored stays listed and is refused at connect,
+  which is why `Engine` keeps its sing-box case. xray's own TUN, which would retire sing-box, sets
+  no routes on macOS before Xray 26.7.11, and every release since is a prerelease
+- **Ping is a user-space measurement**: `PingService` runs a user-space xray with a socks inbound
+  per server, chained into a user-space sing-box as socks outbounds behind
+  `experimental.clash_api` on a free localhost port, and asks `/proxies/<Server.id>/delay` per
+  server. No sudo, no TUN. Every tag is measured in three passes over the same engines and the
+  minimum is reported: the first request through a
   proxy carries its REALITY/TLS handshake, which puts every server at the same ~800 ms and hides
   the real differences. Passes over all tags, not three requests in a row on one tag — that shape
   was built and measured worse: only the sing-box rows warmed up, the xray rows stayed at ~700 ms
   and three of them timed out, because simultaneous cold handshakes are themselves what makes a
   request time out. Works with the tunnel up: every outbound that leaves the machine is bound to the
-  primary interface (`bind_interface` / `streamSettings.sockopt.interface`), read from `SCDynamicStore`'s
+  primary interface (`streamSettings.sockopt.interface`), read from `SCDynamicStore`'s
   `State:/Network/Global/IPv4` → `PrimaryInterface`, which stays physical because sing-box's TUN
   registers no configd service. The socks hops to xray are not pinned — loopback cannot be bound
   to a NIC. Nothing in `ProcessManager` touches a ping's engines
@@ -303,8 +314,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
 `<tag>` is the app version with dots replaced by dashes.
 
 - `$TMPDIR/warpveil-<tag>.log` — VPN process log, tailed by a 0.25s polling timer
-- `$TMPDIR/warpveil-singbox-<pid>.json` — injected sing-box config
-- `$TMPDIR/warpveil-xray-<pid>.json` — xray config, as the subscription produced it
+- `$TMPDIR/warpveil-singbox-<pid>.json` — the TUN wrapper's sing-box config
+- `$TMPDIR/warpveil-xray-<pid>.json` — xray config; a server given by name has it pinned to the resolved addresses
 - `$TMPDIR/warpveil-ping-{singbox,xray}-<pid>.json` — ping configs, present only during a run
 - `/var/run/warpveil-<tag>/singbox.pid` — sing-box's PID, root's (directory 0755)
 - `$TMPDIR/warpveil-<tag>-xray.pid` — xray's PID, the user's
@@ -366,7 +377,14 @@ Write the simplest code that works. Prioritize readability over cleverness.
   `tun.dns_mode: native` does nothing outside the SFM app (SagerNet/sing-box#4183). Only
   NetworkExtension sets a resolver safely; a root script rewriting configd's DNS leaves the
   network broken when it dies. A resolver outside the LAN is reached through the TUN, but the
-  builders' `hijack-dns` sits before `sniff` and never fires: those queries ride the proxy as UDP
+  wrapper's `hijack-dns` sits before `sniff` and never fires: those queries ride the proxy as UDP
+- The wrapper's server rule is `ip_cidr`, never `domain_suffix`: xray's dial to its server arrives
+  as an IP, and what a sniff would read is the REALITY camouflage SNI, not the server's name — a
+  domain rule for the server never matches and the dial loops back into xray
+- sing-box's `process_path`/`process_name` rules read `net.inet.tcp.pcblist_n`, which macOS 27
+  answers with the header alone for a process without `com.apple.private.network.statistics`
+  (`netstat` has it, the bundled engines do not) and in full for root — measured 2026-10-15, 48
+  bytes against 548 KB. Process rules work only in the root wrapper
 - sing-box's JSON decoder matches field names case-insensitively with Unicode folding: `OUTPUT`
   and `timeſtamp` reach `output` and `timestamp`. Anything that filters config keys compares
   them lowercased and refuses non-ASCII keys

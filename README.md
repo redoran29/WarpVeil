@@ -1,12 +1,12 @@
 # WarpVeil
 
-Lightweight macOS app for managing **sing-box** and **xray** VPN connections.
+Lightweight macOS app for VPN connections: every server runs on **xray**, behind a **sing-box** TUN.
 
 ## Features
 
 - **Menu bar status** — connection state and country flag, with connect/disconnect in its menu
 - **One-click connect/disconnect** with admin privileges
-- **Subscription support** — add via URL (`vless://`, `vmess://`) or JSON config
+- **Subscription support** — add via URL (`vless://`, `vmess://`) or an xray JSON config
 - **Domain bypass** — route specific domains outside the VPN tunnel
 - **Auto-reconnect** after sleep/wake
 - **Passwordless mode** — optional sudoers setup to skip password prompts; root runs only its own copy of sing-box, on a config it checked
@@ -71,8 +71,8 @@ Sources/
 ├── SetupService.swift         # Bundled-binary detection & version reporting
 ├── LocationService.swift      # Public IP & geolocation via ipwho.is (HTTPS)
 ├── NetworkMonitor.swift       # Real-time upload/download speed
-├── PingService.swift          # Proxy delay via sing-box's Clash API
-├── BypassService.swift        # Bypass rule, TUN IP families, domain input normalization
+├── PingService.swift          # Proxy delay through user-space xray and sing-box's Clash API
+├── BypassService.swift        # Bypass rule, TUN IP families, xray server pin, domain input normalization
 └── Models.swift               # Server, Subscription, Engine types
 ```
 
