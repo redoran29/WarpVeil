@@ -71,6 +71,7 @@ Sources/
 ├── NetworkMonitor.swift       # Real-time upload/download speed
 ├── PingService.swift          # Proxy delay via user-space xray behind a sing-box Clash API
 ├── BypassService.swift        # Connect-time fitting: bypass rule, TUN IP families, xray server pin; domain input
+├── Updater.swift              # In-app updates: GitHub release feed, ed25519 check, swap and relaunch
 └── Models.swift               # Server, Subscription, Engine types
 ```
 
@@ -160,6 +161,11 @@ reads off until it is switched on again.
 `--watch` is a rebuild-and-relaunch loop, not hot reload: in-memory state resets on every
 change, `@AppStorage` survives. Each relaunch activates the app; the window comes back at its
 saved frame, and the dev bundle id has its own defaults so its frame is separate.
+
+The dev copy has no `WVUpdateFeed` (`build_dev` deletes it): a release is always newer than
+`<version>-dev` and would be offered, then refused for its bundle id after the whole download. A
+live check of the updater gives a dev copy its own feed and key with `PlistBuddy`, the way
+`build_dev` sets the version.
 
 ### install.sh
 
@@ -325,7 +331,31 @@ Write the simplest code that works. Prioritize readability over cleverness.
   files are not deleted at launch: they are the handle on an engine a crash orphaned
 - **JSONSerialization, not Codable**: the server pin rewrites arbitrary xray configs from feeds and needs untyped JSON
 - **Bundled binaries only**: `ProcessManager.findBinary` resolves engines from `Bundle.main.resourcePath` and nowhere else — Homebrew, MacPorts and `$PATH` are ignored. The bundle is what xray, the ping and the non-passwordless path run; the passwordless `run.sh` runs the root-owned copy made from it at install
-- **Binary upgrades ship with the app**: no in-app updater; bump the pinned tags in `fetch-binaries.sh` and cut a release
+- **In-app updates** (owner, 2026-10-14): `Updater` reads `WVUpdateFeed` from `Info.plist` —
+  GitHub's `releases/latest`, the newest release that is neither a draft nor a prerelease — 15 s
+  after bootstrap, every 24 h, and on Check for Updates in Advanced; a version numerically newer
+  than the running one shows Install there and `Update to X…` in the status menu. Homegrown, since
+  the canon takes no packages (no Sparkle); no toggle, no notification, no dialog, and it installs
+  only on a click. Authenticity is our own ed25519 signature over the release zip (`<zip>.sig`,
+  made by `release.sh`), checked against `WVUpdatePublicKey` before anything unpacks it — the
+  app's own signature is ad-hoc and proves nothing. The unpacked `WarpVeil.app` must be a real
+  directory with this bundle id, the tag's version, newer than the running one, arm64; anything
+  else is refused with its reason in the row. It is staged as `.WarpVeil.app.new` next to the
+  running bundle, wherever that is. Then `disconnect()` and `awaitTeardown`: a stop that exited
+  non-zero, or anything of the session still running after 30 s, cancels the update — the new
+  version's tag cannot stop the old one's sing-box. A `/bin/sh` helper spawned before
+  `NSApp.terminate` waits for the app to exit, moves the old bundle aside and the new one in (or
+  the old one back) and `open -n`s whatever is there. Nothing runs as root, and a download by the
+  app carries no quarantine. No ETag: a 304 counts against GitHub's 60 requests an hour as well.
+  Engine upgrades still ship with the app: bump the pinned tags in `fetch-binaries.sh` and cut a
+  release
+- **Public releases without a Developer ID** (owner, 2026-10-14): the zip is ad-hoc signed, so a
+  browser download is quarantined and its first launch is blocked — "Apple could not verify
+  “WarpVeil”…", Done / Move to Trash — on macOS 15, 26 and 27; Control-click → Open no longer
+  gets past it. The way in is System Settings → Privacy & Security → Security → Open Anyway,
+  there for about an hour after the blocked launch, then the password. The notes and the README
+  say so and offer a Terminal install, which has no dialog because `curl` sets no quarantine. An
+  update the app installs carries none, so Gatekeeper is a first-install matter
 - **No routing modes, no Clash API in the tunnel** (owner, 2026-10-15): Global and Rule are the
   bypass toggle off and on, and Direct is a disconnect. An active connections page was the one
   other user of a production Clash API and was dropped too — debugging goes through Logs
@@ -381,6 +411,10 @@ Write the simplest code that works. Prioritize readability over cleverness.
   sorted keys, so a load that changes nothing writes nothing
 - `~/.config/warpveil/release-signing.key` — the release key's private half, 0600, the owner's
   machine only
+- `$TMPDIR/warpveil-update-<pid>/` — an update's download and unpack directory, 0700, removed once
+  the update is staged or refused
+- `<bundle dir>/.WarpVeil.app.new`, `.WarpVeil.app.old` — the update being swapped in and the old
+  bundle on its way out; both gone after the relaunch
 
 ## Gotchas
 
@@ -459,6 +493,14 @@ Write the simplest code that works. Prioritize readability over cleverness.
   file descriptions at offset 0. Writers that share a log get one handle opened `O_APPEND`
 - `/usr/bin/jq` exists from macOS 15, and every root connect needs it for the config policy —
   that is why the deployment target is 15
+- A file the app downloads with `URLSession`, or `curl` downloads, gets `com.apple.provenance`
+  only, never `com.apple.quarantine`; Gatekeeper assesses quarantined files only, so a bundle the
+  app unpacked launches like one `install.sh` copied. A browser's quarantine on a zip follows it
+  through `ditto -x -k` and `unzip` onto every extracted file, and `cp` and `install(1)` copy it
+  along (probed 2026-10-14)
+- `ditto -x -k` strips `..` and a leading `/` from entry names but recreates a symlink entry —
+  the updater checks that the unpacked top level is a real directory
+- `Process.terminationStatus` raises on a process that is still running — check `isRunning` first
 
 ---
 

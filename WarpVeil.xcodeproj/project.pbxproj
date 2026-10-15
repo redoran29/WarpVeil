@@ -23,6 +23,7 @@
 		AA000000000000000000001A /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000000000000000000001A /* LogView.swift */; };
 		AA0000000000000000000019 /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000019 /* ConnectionView.swift */; };
 		AA000000000000000000001C /* PingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000000000000000000001C /* PingService.swift */; };
+		AA000000000000000000001D /* Updater.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000000000000000000001D /* Updater.swift */; };
 		AA0000000000000000000020 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000020 /* AppIcon.icns */; };
 /* End PBXBuildFile section */
 
@@ -46,6 +47,7 @@
 		BB000000000000000000001A /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
 		BB0000000000000000000019 /* ConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionView.swift; sourceTree = "<group>"; };
 		BB000000000000000000001C /* PingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PingService.swift; sourceTree = "<group>"; };
+		BB000000000000000000001D /* Updater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Updater.swift; sourceTree = "<group>"; };
 		BB0000000000000000000020 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -90,6 +92,7 @@
 				BB000000000000000000001A /* LogView.swift */,
 				BB0000000000000000000019 /* ConnectionView.swift */,
 				BB000000000000000000001C /* PingService.swift */,
+				BB000000000000000000001D /* Updater.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -210,6 +213,7 @@
 				AA000000000000000000001A /* LogView.swift in Sources */,
 				AA0000000000000000000019 /* ConnectionView.swift in Sources */,
 				AA000000000000000000001C /* PingService.swift in Sources */,
+				AA000000000000000000001D /* Updater.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -13,6 +13,7 @@ final class AppState {
     let setup = SetupService()
     let subs = SubscriptionService()
     let ping = PingService()
+    let updater = Updater()
 
     var connectedAt: Date?
     private var tunnelWasUp = false
@@ -30,6 +31,7 @@ final class AppState {
 
     private var locationTimer: Timer?
     private var locationTask: Task<Void, Never>?
+    private var updateTimer: Timer?
     private let defaults = UserDefaults.standard
 
     init() {
@@ -81,6 +83,7 @@ final class AppState {
         }
 
         isBootstrapped = true
+        startUpdateChecks()
     }
 
     func connect() {
@@ -127,6 +130,31 @@ final class AppState {
     // Not gated on isRunning: a reconnect pending after wake has to pick the change up too.
     func routingChanged() {
         pm.reconnect(bypassDomains: activeBypassDomains)
+    }
+
+    // MARK: - Updates
+
+    // Once after launch, then daily: the app lives in the menu bar for weeks at a time. The
+    // first check waits out the TUN coming up under an auto-connect.
+    private func startUpdateChecks() {
+        Task {
+            try? await Task.sleep(for: .seconds(15))
+            await updater.check()
+        }
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.updater.check() }
+        }
+    }
+
+    // disconnect() also cancels a pending start or restart, which would otherwise bring engines
+    // up while the app is on its way out.
+    func installUpdate() {
+        Task {
+            await updater.install {
+                disconnect()
+                return await pm.awaitTeardown(timeout: 30)
+            }
+        }
     }
 
     // MARK: - Location polling

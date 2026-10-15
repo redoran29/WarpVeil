@@ -128,6 +128,9 @@ build_dev() {
     local plist="$APP/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${DEV_VERSION}" "$plist"
     /usr/libexec/PlistBuddy -c "Set :CFBundleName ${APP_NAME} Dev" "$plist"
+    # The dev copy never checks GitHub: a release is always newer than "<version>-dev" and would
+    # be offered, then refused for its bundle id after the whole download.
+    /usr/libexec/PlistBuddy -c "Delete :WVUpdateFeed" "$plist"
 
     # Re-sign after touching Info.plist, otherwise the signature no longer matches.
     codesign --force --sign - "$APP"

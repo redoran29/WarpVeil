@@ -27,6 +27,8 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>WVUpdateFeed</key>
+	<string>https://api.github.com/repos/redoran29/WarpVeil/releases/latest</string>
 	<key>WVUpdatePublicKey</key>
 	<string>O5b3lI0eLG3/T4/gyj3tiFZe9IoJ1YV70LxR5QEKh/c=</string>
 </dict>

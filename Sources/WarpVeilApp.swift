@@ -119,6 +119,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         open.target = self
         menu.addItem(open)
 
+        if let version = app.updater.availableVersion {
+            let update = NSMenuItem(title: "Update to \(version)…", action: #selector(updateAction), keyEquivalent: "")
+            update.target = self
+            menu.addItem(update)
+        }
+
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit WarpVeil",
                                 action: #selector(NSApplication.terminate(_:)),
@@ -128,6 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func connectAction() { app.connect() }
     @objc private func disconnectAction() { app.disconnect() }
     @objc private func openAction() { showWindow() }
+    @objc private func updateAction() { app.installUpdate() }
 
     // MARK: - Reactive State Observation
 

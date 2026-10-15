@@ -12,6 +12,7 @@ Lightweight macOS app for VPN connections: every server runs on **xray**, behind
 - **Passwordless mode** — optional sudoers setup to skip password prompts; root runs only its own copy of sing-box, on a config it checked
 - **Bundled engines** — `sing-box` and `xray` ship inside the app, no installation required
 - **Server ping** — real delay through each proxy, measured by the bundled engines in user space
+- **In-app updates** — checks GitHub releases daily and installs only a release signed with the project's key
 - **Real-time logs** with copy/clear
 
 ## Screenshots
@@ -74,6 +75,7 @@ Sources/
 ├── NetworkMonitor.swift       # Real-time upload/download speed
 ├── PingService.swift          # Proxy delay through user-space xray and sing-box's Clash API
 ├── BypassService.swift        # Bypass rule, TUN IP families, xray server pin, domain input normalization
+├── Updater.swift              # In-app updates from GitHub releases, ed25519-verified
 └── Models.swift               # Server, Subscription, Engine types
 ```
 
