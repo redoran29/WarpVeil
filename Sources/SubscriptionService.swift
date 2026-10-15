@@ -90,7 +90,10 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             guard let data = sub.servers[i].config.data(using: .utf8),
                   let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let framed = servers(in: root).first else { continue }
+            // The row says where the config goes: a parser before the frame could store `?`.
             sub.servers[i].config = framed.config
+            sub.servers[i].address = framed.address
+            sub.servers[i].transport = framed.transport
         }
         return sub
     }
