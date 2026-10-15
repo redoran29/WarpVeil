@@ -315,17 +315,27 @@ final class ProcessManager {
             return false
         }
 
+        // The root shell removes the staged files itself once it is done with them: a disconnect
+        // that takes the dialog down after the password was typed ends osascript, not that shell,
+        // which may still be reading them.
+        let staged = [tmpRun, tmpStop, tmpSudoers].map(Self.shellEscape).joined(separator: " ")
         let status = await runAsAdmin(onStart: { installProcess = $0 }, """
-            \(Self.removeEveryInstallCommand) && \
+            { \(Self.removeEveryInstallCommand) && \
             mkdir -p '\(Self.libexecDir)' && \
             install -m 0755 -o root -g wheel \(Self.shellEscape(bundledSingBox)) '\(Self.rootSingBoxPath)' && \
             install -m 0755 -o root -g wheel \(Self.shellEscape(tmpRun)) '\(Self.runScriptPath)' && \
             install -m 0755 -o root -g wheel \(Self.shellEscape(tmpStop)) '\(Self.stopScriptPath)' && \
             visudo -cf \(Self.shellEscape(tmpSudoers)) && \
-            install -m 0440 -o root -g wheel \(Self.shellEscape(tmpSudoers)) '\(Self.sudoersFile)'
+            install -m 0440 -o root -g wheel \(Self.shellEscape(tmpSudoers)) '\(Self.sudoersFile)'; }
+            rc=$?
+            rm -f \(staged)
+            exit $rc
             """)
         installProcess = nil
-        for file in [tmpSudoers, tmpRun, tmpStop] { try? FileManager.default.removeItem(atPath: file) }
+        // Returned by itself: no root shell is left reading them — a cancelled dialog ran none.
+        if status != nil {
+            for file in [tmpSudoers, tmpRun, tmpStop] { try? FileManager.default.removeItem(atPath: file) }
+        }
         passwordlessOperationFinished()
         if isPasswordless {
             logs.append("[Helper installed]")
