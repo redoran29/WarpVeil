@@ -146,8 +146,7 @@ final class Updater {
         }
         // Staged only now: an app quit while the engines stop leaves nothing next to the bundle.
         do {
-            try? FileManager.default.removeItem(at: staged)
-            try FileManager.default.moveItem(at: verified, to: staged)
+            try await Self.stage(verified, at: staged)
         } catch {
             state = .failed(error.localizedDescription)
             return false
@@ -200,6 +199,12 @@ final class Updater {
         let bundle = unpacked.appendingPathComponent("WarpVeil.app")
         try verify(bundle: bundle, version: release.version)
         return bundle
+    }
+
+    // Off the main actor: on another volume than $TMPDIR the move is a copy of the whole app.
+    private nonisolated static func stage(_ verified: URL, at staged: URL) async throws {
+        try? FileManager.default.removeItem(at: staged)
+        try FileManager.default.moveItem(at: verified, to: staged)
     }
 
     // A download gets no quarantine attribute: the file is the app's own, not Finder's. The async
