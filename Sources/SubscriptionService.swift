@@ -458,7 +458,9 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
     // the proxy first, a freedom outbound, no routing rules. Whatever a panel's config adds —
     // other inbounds, routing to direct (which would loop back through the TUN), log files — is
     // left out.
-    private func xrayClientConfig(_ outbound: [String: Any]) -> String {
+    private func xrayClientConfig(_ outbound: [String: Any], dialers: [[String: Any]] = []) -> String {
+        let direct: [[String: Any]] = dialers.contains { ($0["tag"] as? String) == "direct" }
+            ? [] : [["protocol": "freedom", "tag": "direct"]]
         let config: [String: Any] = [
             "log": ["loglevel": "info"],
             "inbounds": [
@@ -470,16 +472,24 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
                     "settings": ["udp": true]
                 ] as [String: Any]
             ],
-            "outbounds": [
-                outbound,
-                ["protocol": "freedom", "tag": "direct"] as [String: Any]
-            ],
+            "outbounds": [outbound] + dialers + direct,
             "routing": [
                 "domainStrategy": "AsIs",
                 "rules": [] as [[String: Any]]
             ] as [String: Any]
         ]
         return serializeJSON(config) ?? "{}"
+    }
+
+    // A proxy can dial through a sibling — a freedom outbound that fragments its packets, say —
+    // named in `sockopt.dialerProxy` or `proxySettings.tag`. A freedom sibling dials the server's
+    // own address, which the wrapper routes direct, so it comes along; a proxy sibling would dial
+    // an address the wrapper knows nothing about, so it is left out and the dial fails loudly.
+    private static func dialers(of outbound: [String: Any], in outbounds: [[String: Any]]) -> [[String: Any]] {
+        let sockopt = (outbound["streamSettings"] as? [String: Any])?["sockopt"] as? [String: Any]
+        let tags = [sockopt?["dialerProxy"], (outbound["proxySettings"] as? [String: Any])?["tag"]]
+            .compactMap { $0 as? String }
+        return outbounds.filter { ($0["protocol"] as? String) == "freedom" && tags.contains($0["tag"] as? String ?? "") }
     }
 
     // MARK: - xray JSON parsing (for ?format=xray)
@@ -500,7 +510,8 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
     }
 
     private func servers(in root: [String: Any], remarks: String?) -> [Server] {
-        (root["outbounds"] as? [[String: Any]] ?? []).compactMap { outbound in
+        let outbounds = root["outbounds"] as? [[String: Any]] ?? []
+        return outbounds.compactMap { outbound in
             guard let proto = outbound["protocol"] as? String, Self.vpnTypesXray.contains(proto),
                   let endpoint = BypassService.serverEndpoint(outbound),
                   let host = endpoint["address"] as? String else { return nil }
@@ -508,7 +519,8 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             let network = (outbound["streamSettings"] as? [String: Any])?["network"] as? String ?? "tcp"
             return Server(name: remarks ?? outbound["tag"] as? String ?? proto, protocolType: proto,
                           address: "\(host):\(port)", transport: Self.canonicalTransport(network),
-                          config: xrayClientConfig(outbound), engine: .xray)
+                          config: xrayClientConfig(outbound, dialers: Self.dialers(of: outbound, in: outbounds)),
+                          engine: .xray)
         }
     }
 

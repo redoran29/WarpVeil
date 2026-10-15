@@ -339,9 +339,15 @@ final class PingService {
               let type = outbound["protocol"] as? String, SubscriptionService.vpnTypesXray.contains(type)
         else { return nil }
         outbound["tag"] = server.id
-        // It names a sibling outbound to dial through that the merged config does not carry, and
-        // a missing dependency is fatal for every row rather than for this one.
+        // Both name a sibling outbound to dial through that the merged config does not carry: the
+        // server is measured without it, and its dials do not fail on the missing tag.
         outbound["proxySettings"] = nil
+        if var streamSettings = outbound["streamSettings"] as? [String: Any],
+           var sockopt = streamSettings["sockopt"] as? [String: Any] {
+            sockopt["dialerProxy"] = nil
+            streamSettings["sockopt"] = sockopt
+            outbound["streamSettings"] = streamSettings
+        }
         return outbound
     }
 
