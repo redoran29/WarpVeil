@@ -21,8 +21,9 @@ is its research, read by the item's new plan, not copied into it. Never delete t
 ### 1. Plan
 
 The plan is written with the global `stage-plan` skill, in the main session — it audits the
-owner one question at a time — and goes to `plans/<n>-<slug>.md`. It says what and why, never
-which files: that is read from the code when the work starts.
+owner one question at a time — and goes to `plans/<n>-<slug>.md`, `<n>` being its backlog
+item's number. It says what and why, never which files: that is read from the code when the
+work starts.
 
 ### 2. Implement
 
