@@ -1,0 +1,56 @@
+## 18. An xray server given by hostname, or speaking trojan, shadowsocks or socks, connects without looping
+Owner, 2026-10-15: in the xray topology the TUN wrapper sends xray's own connection to the VPN server
+direct only when the server is an IP literal in `vnext`. A hostname server (the usual xhttp server
+behind a CDN) and a trojan, shadowsocks or socks server get no such rule, so xray's connection loops
+back into the tunnel and nothing connects. The owner's servers are all IP-literal vless, so nothing is
+broken today; the public build (plan 17) brings servers that are not. Backlog 18.
+
+### Done when
+- An xray server whose address is a hostname connects, and `curl https://api.ipify.org` prints its
+  exit address; the engine log shows xray dialing only the addresses the wrapper routes direct.
+- An xray trojan or shadowsocks server given by IP connects the same way.
+- The owner's eight IP-literal servers connect as before, and their wrapper rule is unchanged.
+- A hostname that does not resolve: no connect, and Logs say which name failed.
+- A wake or a network change re-resolves the name on the reconnect.
+
+### Decided
+- Nothing for the owner to decide: a fix of a connect that cannot work today.
+
+### Open for the owner
+- The mechanism. Default: the app resolves the server's name at connect, routes every address it got
+  direct, and pins those addresses into xray's own DNS so xray dials nothing else — the old plan's
+  choice. Not a process rule for xray: root can read the socket list today (plan 7), but if a macOS
+  update takes that away the rule fails silently into this same loop, while plan 7 then only fails
+  safe.
+- A server reached through a hostname that is also an IPv6 address set. Default: every address of
+  the answer, both families, is routed direct and pinned.
+
+### Depends on
+- Nothing missing today. No live hostname or trojan server exists for the owner; the checks run
+  against a name that resolves to an owner server's address (a wildcard DNS service such as sslip.io)
+  and against a local xray server for trojan and shadowsocks.
+
+### Risk
+- The connect waits for one name lookup; on a bad network that is up to the resolver's timeout.
+- A CDN that moves the name mid-session keeps working: xray stays on the pinned addresses until the
+  next reconnect.
+
+### Steps
+1. **Route xray's own connection direct for every server shape.** Hostname servers are resolved and
+   pinned at connect; trojan, shadowsocks and socks servers get their address rule. Done when: every
+   check above.
+
+### Leaves out
+- The sing-box topology: a sing-box engine routes its own dials and has no such loop.
+- A process rule for xray (see Open).
+- Moving off a server whose name stops resolving while connected.
+
+### What we know (2026-10-15)
+- The wrapper's server rule reads the address from `settings.vnext[0]` only and is an `ip_cidr` for an
+  IP literal, a `domain_suffix` for a name — which never matches, because the connection arrives as an
+  IP (code: the process manager's server-address extraction and the wrapper builder).
+- System DNS stays outside the tunnel (CLAUDE.md, Gotchas), so xray's own name lookups never loop; the
+  loop is the server connection alone.
+- The old plan compared three mechanisms and verified the pinning end to end in user space (xray
+  `dns.hosts` plus `sockopt.domainStrategy: UseIP` dialed the pinned address and kept the SNI):
+  `git show 975f8b4:plans/xray-hostname-server.md`.
