@@ -367,8 +367,12 @@ final class ProcessManager {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(command)) with administrator privileges"]
-        let errors = Pipe()
-        process.standardError = errors
+        // A file, not a pipe: osascript repeats the command's whole stderr, and past a pipe's buffer
+        // it would block on the write and never exit; a root shell outliving it would hold a pipe open.
+        let errorFile = FileManager.default.temporaryDirectory.appendingPathComponent("warpveil-admin-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: errorFile.path, contents: nil, attributes: [.posixPermissions: 0o600])
+        defer { try? FileManager.default.removeItem(at: errorFile) }
+        process.standardError = try? FileHandle(forWritingTo: errorFile)
         let (exits, exit) = AsyncStream.makeStream(of: Never.self)
         process.terminationHandler = { _ in exit.finish() }
         do {
@@ -378,7 +382,7 @@ final class ProcessManager {
             return (127, error.localizedDescription)
         }
         for await _ in exits {}
-        let text = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let text = String(decoding: (try? Data(contentsOf: errorFile)) ?? Data(), as: UTF8.self)
         let line = text.split(separator: "\n").last.map(String.init) ?? ""
         let failure = line.components(separatedBy: "execution error: ").last ?? line
         guard !process.isRunning, process.terminationReason == .exit else { return (nil, failure) }
