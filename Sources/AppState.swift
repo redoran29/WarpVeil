@@ -86,6 +86,12 @@ final class AppState {
     }
 
     func connect() {
+        // An engine started now would outlive the update's check that the engines stopped, under
+        // a tag the new version cannot stop.
+        guard updater.state != .installing else {
+            pm.logs.append("[An update is installing — connect after it]")
+            return
+        }
         guard let server = selectedServer, let sub = selectedSubscription else {
             pm.logs.append("[Error: no server selected]")
             return
