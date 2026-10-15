@@ -898,13 +898,10 @@ final class ProcessManager {
     func awaitTeardown(timeout: TimeInterval) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline, !Task.isCancelled {
-            if !isRunning {
-                if xrayProcess?.isRunning != true { return true }
-            } else if let stop = teardownProcess, stop.isRunning || stop.terminationStatus == 0 {
-                // Still stopping, or stopped and about to end the session.
-            } else {
-                return false
-            }
+            if !isRunning, xrayProcess?.isRunning != true { return true }
+            // A stop that exited 0 ends the session a moment later; terminationStatus raises on a
+            // stop still running.
+            if isRunning, teardownProcess.map({ !$0.isRunning && $0.terminationStatus != 0 }) ?? true { return false }
             try? await Task.sleep(for: .milliseconds(100))
         }
         return false
