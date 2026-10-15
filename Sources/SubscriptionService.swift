@@ -72,12 +72,27 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         }
         subscriptions = decoded.enumerated()
             .filter { i, sub in sub.url.isEmpty || bestByURL[sub.url] == i }
-            .map(\.element)
-        // Keys minted for a file that predates them must reach the disk before a selection can
-        // point at one — but only then: the file is shared with other builds.
+            .map { reframed($0.element) }
+        // Keys minted for a file that predates them, and configs moved into the frame, must reach
+        // the disk before a selection can point at one — but only then: the file is shared with
+        // other builds.
         if let rewritten = try? JSONEncoder().encode(subscriptions), rewritten != data {
             try? rewritten.write(to: filePath, options: .atomic)
         }
+    }
+
+    // Configs an earlier build stored keep a panel's inbounds and routing, or the link builder's
+    // HTTP inbound; each runs in the app's frame from here on. A sing-box one is left as it is
+    // and refused at connect.
+    private func reframed(_ subscription: Subscription) -> Subscription {
+        var sub = subscription
+        for i in sub.servers.indices where (sub.servers[i].engine ?? sub.engine) == .xray {
+            guard let data = sub.servers[i].config.data(using: .utf8),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let framed = servers(in: root).first else { continue }
+            sub.servers[i].config = framed.config
+        }
+        return sub
     }
 
     // Both cores accept two spellings for the same transport, and a panel that switches
