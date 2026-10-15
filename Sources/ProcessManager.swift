@@ -224,8 +224,7 @@ final class ProcessManager {
         kill_pid_file \(singboxPidFile) sing-box
         """
 
-    private var lastConnection: (config: String, xrayPath: String, singBoxPath: String,
-                                  bypassDomains: [String])?
+    private var lastConnection: (config: String, xrayPath: String, bypassDomains: [String])?
     private var wakeObserver: Any?
     private var reconnectTask: Task<Void, Never>?
     private var ipv6Watcher: SCDynamicStore?
@@ -467,8 +466,7 @@ final class ProcessManager {
                 return
             }
             guard !Task.isCancelled, let params = lastConnection else { return }
-            connect(config: params.config, xrayPath: params.xrayPath, singBoxPath: params.singBoxPath,
-                    bypassDomains: params.bypassDomains)
+            connect(config: params.config, xrayPath: params.xrayPath, bypassDomains: params.bypassDomains)
         }
     }
 
@@ -480,7 +478,8 @@ final class ProcessManager {
     var isHeldForUpdate = false
     static let updateHoldMessage = "[An update is installing — connect after it]"
 
-    func connect(config: String, xrayPath: String, singBoxPath: String, bypassDomains: [String] = []) {
+    // The engine is the helper's root-owned sing-box; the bundled one is the install's to copy.
+    func connect(config: String, xrayPath: String, bypassDomains: [String] = []) {
         guard !isRunning else { return }
         // A connect supersedes a pending restart: left alone it would connect a second time,
         // and without passwordless ask for the password again.
@@ -499,7 +498,7 @@ final class ProcessManager {
                     try? await Task.sleep(for: .milliseconds(100))
                 }
                 guard !Task.isCancelled else { return }
-                connect(config: config, xrayPath: xrayPath, singBoxPath: singBoxPath, bypassDomains: bypassDomains)
+                connect(config: config, xrayPath: xrayPath, bypassDomains: bypassDomains)
             }
             return
         }
@@ -507,8 +506,8 @@ final class ProcessManager {
             logs.append("[Error: no config provided]")
             return
         }
-        for binary in [xrayPath, singBoxPath] where !FileManager.default.isExecutableFile(atPath: binary) {
-            logs.append("[Error: binary not found at \(binary)]")
+        guard FileManager.default.isExecutableFile(atPath: xrayPath) else {
+            logs.append("[Error: binary not found at \(xrayPath)]")
             return
         }
         // Without the server's address the wrapper has no rule for xray's own dial, which would
@@ -518,7 +517,7 @@ final class ProcessManager {
             return
         }
 
-        lastConnection = (config, xrayPath, singBoxPath, bypassDomains)
+        lastConnection = (config, xrayPath, bypassDomains)
 
         if !bypassDomains.isEmpty {
             logs.append("[Bypass] \(bypassDomains.count) domain(s) will route direct")

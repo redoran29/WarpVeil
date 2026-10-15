@@ -111,7 +111,6 @@ final class AppState {
         pm.connect(
             config: server.config,
             xrayPath: ProcessManager.findBinary("xray") ?? "",
-            singBoxPath: ProcessManager.findBinary("sing-box") ?? "",
             bypassDomains: activeBypassDomains
         )
     }
