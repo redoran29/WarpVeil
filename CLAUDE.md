@@ -125,7 +125,8 @@ started` line has reached the log the app tails — not when the helper launches
 passwordless is a password dialog. The shell prints it only once the TUN's address, 172.19.0.1,
 is on an interface it did not find before starting sing-box: sing-box puts it there only after
 reading its config and making the TUN, and a tunnel another build or client already holds at
-that address is not ours. A previous engine's TUN is given 2 s to go before the shell looks. The status, the uptime, the
+that address is not ours — the log warns of one — while a name seen gone since counts as new
+again. A previous engine's TUN is given 2 s to go before the shell looks. The status, the uptime, the
 menu-bar shield, the speed monitor and the location polling wait for it, and the window says
 Connecting until then.
 

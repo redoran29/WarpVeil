@@ -165,6 +165,7 @@ final class ProcessManager {
         tun_interfaces() { ifconfig | awk '/^[^ \t]/ { name = $1 } $1 == "inet" && $2 == "\(tunAddress)" { sub(":", "", name); print name }'; }
         for _ in $(seq 20); do [[ -z "$(tun_interfaces)" ]] && break; sleep 0.1; done
         BEFORE=" $(tun_interfaces | tr '\n' ' ')"
+        [[ "$BEFORE" == " " ]] || echo "[warning] another tunnel holds \(tunAddress) on${BEFORE% }"
         cd '\(stageDir)'
         echo '[sing-box] starting...'
         \(binary) run -c "$CFG" &
@@ -180,9 +181,11 @@ final class ProcessManager {
         }
         trap cleanup TERM INT
         while kill -0 $VPN_PID 2>/dev/null; do
-            for IF in $(tun_interfaces); do
+            NOW=" $(tun_interfaces | tr '\n' ' ')"
+            for IF in $NOW; do
                 [[ "$BEFORE" == *" $IF "* ]] || { echo "\(engineStartedMarker) pid=$VPN_PID"; break 2; }
             done
+            for IF in $BEFORE; do [[ "$NOW" == *" $IF "* ]] || BEFORE="${BEFORE/ $IF / }"; done
             sleep 0.1
         done
         wait
