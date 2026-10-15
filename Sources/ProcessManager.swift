@@ -543,7 +543,7 @@ final class ProcessManager {
                 guard !Task.isCancelled else { return }
                 guard !addresses.isEmpty else {
                     reconnectTask = nil
-                    abandonStart()
+                    endSession()
                     return
                 }
                 xrayConfig = BypassService.pinXrayServer(config, host: serverHost, addresses: addresses)
@@ -556,7 +556,7 @@ final class ProcessManager {
             guard !Task.isCancelled else { return }
             reconnectTask = nil
             guard started else {
-                abandonStart()
+                endSession()
                 return
             }
             startHelper(singBoxPath: singBoxPath, log: engineLog)
@@ -626,13 +626,6 @@ final class ProcessManager {
                                         attributes: [.posixPermissions: 0o600])
     }
 
-    // A start that failed before the helper ran leaves no root engine to stop.
-    private func abandonStart() {
-        xrayProcess?.terminate()
-        stopLogTail()
-        isRunning = false
-    }
-
     private func startHelper(singBoxPath: String, log engineLog: FileHandle) {
         // Re-read: the name lookup and xray's start lie between the connect and here, and another
         // build's toggle may have removed the install meanwhile.
@@ -668,7 +661,7 @@ final class ProcessManager {
             helperLaunched = true
         } catch {
             logs.append("[Error: \(error.localizedDescription)]")
-            abandonStart()
+            endSession()
         }
     }
 
