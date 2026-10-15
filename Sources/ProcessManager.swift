@@ -22,6 +22,9 @@ final class ProcessManager {
     private nonisolated static let tunAddress = "172.19.0.1"
 
     private var helperProcess: Process?
+    // Whether this session launched its helper — from then on a root engine may run, whatever
+    // became of the helper process.
+    private var helperLaunched = false
     private var sessionID = 0
     private var xrayProcess: Process?
     private var logHandle: FileHandle?
@@ -523,6 +526,7 @@ final class ProcessManager {
         // start touches nothing.
         sessionID += 1
         teardownProcess = nil
+        helperLaunched = false
         isRunning = true
         // Read now, not after the lookup: the IPv6 watcher compares the host with this value as
         // soon as the session exists.
@@ -661,6 +665,7 @@ final class ProcessManager {
         do {
             try process.run()
             helperProcess = process
+            helperLaunched = true
         } catch {
             logs.append("[Error: \(error.localizedDescription)]")
             abandonStart()
@@ -864,13 +869,18 @@ final class ProcessManager {
     // The root engine goes first, and the session ends only once it is gone: a stop that fails — a
     // password dialog cancelled — leaves the tunnel up and the session running, rather than xray
     // gone under a root sing-box that still sends every connection to its port. A session still
-    // waiting for xray has no root engine yet: no stop, and no password dialog for one.
+    // waiting for xray has no root engine yet: no stop, and no password dialog for one. The helper
+    // goes before the stop: one still at its own password dialog takes the dialog with it, and
+    // passwordless run.sh's TERM trap stops its sing-box. Its exit no longer speaks for the session.
     private func tearDownEngines() {
-        guard helperProcess != nil else {
+        guard helperLaunched else {
             endSession()
             return
         }
         guard teardownProcess?.isRunning != true else { return }
+        let helper = helperProcess
+        helperProcess = nil
+        helper?.terminate()
         killVPNProcesses()
     }
 
