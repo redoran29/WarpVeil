@@ -316,9 +316,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
   `experimental.clash_api` on a free localhost port, and asks `/proxies/<Server.id>/delay` per
   server. No sudo, no TUN. A server's freedom dialers come along under per-server tags, so the
   probe goes the way the connection does. A server xray refuses at config load would take the
-  merged xray down with every row, so after a refused merge each server's config is checked
-  alone with `xray run -test`, the refused ones show as failed and are named, and the merge runs
-  again without them. Every tag is measured in three passes over the same engines and the
+  merged xray down with every row, so when the merge exits each server's config is checked alone
+  with `xray run -test`, the refused ones show as failed and are named, and the merge runs once
+  more without them — after a slow start or a taken port too. Every tag is measured in three passes over the same engines and the
   minimum is reported: the first request through a
   proxy carries its REALITY/TLS handshake, which puts every server at the same ~800 ms and hides
   the real differences. Passes over all tags, not three requests in a row on one tag — that shape

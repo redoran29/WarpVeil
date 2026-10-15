@@ -189,9 +189,9 @@ final class PingService {
     }
 
     // The tags whose socks inbound is up. One server xray refuses at config load takes a merged
-    // config down with it; then each server is checked alone with `xray run -test` — no ports, no
-    // waiting — the refused ones are marked failed and named in `error`, and the rest run merged
-    // once more.
+    // config down with it: when the merge exits, each server is checked alone with `xray run
+    // -test`, and the refused ones are marked failed and named in `error`. The rest run merged once
+    // more — after a slow start or a port taken in the meantime as well, which no test would show.
     private func launchXray(_ servers: [Server], ports: [String: UInt16], interface: String?) async -> [String] {
         guard let xray = ProcessManager.findBinary("xray") else {
             error = "xray is not bundled"
@@ -199,42 +199,57 @@ final class PingService {
         }
         guard let merged = startXray(xray, servers, ports: ports, interface: interface, name: "xray") else { return [] }
         if let tags = await awaitXray(merged) { return tags }
+        let exited = !merged.process.isRunning
         await stop(merged)
-        guard servers.count > 1, !Task.isCancelled else { return [] }
-        let refused = await refusedServers(xray, servers, ports: ports, interface: interface)
-        guard !refused.isEmpty, !Task.isCancelled else { return [] }
-        for server in refused { results[server.id] = .failed }
-        let rest = servers.filter { server in !refused.contains { $0.id == server.id } }
-        guard let retry = startXray(xray, rest, ports: ports, interface: interface, name: "xray"),
-              let tags = await awaitXray(retry) else { return [] }
-        error = "xray refused \(refused.map(\.name).joined(separator: ", "))"
+        guard !Task.isCancelled else { return [] }
+        let refused = exited ? await refusedServers(xray, servers, ports: ports, interface: interface) : []
+        guard !Task.isCancelled else { return [] }
+        var tags: [String] = []
+        if let retry = startXray(xray, servers.filter { !refused.contains($0.id) }, ports: ports,
+                                 interface: interface, name: "xray") {
+            tags = await awaitXray(retry) ?? []
+        }
+        guard !Task.isCancelled else { return [] }
+        let named = servers.filter { refused.contains($0.id) }
+        if !named.isEmpty {
+            named.forEach { results[$0.id] = .failed }
+            error = "xray refused \(named.map(\.name).joined(separator: ", "))"
+        }
         return tags
     }
 
-    // `xray run -test` loads a config and exits; the servers whose config alone it refuses.
+    // The IDs of the servers whose config alone xray will not load.
     private func refusedServers(
         _ xray: String, _ servers: [Server], ports: [String: UInt16], interface: String?
-    ) async -> [Server] {
-        await withTaskGroup(of: Server?.self) { group in
+    ) async -> Set<String> {
+        await withTaskGroup(of: String?.self) { group in
             for (index, server) in servers.enumerated() {
                 let (config, _) = Self.xrayConfig([server], ports: ports, interface: interface)
                 let file = write(config, name: "xray-test-\(index)")
-                group.addTask {
-                    let test = Process()
-                    test.executableURL = URL(fileURLWithPath: xray)
-                    test.arguments = ["run", "-test", "-config", file]
-                    test.standardOutput = FileHandle.nullDevice
-                    test.standardError = FileHandle.nullDevice
-                    guard (try? test.run()) != nil else { return nil }
-                    test.waitUntilExit()
-                    return test.terminationStatus == 0 ? nil : server
-                }
+                group.addTask { await Self.loads(xray, file) ? nil : server.id }
             }
-            var refused: [Server] = []
-            for await server in group {
-                if let server { refused.append(server) }
+            var refused: Set<String> = []
+            for await id in group {
+                if let id { refused.insert(id) }
             }
             return refused
+        }
+    }
+
+    // `xray run -test` loads a config and exits; waited for without holding a thread.
+    private nonisolated static func loads(_ xray: String, _ file: String) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let test = Process()
+            test.executableURL = URL(fileURLWithPath: xray)
+            test.arguments = ["run", "-test", "-config", file]
+            test.standardOutput = FileHandle.nullDevice
+            test.standardError = FileHandle.nullDevice
+            test.terminationHandler = { continuation.resume(returning: $0.terminationStatus == 0) }
+            do {
+                try test.run()
+            } catch {
+                continuation.resume(returning: false)
+            }
         }
     }
 
