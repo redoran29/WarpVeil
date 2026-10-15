@@ -164,7 +164,8 @@ final class Updater {
 
         let archive = work.appendingPathComponent(zipName)
         try FileManager.default.moveItem(at: try await fetch(zip.url), to: archive)
-        let encoded = try Data(contentsOf: try await fetch(signatureAsset.url))
+        let (encoded, response) = try await URLSession.shared.data(from: signatureAsset.url)
+        try requireOK(response, from: signatureAsset.url)
         guard let signature = Data(base64Encoded: encoded, options: .ignoreUnknownCharacters),
               key.isValidSignature(signature, for: try Data(contentsOf: archive, options: .mappedIfSafe))
         else { throw Failure(reason: "The signature does not match — not installed") }
@@ -176,12 +177,22 @@ final class Updater {
         return bundle
     }
 
-    // A download gets no quarantine attribute: the file is the app's own, not Finder's.
+    // A download gets no quarantine attribute: the file is the app's own, not Finder's. The async
+    // download leaves its file to the caller, an error page included.
     private nonisolated static func fetch(_ url: URL) async throws -> URL {
         let (file, response) = try await URLSession.shared.download(from: url)
+        do {
+            try requireOK(response, from: url)
+        } catch {
+            try? FileManager.default.removeItem(at: file)
+            throw error
+        }
+        return file
+    }
+
+    private nonisolated static func requireOK(_ response: URLResponse, from url: URL) throws {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else { throw Failure(reason: "\(url.lastPathComponent): HTTP \(status)") }
-        return file
     }
 
     // Waited for without holding a thread of the pool.
