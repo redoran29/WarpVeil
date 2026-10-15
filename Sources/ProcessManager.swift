@@ -315,7 +315,7 @@ final class ProcessManager {
             return false
         }
 
-        let status = await runAsAdmin("""
+        let (status, failure) = await runAsAdmin("""
             \(Self.removeEveryInstallCommand) && \
             mkdir -p '\(Self.libexecDir)' && \
             install -m 0755 -o root -g wheel \(Self.shellEscape(bundledSingBox)) '\(Self.rootSingBoxPath)' && \
@@ -331,7 +331,7 @@ final class ProcessManager {
         if isPasswordless {
             logs.append("[Helper installed]")
         } else {
-            logs.append("[The helper was not installed\(status.map { " (exit \($0))" } ?? "")]")
+            logs.append("[The helper was not installed: \(failure)]")
         }
         return isPasswordless
     }
@@ -346,30 +346,37 @@ final class ProcessManager {
         guard canRemoveHelper else { return }
         isPasswordlessBusy = true
         Task {
-            if await runAsAdmin(Self.removeEveryInstallCommand) == 0 {
-                logs.append("[Helper removed — the next connect installs it again]")
-            }
+            let (status, failure) = await runAsAdmin(Self.removeEveryInstallCommand)
+            logs.append(status == 0
+                ? "[Helper removed — the next connect installs it again]"
+                : "[The helper was not removed: \(failure)]")
             passwordlessOperationFinished()
         }
     }
 
-    // osascript's admin dialog, then the command as root; its exit status, or nil when it did not
-    // run or something outside the app ended it.
-    private func runAsAdmin(_ command: String) async -> Int32? {
+    // osascript's admin dialog, then the command as root. Its exit status, or nil when it did not
+    // run or something outside the app ended it; and osascript's own account of a failure — "User
+    // canceled." for the dialog, the command's stderr for a root step — since its status is 1
+    // either way.
+    private func runAsAdmin(_ command: String) async -> (status: Int32?, failure: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(command)) with administrator privileges"]
+        let errors = Pipe()
+        process.standardError = errors
         let (exits, exit) = AsyncStream.makeStream(of: Never.self)
         process.terminationHandler = { _ in exit.finish() }
         do {
             try process.run()
         } catch {
-            logs.append("[Error: \(error.localizedDescription)]")
-            return nil
+            return (nil, error.localizedDescription)
         }
         for await _ in exits {}
-        guard !process.isRunning, process.terminationReason == .exit else { return nil }
-        return process.terminationStatus
+        let text = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let line = text.split(separator: "\n").last.map(String.init) ?? ""
+        let failure = line.components(separatedBy: "execution error: ").last ?? line
+        guard !process.isRunning, process.terminationReason == .exit else { return (nil, failure) }
+        return (process.terminationStatus, failure)
     }
 
     // An install in another build removes this one's helper while it runs, so every connect — and
