@@ -65,7 +65,7 @@ the 1.3 install.
 - An engine that ignores TERM: taken to the owner, decided above — live at the 1.3 install.
 
 ### Review (2026-10-15, round 2)
-`/code-review feb5b12..c8442db`, findings and what was done, one commit each:
+`/code-review feb5b12..c8442db`, findings and what was done:
 - The shared install was cleared by its first waiter and shared one process field with a
   removal (`bba657b`); a dialog a disconnect took down logged as a failure with exit 15
   (`c04df38`); the app deleted the staged scripts while a root shell could still be installing
@@ -76,4 +76,16 @@ the 1.3 install.
   there (`6ccbac8`); the row stayed stale while the window was hidden (`434caa2`).
 - A second Disconnect while the engine was stopping said nothing true, and a skipped restart gave
   advice that could not help (`72b1ee3`).
-- Process slip: `c3dc6e0` and `35c6bd2` each bundled two findings; history kept.
+- Process slips, history kept: `c3dc6e0` and `35c6bd2` (round 1) and `6ccbac8` and `72b1ee3` (round 2)
+  each bundled two findings.
+
+### Review (2026-10-15, round 3)
+`/code-review c8442db..bc7e458`. Most findings came from taking the install's dialog down — the
+fifth change to that lifecycle: a root shell outliving osascript lost visudo to a closed pipe,
+raced the next install's staged files, and left the helper's state read from a half copy. Taken to
+the owner, decided above: nothing takes the dialog down, and a quit and an update wait for it
+(`c82885b`, which also makes a quit during a pending start wait for xray again, drops the
+unreachable busy guard and writes the staged list once). Also:
+- A skipped restart always blamed the engine (`b04fa14`); a disconnect during a restart's stop read
+  as if it did nothing (this commit's neighbour).
+- A removal's dialog outliving a quit or an update: covered by the same wait.
