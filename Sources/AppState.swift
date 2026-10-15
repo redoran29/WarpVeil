@@ -166,7 +166,7 @@ final class AppState {
                 held = true
                 pm.connectHold = ProcessManager.updateHoldMessage
                 disconnect()
-                return await pm.awaitTeardown(timeout: 30)
+                return await pm.awaitTeardown(timeout: .seconds(30))
             }
             // Its own hold only: a quit that began meanwhile holds connects until the app is gone.
             if handedOver {

@@ -99,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         app.disconnect()
         guard app.pm.teardownBlocker() != nil else { return .terminateNow }
         Task {
-            await app.pm.awaitTeardown(timeout: 30)
+            await app.pm.awaitTeardown(timeout: .seconds(30))
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater

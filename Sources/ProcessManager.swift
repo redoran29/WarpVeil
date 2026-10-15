@@ -493,7 +493,7 @@ final class ProcessManager {
             // An engine that does not stop leaves the session up with what it started with, and the
             // restart gives way to it — it is no longer pending, or a later wake would take it up
             // for a session that has ended since.
-            if let blocker = await awaitTeardown(timeout: 30, sessionOnly: true) {
+            if let blocker = await awaitTeardown(timeout: .seconds(30), sessionOnly: true) {
                 guard !Task.isCancelled else { return }
                 reconnectTask = nil
                 logs.append("[Restart skipped: \(blocker)]")
@@ -935,10 +935,10 @@ final class ProcessManager {
 
     // nil once nothing blocks; what still does when the time runs out.
     @discardableResult
-    func awaitTeardown(timeout: TimeInterval, sessionOnly: Bool = false) async -> String? {
-        let deadline = Date().addingTimeInterval(timeout)
+    func awaitTeardown(timeout: Duration, sessionOnly: Bool = false) async -> String? {
+        let deadline = ContinuousClock.now + timeout
         while let blocker = teardownBlocker(sessionOnly: sessionOnly) {
-            guard Date() < deadline, !Task.isCancelled else { return blocker }
+            guard ContinuousClock.now < deadline, !Task.isCancelled else { return blocker }
             try? await Task.sleep(for: .milliseconds(100))
         }
         return nil
