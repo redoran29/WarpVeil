@@ -16,8 +16,7 @@ final class ProcessManager {
     // The session starts before any engine — while a name resolves, xray comes up and, without
     // passwordless, a password dialog waits. The tunnel counts as up once the engine shell says
     // sing-box started — its own line, not upstream's wording — which it prints only once the
-    // TUN's address is on an interface that was not there before it started. What the UI calls
-    // Connected.
+    // TUN's address is on the interface the wrapper named. What the UI calls Connected.
     private(set) var isTunnelUp = false
     private static let engineStartedMarker = "[sing-box] started"
     private nonisolated static let tunAddress = "172.19.0.1"
@@ -162,10 +161,7 @@ final class ProcessManager {
         trap 'rm -f "$CFG"' EXIT
         check_config "$CFG"
         kill_pid_file \(singboxPidFile) sing-box || { echo '[error] previous sing-box still running'; exit 1; }
-        tun_interfaces() { ifconfig | awk '/^[^ \t]/ { name = $1 } $1 == "inet" && $2 == "\(tunAddress)" { sub(":", "", name); print name }'; }
-        for _ in $(seq 20); do [[ -z "$(tun_interfaces)" ]] && break; sleep 0.1; done
-        BEFORE=" $(tun_interfaces | tr '\n' ' ')"
-        [[ "$BEFORE" == " " ]] || echo "[warning] another tunnel holds \(tunAddress) on${BEFORE% }"
+        TUN_NAME=$(env -i /usr/bin/jq -r '[.inbounds[]? | select(.type == "tun") | .interface_name // empty][0] // empty' "$CFG")
         cd '\(stageDir)'
         echo '[sing-box] starting...'
         \(binary) run -c "$CFG" &
@@ -181,11 +177,10 @@ final class ProcessManager {
         }
         trap cleanup TERM INT
         while kill -0 $VPN_PID 2>/dev/null; do
-            NOW=" $(tun_interfaces | tr '\n' ' ')"
-            for IF in $NOW; do
-                [[ "$BEFORE" == *" $IF "* ]] || { echo "\(engineStartedMarker) pid=$VPN_PID"; break 2; }
-            done
-            for IF in $BEFORE; do [[ "$NOW" == *" $IF "* ]] || BEFORE="${BEFORE/ $IF / }"; done
+            if [[ "$(ifconfig "$TUN_NAME" 2>/dev/null)" == *"inet \(tunAddress) "* ]]; then
+                echo "\(engineStartedMarker) pid=$VPN_PID"
+                break
+            fi
             sleep 0.1
         done
         wait
@@ -587,6 +582,22 @@ final class ProcessManager {
         return String(cString: resolved)
     }
 
+    // The TUN is named here, not by sing-box, so the engine shell can tell it from a tunnel another
+    // build or client holds at the same address: the first utun past every one that exists, the
+    // way sing-box picks one itself. One taken in the meantime makes sing-box fail, not mistake it.
+    private static func freeTunName() -> String {
+        var next = 0
+        guard let list = if_nameindex() else { return "utun\(next)" }
+        defer { if_freenameindex(list) }
+        var entry = list
+        while entry.pointee.if_index != 0, let name = entry.pointee.if_name {
+            let text = String(cString: name)
+            if text.hasPrefix("utun"), let index = Int(text.dropFirst(4)) { next = max(next, index + 1) }
+            entry += 1
+        }
+        return "utun\(next)"
+    }
+
     // A link carries an IPv6 address in brackets; xray takes it either way, the wrapper's rule
     // only bare.
     private static func ipLiteral(_ host: String) -> String? {
@@ -602,7 +613,8 @@ final class ProcessManager {
         FileManager.default.createFile(atPath: xrayConfigFile, contents: xray.data(using: .utf8),
                                         attributes: [.posixPermissions: 0o600])
         let wrapper = BypassService.injectSingBox(
-            Self.buildTunWrapperConfig(serverAddresses: serverAddresses, dialerPath: dialerPath), domains: bypassDomains)
+            Self.buildTunWrapperConfig(serverAddresses: serverAddresses, dialerPath: dialerPath, tunName: Self.freeTunName()),
+            domains: bypassDomains)
         FileManager.default.createFile(atPath: singboxConfigFile,
                                         contents: BypassService.fitTunToHost(wrapper, hostHasIPv6: hostHasIPv6).data(using: .utf8),
                                         attributes: [.posixPermissions: 0o600])
@@ -767,7 +779,7 @@ final class ProcessManager {
     // and an address rule alone would send every other site on that edge past the VPN, so only
     // xray's own connections to them go direct. Root can read the socket list this needs (canon,
     // Gotchas); if macOS takes that away, such a server loops — it does not leak.
-    private nonisolated static func buildTunWrapperConfig(serverAddresses: [String], dialerPath: String?) -> String {
+    private nonisolated static func buildTunWrapperConfig(serverAddresses: [String], dialerPath: String?, tunName: String) -> String {
         var rules: [[String: Any]] = [
             ["action": "hijack-dns", "protocol": "dns"] as [String: Any],
             ["action": "sniff"] as [String: Any]
@@ -795,6 +807,7 @@ final class ProcessManager {
                 [
                     "type": "tun",
                     "tag": "tun-in",
+                    "interface_name": tunName,
                     // IPv6 joins at connect time, only when the host has it (fitTunToHost).
                     "address": ["\(tunAddress)/30"],
                     "auto_route": true,
