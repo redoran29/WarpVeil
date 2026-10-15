@@ -934,7 +934,6 @@ final class ProcessManager {
         return nil
     }
 
-    // nil once nothing blocks; what still does when the time runs out.
     @discardableResult
     func awaitTeardown(timeout: Duration, sessionOnly: Bool = false) async -> String? {
         let deadline = ContinuousClock.now + timeout
