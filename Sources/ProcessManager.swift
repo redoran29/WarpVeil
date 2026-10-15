@@ -501,7 +501,8 @@ final class ProcessManager {
             // so the name is resolved here and both engines get the same addresses.
             var xrayConfig = config
             var addresses = Self.ipLiteral(serverHost).map { [$0] } ?? []
-            if addresses.isEmpty {
+            let isName = addresses.isEmpty
+            if isName {
                 addresses = await resolve(serverHost)
                 guard !Task.isCancelled else { return }
                 guard !addresses.isEmpty else {
@@ -511,7 +512,8 @@ final class ProcessManager {
                 }
                 xrayConfig = BypassService.pinXrayServer(config, host: serverHost, addresses: addresses)
             }
-            writeConfigs(xray: xrayConfig, serverAddresses: addresses, bypassDomains: bypassDomains)
+            writeConfigs(xray: xrayConfig, serverAddresses: addresses, dialerPath: isName ? xrayPath : nil,
+                         bypassDomains: bypassDomains)
             // The wrapper sends everything to xray's port, so it starts once xray listens.
             let started = await startXray(binaryPath: xrayPath, configFile: xrayConfigFile, log: engineLog)
             guard !Task.isCancelled else { return }
@@ -547,13 +549,13 @@ final class ProcessManager {
 
     // The wrapper is the only sing-box, so the bypass rule and the host's IP families go there:
     // xray gets IP destinations over SOCKS and never sees a domain.
-    private func writeConfigs(xray: String, serverAddresses: [String], bypassDomains: [String]) {
+    private func writeConfigs(xray: String, serverAddresses: [String], dialerPath: String?, bypassDomains: [String]) {
         FileManager.default.createFile(atPath: xrayConfigFile, contents: xray.data(using: .utf8),
                                         attributes: [.posixPermissions: 0o600])
         let hostHasIPv6 = hostIPv6State() ?? true
         tunHasIPv6 = hostHasIPv6
-        let wrapper = BypassService.injectSingBox(Self.buildTunWrapperConfig(serverAddresses: serverAddresses),
-                                                  domains: bypassDomains)
+        let wrapper = BypassService.injectSingBox(
+            Self.buildTunWrapperConfig(serverAddresses: serverAddresses, dialerPath: dialerPath), domains: bypassDomains)
         FileManager.default.createFile(atPath: singboxConfigFile,
                                         contents: BypassService.fitTunToHost(wrapper, hostHasIPv6: hostHasIPv6).data(using: .utf8),
                                         attributes: [.posixPermissions: 0o600])
@@ -710,21 +712,30 @@ final class ProcessManager {
         return SCError() == kSCStatusNoKey ? false : nil
     }
 
-    private nonisolated static func buildTunWrapperConfig(serverAddresses: [String]) -> String {
+    // `dialerPath` is set for a server given by name: its addresses can be a CDN's shared edge,
+    // and an address rule alone would send every other site on that edge past the VPN, so only
+    // xray's own connections to them go direct. Root can read the socket list this needs (canon,
+    // Gotchas); if macOS takes that away, such a server loops — it does not leak.
+    private nonisolated static func buildTunWrapperConfig(serverAddresses: [String], dialerPath: String?) -> String {
         var rules: [[String: Any]] = [
             ["action": "hijack-dns", "protocol": "dns"] as [String: Any],
             ["action": "sniff"] as [String: Any]
         ]
 
         // xray's own connection to the server enters the TUN too; without this rule it would be
-        // handed back to xray. By address only: the connection arrives as an IP, before sniff,
-        // and the SNI a sniff would read is the REALITY camouflage name, never the server's.
+        // handed back to xray. By address: the connection arrives as an IP, before sniff, and
+        // the SNI a sniff would read is the REALITY camouflage name, never the server's.
         if !serverAddresses.isEmpty {
-            rules.insert([
-                "action": "route",
-                "outbound": "direct",
-                "ip_cidr": serverAddresses.map { "\($0)/\($0.contains(":") ? 128 : 32)" }
-            ] as [String: Any], at: 0)
+            let byAddress: [String: Any] = ["ip_cidr": serverAddresses.map { "\($0)/\($0.contains(":") ? 128 : 32)" }]
+            var rule: [String: Any] = ["action": "route", "outbound": "direct"]
+            if let dialerPath {
+                rule["type"] = "logical"
+                rule["mode"] = "and"
+                rule["rules"] = [byAddress, ["process_path": [dialerPath]]]
+            } else {
+                rule.merge(byAddress) { $1 }
+            }
+            rules.insert(rule, at: 0)
         }
 
         let config: [String: Any] = [
