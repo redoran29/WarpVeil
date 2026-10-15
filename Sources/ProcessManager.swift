@@ -447,10 +447,13 @@ final class ProcessManager {
 
         reconnectTask = Task {
             try? await Task.sleep(for: delay, clock: .suspending)
-            // The stop takes as long as its password dialog; one that fails leaves the session up,
-            // and the restart gives way to it.
+            // The stop takes as long as its password dialog; one that fails leaves the session up
+            // with what it started with, and the restart gives way to it — it is no longer pending,
+            // or a later wake would take it up for a session that has ended since.
             guard await awaitTeardown(timeout: .infinity) else {
-                if !Task.isCancelled { logs.append("[Restart skipped — the tunnel is still up]") }
+                guard !Task.isCancelled else { return }
+                reconnectTask = nil
+                logs.append("[Restart skipped — the tunnel is still up with its old settings; disconnect and connect to apply them]")
                 return
             }
             guard !Task.isCancelled, let params = lastConnection else { return }
