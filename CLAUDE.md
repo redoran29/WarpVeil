@@ -342,10 +342,11 @@ Write the simplest code that works. Prioritize readability over cleverness.
   made by `release.sh`), checked against `WVUpdatePublicKey` before anything unpacks it — the
   app's own signature is ad-hoc and proves nothing. The unpacked `WarpVeil.app` must be a real
   directory with this bundle id, the tag's version, newer than the running one, arm64; anything
-  else is refused with its reason in the row. It is staged as `.WarpVeil.app.new` next to the
-  running bundle, wherever that is. Then `disconnect()` and `awaitTeardown`: a stop that exited
-  non-zero, or anything of the session still running after 30 s, cancels the update — the new
-  version's tag cannot stop the old one's sing-box. A `/bin/sh` helper spawned before
+  else is refused with its reason in the row. Then `disconnect()` and `awaitTeardown`: a stop
+  that exited non-zero, or anything of the session still running after 30 s, cancels the update
+  — the new version's tag cannot stop the old one's sing-box. Only then is the bundle staged as
+  `.WarpVeil.app.new` next to the running one, wherever that is, so an app quit during the wait
+  leaves nothing there. A `/bin/sh` helper spawned before
   `NSApp.terminate` waits for the app to exit, moves the old bundle aside and the new one in (or
   the old one back) and `open -n`s whatever is there. Nothing runs as root, and a download by the
   app carries no quarantine. No ETag: a 304 counts against GitHub's 60 requests an hour as well.

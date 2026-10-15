@@ -88,8 +88,8 @@ final class Updater {
 
     // MARK: - Install
 
-    // Downloads, verifies and unpacks into $TMPDIR, stages the bundle next to the running one,
-    // lets the caller stop the engines, then hands the swap to a shell that outlives this
+    // Downloads, verifies and unpacks into $TMPDIR, lets the caller stop the engines, stages the
+    // bundle next to the running one, then hands the swap to a shell that outlives this
     // process: it waits for the app to exit, renames the bundles and opens the new one. The
     // engines go down before the swap because the new version's tag cannot stop the old one's
     // sing-box, and a teardown that does not finish — a password dialog left unanswered —
@@ -103,15 +103,27 @@ final class Updater {
         let bundle = Bundle.main.bundleURL
         let staged = bundle.deletingLastPathComponent().appendingPathComponent(".\(bundle.lastPathComponent).new")
         let aside = bundle.deletingLastPathComponent().appendingPathComponent(".\(bundle.lastPathComponent).old")
+        // A path of its own per attempt: Bundle(url:) caches what it read at a path for the life of
+        // the process, so a second install from the same path would check the first archive.
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("warpveil-update-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: work) }
+        let verified: URL
         do {
-            try await Self.download(release, key: key, into: staged)
+            verified = try await Self.download(release, key: key, into: work)
         } catch {
             state = .failed(Self.describe(error))
             return false
         }
         guard await stopEngines() else {
-            try? FileManager.default.removeItem(at: staged)
             state = .failed("The tunnel did not stop — update cancelled")
+            return false
+        }
+        // Staged only now: an app quit while the engines stop leaves nothing next to the bundle.
+        do {
+            try? FileManager.default.removeItem(at: staged)
+            try FileManager.default.moveItem(at: verified, to: staged)
+        } catch {
+            state = .failed(error.localizedDescription)
             return false
         }
         // Whatever the renames do, "$1" is an app at the end: the new one, or the old one back.
@@ -137,20 +149,16 @@ final class Updater {
         return true
     }
 
-    // The signature is checked over the zip's bytes before anything unpacks it, so ditto only
-    // ever sees an archive release.sh made.
-    private nonisolated static func download(_ release: Release, key: Curve25519.Signing.PublicKey, into staged: URL) async throws {
+    // The verified app, unpacked in `work`. The signature is checked over the zip's bytes before
+    // anything unpacks it, so ditto only ever sees an archive release.sh made.
+    private nonisolated static func download(_ release: Release, key: Curve25519.Signing.PublicKey, into work: URL) async throws -> URL {
         let zipName = "WarpVeil-\(release.version)-macOS.zip"  // release.sh's ZIP_NAME
         guard let zip = release.assets.first(where: { $0.name == zipName }),
               let signatureAsset = release.assets.first(where: { $0.name == zipName + ".sig" })
         else { throw Failure(reason: "Release \(release.version) has no signed \(zipName)") }
 
-        // A path of its own per attempt: Bundle(url:) caches what it read at a path for the life of
-        // the process, so a second install from the same path would check the first archive.
-        let work = FileManager.default.temporaryDirectory.appendingPathComponent("warpveil-update-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: false,
                                                 attributes: [.posixPermissions: 0o700])
-        defer { try? FileManager.default.removeItem(at: work) }
 
         let archive = work.appendingPathComponent(zipName)
         try FileManager.default.moveItem(at: try await fetch(zip.url), to: archive)
@@ -163,8 +171,7 @@ final class Updater {
         try await unzip(archive, into: unpacked)
         let bundle = unpacked.appendingPathComponent("WarpVeil.app")
         try verify(bundle: bundle, version: release.version)
-        try? FileManager.default.removeItem(at: staged)
-        try FileManager.default.moveItem(at: bundle, to: staged)
+        return bundle
     }
 
     // A download gets no quarantine attribute: the file is the app's own, not Finder's.
