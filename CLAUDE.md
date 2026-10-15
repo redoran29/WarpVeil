@@ -15,32 +15,20 @@ to code.
 
 Work comes from `BACKLOG.md`, the owner's list: one numbered line per item, in Russian, untracked
 (`.git/info/exclude` — the repository is public). Numbers are never reused. A tag in brackets
-names the existing plan that already holds the item's research. A plan is written for one item;
-once it is committed, the item's line leaves the backlog. Never delete the file.
+names an older plan whose research the item's own plan reads from; once every item tagged with
+it has a plan of its own, the older plan goes. Never delete the file.
 
 ### 1. Plan
 
-The plan is written by a subagent, not by the main session. It runs on the session's own
-model — no `model` override:
-
-```
-Agent(subagent_type: "general-purpose", prompt: "…")
-```
-
-That agent's job is done only when it has:
-
-- read the actual source before proposing anything;
-- **validated its own plan inside the same run** — every file, type and symbol it names must
-  really exist; every step must leave the project compiling on its own;
-- written the finished plan to `plans/<short-kebab-name>.md`.
-
-The main session does not accept a half-plan and does not finish one by hand. If the plan
-comes back thin or wrong, send the agent back with what is missing.
+The plan is written with the global `stage-plan` skill, in the main session — it audits the
+owner one question at a time — and goes to `plans/<n>-<slug>.md`. It says what and why, never
+which files: that is read from the code when the work starts.
 
 ### 2. Implement
 
-Follow the plan. When reality contradicts it, correct the plan file in the same commit as the
-deviation — the file must never describe something that was not built.
+Follow the plan; every step leaves the project compiling. When reality contradicts it, correct
+the plan file in the same commit as the deviation — the file must never describe something that
+was not built.
 
 ### 3. Close
 
