@@ -24,7 +24,7 @@ struct WarpVeilApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
-    private let app = AppState()
+    private let app = AppState { NSApp.terminate(nil) }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)

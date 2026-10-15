@@ -32,8 +32,12 @@ final class AppState {
     private var locationTimer: Timer?
     private var locationTask: Task<Void, Never>?
     private let defaults = UserDefaults.standard
+    // The app's own quit, which goes through applicationShouldTerminate; AppKit stays with the
+    // delegate.
+    private let quit: () -> Void
 
-    init() {
+    init(quit: @escaping () -> Void) {
+        self.quit = quit
         selectedServerID = defaults.string(forKey: "selectedServerID") ?? ""
         observeTunnel()
     }
@@ -152,15 +156,14 @@ final class AppState {
     }
 
     // disconnect() also cancels a pending start or restart, which would otherwise bring engines
-    // up while the app is on its way out. The quit is the usual one, through
-    // applicationShouldTerminate; the swap waits for this process to exit.
+    // up while the app is on its way out. The swap waits for this process to exit.
     func installUpdate() {
         Task {
             let handedOver = await updater.install {
                 disconnect()
                 return await pm.awaitTeardown(timeout: 30)
             }
-            if handedOver { NSApp.terminate(nil) }
+            if handedOver { quit() }
         }
     }
 
