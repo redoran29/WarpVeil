@@ -10,17 +10,15 @@ final class ProcessManager {
     var isRunning = false {
         didSet {
             guard !isRunning else { return }
-            engineStarted = false
             isTunnelUp = false
         }
     }
     // The session starts before any engine — while a name resolves, xray comes up and, without
     // passwordless, a password dialog waits. The tunnel counts as up once the engine shell says
-    // sing-box started — its own line, not upstream's wording — and the TUN's address is on an
-    // interface, which sing-box puts there only after it read its config and made the TUN. What
-    // the UI calls Connected.
+    // sing-box started — its own line, not upstream's wording — which it prints only once the
+    // TUN's address is on an interface that was not there before it started. What the UI calls
+    // Connected.
     private(set) var isTunnelUp = false
-    private var engineStarted = false
     private static let engineStartedMarker = "[sing-box] started"
     private nonisolated static let tunAddress = "172.19.0.1"
 
@@ -164,12 +162,14 @@ final class ProcessManager {
         trap 'rm -f "$CFG"' EXIT
         check_config "$CFG"
         kill_pid_file \(singboxPidFile) sing-box || { echo '[error] previous sing-box still running'; exit 1; }
+        tun_interfaces() { ifconfig | awk '/^[^ \t]/ { name = $1 } $1 == "inet" && $2 == "\(tunAddress)" { sub(":", "", name); print name }'; }
+        for _ in $(seq 20); do [[ -z "$(tun_interfaces)" ]] && break; sleep 0.1; done
+        BEFORE=" $(tun_interfaces | tr '\n' ' ')"
         cd '\(stageDir)'
         echo '[sing-box] starting...'
         \(binary) run -c "$CFG" &
         VPN_PID=$!
         echo $VPN_PID > \(singboxPidFile)
-        echo "\(engineStartedMarker) pid=$VPN_PID"
         trap 'rm -f "$CFG"; [[ "$(cat \(singboxPidFile) 2>/dev/null)" != "$VPN_PID" ]] || rm -f \(singboxPidFile)' EXIT
         cleanup() {
             echo '[stopping...]'
@@ -179,6 +179,12 @@ final class ProcessManager {
             exit 0
         }
         trap cleanup TERM INT
+        while kill -0 $VPN_PID 2>/dev/null; do
+            for IF in $(tun_interfaces); do
+                [[ "$BEFORE" == *" $IF "* ]] || { echo "\(engineStartedMarker) pid=$VPN_PID"; break 2; }
+            done
+            sleep 0.1
+        done
         wait
         """
     }
@@ -924,30 +930,8 @@ final class ProcessManager {
             let data = handle.readDataToEndOfFile()
             Task { @MainActor [weak self] in
                 self?.appendLog(data)
-                self?.checkTunnel()
             }
         }
-    }
-
-    private func checkTunnel() {
-        guard isRunning, engineStarted, !isTunnelUp, Self.tunAddressIsUp() else { return }
-        isTunnelUp = true
-    }
-
-    private static func tunAddressIsUp() -> Bool {
-        var list: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&list) == 0, let first = list else { return false }
-        defer { freeifaddrs(first) }
-        let target = inet_addr(tunAddress)
-        var node: UnsafeMutablePointer<ifaddrs>? = first
-        while let entry = node {
-            if let address = entry.pointee.ifa_addr, address.pointee.sa_family == UInt8(AF_INET),
-               address.withMemoryRebound(to: sockaddr_in.self, capacity: 1, { $0.pointee.sin_addr.s_addr == target }) {
-                return true
-            }
-            node = entry.pointee.ifa_next
-        }
-        return false
     }
 
     // The last poll can miss an engine's final lines — usually the reason it stopped.
@@ -970,7 +954,7 @@ final class ProcessManager {
         guard end > pending.startIndex else { return }
         let text = String(decoding: pending[..<end], as: UTF8.self)
         let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
-        if isRunning, lines.contains(where: { $0.hasPrefix(Self.engineStartedMarker) }) { engineStarted = true }
+        if isRunning, lines.contains(where: { $0.hasPrefix(Self.engineStartedMarker) }) { isTunnelUp = true }
         logs.append(contentsOf: lines)
         if logs.count > 600 {
             logs = Array(logs.suffix(500))

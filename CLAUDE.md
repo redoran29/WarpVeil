@@ -122,8 +122,10 @@ rewritten into one, since xray hands that dial to the sibling by name, past the 
 `direct`, no routing rules, which would send "direct" traffic back through the TUN. A session
 counts as Connected (`ProcessManager.isTunnelUp`) once the engine shell's own `[sing-box]
 started` line has reached the log the app tails — not when the helper launches, which without
-passwordless is a password dialog — and the TUN's address, 172.19.0.1, is on an interface, which
-sing-box does only after reading its config and making the TUN. The status, the uptime, the
+passwordless is a password dialog. The shell prints it only once the TUN's address, 172.19.0.1,
+is on an interface it did not find before starting sing-box: sing-box puts it there only after
+reading its config and making the TUN, and a tunnel another build or client already holds at
+that address is not ours. A previous engine's TUN is given 2 s to go before the shell looks. The status, the uptime, the
 menu-bar shield, the speed monitor and the location polling wait for it, and the window says
 Connecting until then.
 
