@@ -278,8 +278,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
   renders its header alone and drops the next header to footer style
 - **Quit path**: `applicationShouldTerminate` disconnects and replies `.terminateLater`, waiting
   up to 30 s for the teardown (`ProcessManager.isTornDown`: the session over, its xray gone, no
-  helper install or removal at its dialog), so anything that kills the app on a timer has to
-  outwait it. Every
+  helper install or removal at its dialog), with every connect held meanwhile, so anything that
+  kills the app on a timer has to outwait it. Every
   quit goes through it — Cmd+Q, the status menu, an update, `dev-run.sh`, `install.sh` — so
   nothing else stops the engines at exit. An engine that has not stopped by then is left to the
   next connect: xray, a child the app's exit does not take down (it is reparented to launchd), to

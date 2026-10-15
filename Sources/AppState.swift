@@ -164,11 +164,11 @@ final class AppState {
             var held = false
             let handedOver = await updater.install {
                 held = true
-                pm.isHeldForUpdate = true
+                pm.connectHold = ProcessManager.updateHoldMessage
                 disconnect()
                 return await pm.awaitTeardown(timeout: 30)
             }
-            if handedOver { quit() } else if held { pm.isHeldForUpdate = false }
+            if handedOver { quit() } else if held { pm.connectHold = nil }
         }
     }
 

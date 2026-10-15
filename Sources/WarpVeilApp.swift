@@ -96,6 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Always: between a restart's teardown and its connect no session runs, yet the restart is
         // pending. Then wait for whatever still runs — the engines, an xray still exiting, a helper
         // install or removal at its password dialog.
+        app.pm.connectHold = ProcessManager.quitHoldMessage
         app.disconnect()
         guard !app.pm.isTornDown else { return .terminateNow }
         Task {

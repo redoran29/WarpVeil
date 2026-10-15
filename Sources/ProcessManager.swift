@@ -482,11 +482,13 @@ final class ProcessManager {
 
     // MARK: - Connect / Disconnect
 
-    // Set from an update's stop until it hands the swap over or fails: an engine started then — by
-    // a click, a wake or a routing edit — would outlive the check that the engines stopped, under
-    // a tag the new version cannot stop.
-    var isHeldForUpdate = false
+    // Why no connect may start now, or nil: an update from its stop until it hands the swap over or
+    // fails, a quit until the app is gone. An engine started then — by a click, a wake or a routing
+    // edit — would outlive the wait for the engines, under a tag the new version cannot stop or with
+    // no app left.
+    var connectHold: String?
     static let updateHoldMessage = "[An update is installing — connect after it]"
+    static let quitHoldMessage = "[WarpVeil is quitting — not connecting]"
 
     // The engine is the helper's root-owned sing-box; the bundled one is the install's to copy.
     func connect(config: String, xrayPath: String, bypassDomains: [String] = []) {
@@ -495,8 +497,8 @@ final class ProcessManager {
         reconnectTask?.cancel()
         reconnectTask = nil
         // After the pending restart is dropped, so a refused one is not left for a wake to take up.
-        guard !isHeldForUpdate else {
-            logs.append(Self.updateHoldMessage)
+        if let connectHold {
+            logs.append(connectHold)
             return
         }
         // During an install the connect joins it; during a removal it would read the helper as
