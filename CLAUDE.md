@@ -13,6 +13,11 @@ changing anything.
 Every feature and every non-trivial change follows the same three steps. Never go straight
 to code.
 
+Work comes from `BACKLOG.md`, the owner's list: one numbered line per item, in Russian, untracked
+(`.git/info/exclude` — the repository is public). Numbers are never reused. A tag in brackets
+names the existing plan that already holds the item's research. A plan is written for one item;
+once it is committed, the item's line leaves the backlog. Never delete the file.
+
 ### 1. Plan
 
 The plan is written by a subagent, not by the main session. It runs on the session's own
