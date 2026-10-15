@@ -183,7 +183,7 @@ ${CHANGES}
 
 Or from Terminal, with no dialog — a \`curl\` download carries no quarantine. Quit ${APP_NAME} first if an older version runs; the command replaces it only once the download succeeded:
 
-    curl -fL -o /tmp/${ZIP_NAME} ${REPO_URL}/releases/download/${TAG}/${ZIP_NAME} && rm -rf /Applications/${APP_NAME}.app && ditto -x -k /tmp/${ZIP_NAME} /Applications && open /Applications/${APP_NAME}.app
+    D=\$(mktemp -d) && curl -fL -o \"\$D/${ZIP_NAME}\" ${REPO_URL}/releases/download/${TAG}/${ZIP_NAME} && rm -rf /Applications/${APP_NAME}.app && ditto -x -k \"\$D/${ZIP_NAME}\" /Applications && open /Applications/${APP_NAME}.app
 
 Requires macOS 15 or newer, Apple Silicon. \`${SIG_NAME}\` is the signature installed copies check the zip with — nothing to do with it by hand."
 
