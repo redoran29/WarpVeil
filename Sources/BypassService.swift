@@ -79,17 +79,21 @@ enum BypassService {
     // xray dials its server by name; the wrapper in front of it routes that dial by address.
     // Pinning the name in xray's own DNS to the addresses the app resolved makes both engines
     // use the same ones — xray's own lookup could answer differently (round-robin, a CDN).
-    // ForceIP, not UseIP: a name the pin misses fails the dial instead of going to the system
-    // resolver, whose answer the wrapper may not route direct. With several addresses xray picks
-    // one at random; happy eyeballs cannot do better here, because xray's dial enters the TUN,
-    // whose stack completes every TCP handshake itself — each address "connects" at once.
+    // A name the pin misses goes to xray's localhost DNS client — the system resolver — whose
+    // answer the wrapper may not route direct, so the pin is written under every spelling xray may
+    // look the name up by: as written, without a trailing dot, lowercased. ForceIP fails a dial
+    // whose lookup fails instead of handing the name to the system dialer. With several addresses
+    // xray picks one at random; happy eyeballs cannot do better here, because xray's dial enters
+    // the TUN, whose stack completes every TCP handshake itself — each address "connects" at once.
     static func pinXrayServer(_ json: String, host: String, addresses: [String]) -> String {
         guard !addresses.isEmpty, var root = parseJSON(json),
               var outbounds = root["outbounds"] as? [[String: Any]],
               let index = outbounds.firstIndex(where: { serverAddress($0) == host }) else { return json }
         var dns = root["dns"] as? [String: Any] ?? [:]
         var hosts = dns["hosts"] as? [String: Any] ?? [:]
-        hosts[host] = addresses
+        var bare = host
+        while bare.hasSuffix(".") { bare.removeLast() }
+        for spelling in [host, bare, bare.lowercased()] { hosts[spelling] = addresses }
         dns["hosts"] = hosts
         root["dns"] = dns
         var streamSettings = outbounds[index]["streamSettings"] as? [String: Any] ?? [:]
