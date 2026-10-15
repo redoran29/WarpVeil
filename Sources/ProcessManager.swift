@@ -575,6 +575,9 @@ final class ProcessManager {
     }
 
     private func startHelper(singBoxPath: String, log engineLog: FileHandle) {
+        // Re-read: the name lookup and xray's start lie between the connect and here, and another
+        // build's toggle may have removed the install meanwhile.
+        refreshPasswordless()
         let process = Process()
         if isPasswordless {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
