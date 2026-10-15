@@ -265,7 +265,7 @@ final class ProcessManager {
         "rm -f /etc/sudoers.d/warpveil* /etc/sudoers.d/vpnswift && rm -rf /usr/local/libexec/warpveil*"
 
     private var helperInstall: Task<Bool, Never>?
-    private var adminProcess: Process?
+    private var installProcess: Process?
 
     // The connect's install of the helper this version runs its engine through — the one password
     // dialog the app shows, once per version, before anything of the session starts. One at a time
@@ -274,11 +274,14 @@ final class ProcessManager {
     // reads as working.
     private func installHelper() async -> Bool {
         if let helperInstall { return await helperInstall.value }
-        let install = Task { await runHelperInstall() }
+        let install = Task { () -> Bool in
+            // Cleared by the install itself, not by whoever waited first, so a connect after it
+            // ended — a disconnect took its dialog down — asks again instead of joining it.
+            defer { helperInstall = nil }
+            return await runHelperInstall()
+        }
         helperInstall = install
-        let installed = await install.value
-        helperInstall = nil
-        return installed
+        return await install.value
     }
 
     private func runHelperInstall() async -> Bool {
@@ -312,7 +315,7 @@ final class ProcessManager {
             return false
         }
 
-        let status = await runAsAdmin("""
+        let status = await runAsAdmin(onStart: { installProcess = $0 }, """
             \(Self.removeEveryInstallCommand) && \
             mkdir -p '\(Self.libexecDir)' && \
             install -m 0755 -o root -g wheel \(Self.shellEscape(bundledSingBox)) '\(Self.rootSingBoxPath)' && \
@@ -321,6 +324,7 @@ final class ProcessManager {
             visudo -cf \(Self.shellEscape(tmpSudoers)) && \
             install -m 0440 -o root -g wheel \(Self.shellEscape(tmpSudoers)) '\(Self.sudoersFile)'
             """)
+        installProcess = nil
         for file in [tmpSudoers, tmpRun, tmpStop] { try? FileManager.default.removeItem(atPath: file) }
         passwordlessOperationFinished()
         logs.append(isPasswordless ? "[Helper installed]" : "[The helper was not installed (exit \(status))]")
@@ -338,9 +342,9 @@ final class ProcessManager {
         }
     }
 
-    // osascript's admin dialog, then the command as root; its exit status. Kept in adminProcess
-    // while it runs, so a disconnect can take an install's dialog down.
-    private func runAsAdmin(_ command: String) async -> Int32 {
+    // osascript's admin dialog, then the command as root; its exit status. onStart gets the process,
+    // for a caller that may have to take the dialog down.
+    private func runAsAdmin(onStart: (Process) -> Void = { _ in }, _ command: String) async -> Int32 {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(command)) with administrator privileges"]
@@ -352,9 +356,8 @@ final class ProcessManager {
             logs.append("[Error: \(error.localizedDescription)]")
             return -1
         }
-        adminProcess = process
+        onStart(process)
         for await _ in exits {}
-        adminProcess = nil
         return process.isRunning ? -1 : process.terminationStatus
     }
 
@@ -852,7 +855,7 @@ final class ProcessManager {
         reconnectTask?.cancel()
         reconnectTask = nil
         // An install's dialog waits for nobody now; a removal's is left alone.
-        if helperInstall != nil { adminProcess?.terminate() }
+        installProcess?.terminate()
         guard isRunning else { return }
         logs.append("[Disconnecting...]")
         tearDownEngines()
