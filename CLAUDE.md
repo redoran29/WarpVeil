@@ -196,6 +196,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
 
 ## Key Decisions
 
+- **Few settings** (owner, 2026-10-15): the app decides by itself wherever it can. A setting is
+  added only for a problem it solves that no default can — a TUN MTU picker, a DNS upstream, a
+  watchdog switch and a refresh-interval picker were all turned down on this ground
 - **No sandbox**: the app runs sing-box as a root child process (sudo in passwordless mode, osascript otherwise), which needs full system access for the TUN; xray runs as the user
 - **Window model**: one resizable `NSWindow` built in `AppDelegate`, hidden on close rather than
   destroyed (`isReleasedWhenClosed = false`), so the SwiftUI graph and its `@State` survive. The
