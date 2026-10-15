@@ -14,6 +14,7 @@ ready — what is in `main` plus the updater — and every later feature arrives
   Download section.
 - On a clean macOS user account, the README's steps install 1.3 and the tunnel connects.
 - The owner's Mac runs 1.3, and Check for Updates reads "Up to date".
+- A connect while another tunnel already holds 172.19.0.1 never reads Connected.
 
 ### Decided
 - A homegrown updater over the GitHub releases API; no Sparkle — the canon allows no packages
@@ -30,6 +31,10 @@ ready — what is in `main` plus the updater — and every later feature arrives
   `CHANGELOG.md` (owner, 2026-10-14).
 - 1.3 is the first release with the updater, installed by hand once; it ships before the other
   planned features (owner, 2026-10-15).
+- The engine shell prints its start line only once a utun it did not find at the start carries the
+  TUN's address, and the app stops looking at interfaces itself. It changes run.sh, which re-asks
+  the password, so it lands with the 1.3 bump, which re-asks it anyway (owner, 2026-10-15; review
+  round 5 of plans 18 and 19, `git show 18eded9:plans/18-xray-server-loop.md`).
 
 ### Open for the owner
 - A version bump re-asks the password twice on the first connect (a new tag, then the passwordless
@@ -59,8 +64,8 @@ ready — what is in `main` plus the updater — and every later feature arrives
 1. **Trusted releases.** The signing key, `release.sh`'s refusals and signature, and notes from
    `CHANGELOG.md`. Done when: the first check above, and a signed zip verifies.
 2. **The updater.** The Updates row, the daily check, and Install. Done when: the second check above.
-3. **Publish 1.3.** The version bump, the README's Download section, the release on GitHub, the
-   owner's Mac on 1.3. Done when: the last three checks above.
+3. **Publish 1.3.** The engine shell's start line, the version bump, the README's Download
+   section, the release on GitHub, the owner's Mac on 1.3. Done when: the last four checks above.
 
 ### Leaves out
 - Notarization and a Developer ID; Sparkle; delta updates; a progress bar.
