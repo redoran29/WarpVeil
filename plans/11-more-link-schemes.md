@@ -24,9 +24,8 @@ is for the people the public build (backlog 17) brings, with other providers. Ba
 - A link that duplicates a server already present. Default: refused, as for vless today.
 
 ### Depends on
-- Plan 19 (every server on xray). Built first, the new schemes go straight to xray; built before 19,
-  they would need the sing-box path 19 removes.
-- Plan 18: a trojan or shadowsocks server behind the wrapper needs its server rule. Not built yet.
+- Every server on xray, and a server rule for trojan, shadowsocks and socks behind the wrapper —
+  built and closed 2026-10-15 (plans 18 and 19, now in the canon).
 - No live server of these protocols exists for the owner; the local-server check stands in for it.
 
 ### Risk
