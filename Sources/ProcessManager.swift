@@ -166,6 +166,11 @@ final class ProcessManager {
         check_config "$CFG"
         kill_pid_file \(singboxPidFile) sing-box || { echo '[error] previous sing-box still running'; exit 1; }
         TUN_NAME=$(env -i /usr/bin/jq -r '[.inbounds[]? | select(.type == "tun") | .interface_name // empty][0] // empty' "$CFG")
+        if [[ -n "$TUN_NAME" ]] && ifconfig "$TUN_NAME" >/dev/null 2>&1; then
+            echo "[error] $TUN_NAME was taken since the app picked it — connect again"
+            exit 1
+        fi
+        [[ "$(ifconfig)" != *"inet \(tunAddress) "* ]] || echo '[warning] another tunnel already holds \(tunAddress)'
         cd '\(stageDir)'
         echo '[sing-box] starting...'
         \(binary) run -c "$CFG" &
@@ -551,9 +556,8 @@ final class ProcessManager {
                 }
                 xrayConfig = BypassService.pinXrayServer(config, host: serverHost, addresses: addresses)
             }
-            let dialerPath = isName ? Self.kernelPath(xrayPath) : nil
-            writeConfigs(xray: xrayConfig, serverAddresses: addresses, dialerPath: dialerPath,
-                         bypassDomains: bypassDomains, hostHasIPv6: hostHasIPv6)
+            FileManager.default.createFile(atPath: xrayConfigFile, contents: xrayConfig.data(using: .utf8),
+                                            attributes: [.posixPermissions: 0o600])
             // The wrapper sends everything to xray's port, so it starts once xray listens.
             let started = await startXray(binaryPath: xrayPath, configFile: xrayConfigFile, log: engineLog)
             guard !Task.isCancelled else { return }
@@ -562,6 +566,10 @@ final class ProcessManager {
                 endSession()
                 return
             }
+            // Written only now: the TUN's name is picked here, so xray's start does not lie
+            // between the pick and sing-box taking the name.
+            writeWrapperConfig(serverAddresses: addresses, dialerPath: isName ? Self.kernelPath(xrayPath) : nil,
+                               bypassDomains: bypassDomains, hostHasIPv6: hostHasIPv6)
             startHelper(singBoxPath: singBoxPath, log: engineLog)
         }
     }
@@ -616,11 +624,9 @@ final class ProcessManager {
 
     // The wrapper is the only sing-box, so the bypass rule and the host's IP families go there:
     // xray gets IP destinations over SOCKS and never sees a domain.
-    private func writeConfigs(
-        xray: String, serverAddresses: [String], dialerPath: String?, bypassDomains: [String], hostHasIPv6: Bool
+    private func writeWrapperConfig(
+        serverAddresses: [String], dialerPath: String?, bypassDomains: [String], hostHasIPv6: Bool
     ) {
-        FileManager.default.createFile(atPath: xrayConfigFile, contents: xray.data(using: .utf8),
-                                        attributes: [.posixPermissions: 0o600])
         let wrapper = BypassService.injectSingBox(
             Self.buildTunWrapperConfig(serverAddresses: serverAddresses, dialerPath: dialerPath, tunName: Self.freeTunName()),
             domains: bypassDomains)

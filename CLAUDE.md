@@ -123,11 +123,12 @@ rewritten into one, since xray hands that dial to the sibling by name, past the 
 counts as Connected (`ProcessManager.isTunnelUp`) once the engine shell's own `[sing-box]
 started` line has reached the log the app tails — not when the helper launches, which without
 passwordless is a password dialog. The shell prints it only once the TUN's address, 172.19.0.1,
-is on the interface the wrapper names (`interface_name`): the app picks a free utun at connect,
-past every one that exists, the way sing-box would pick one itself, so a tunnel another build or
-client holds at that address is never taken for ours, and a name taken in the meantime makes
-sing-box fail rather than mistake it (owner, 2026-10-15). sing-box puts the address there only
-after reading its config and making the TUN. The status, the uptime, the
+is on the interface the wrapper names (`interface_name`): the app picks a free utun right before
+the helper starts, past every one that exists, the way sing-box would pick one itself, so a
+tunnel another build or client holds at that address is never taken for ours (owner,
+2026-10-15). A name taken before the shell starts sing-box is refused with a line in Logs, and
+another interface already holding the address is warned of. sing-box puts the address there
+only after reading its config and making the TUN. The status, the uptime, the
 menu-bar shield, the speed monitor and the location polling wait for it, and the window says
 Connecting until then.
 
