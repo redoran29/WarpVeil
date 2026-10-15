@@ -126,3 +126,13 @@ unreachable busy guard and writes the staged list once). Also:
   now releases only its own, which closes the case found.
 - Next, as decided: one control round, fixing only what breaks a real scenario.
 
+### Where it stopped (2026-10-15, session end)
+Plans 17 and 21 are built and pushed; nothing of them is installed — the owner's Mac runs 1.2 with
+the updater (`f0c7e41`). The control review round (`/code-review 1691509..e3c819b`) was launched and
+its result not processed: run it again, and fix only what breaks a real scenario (decided above).
+Then, with the owner at the Mac: `./install.sh` 1.3 — the first connect installs the helper (one
+password); check Disconnect, a restart, a quit; `kill -9` on the root sing-box and `netstat -rn`
+(decided above); then close plans 21 and 17, and ask before `./release.sh` publishes 1.3. The owner
+still has to back up `~/.config/warpveil/release-signing.key` and read the 1.3 notes in
+`CHANGELOG.md`.
+
