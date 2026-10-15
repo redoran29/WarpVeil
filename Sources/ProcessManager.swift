@@ -315,17 +315,21 @@ final class ProcessManager {
             return false
         }
 
+        // The root shell removes the staged files when it ends, whatever the outcome — osascript ended
+        // from outside does not end it (owner, 2026-10-15). The app removes them where no root shell
+        // ran: a cancelled dialog, an osascript that did not launch. Never while one may still run.
         let (status, failure) = await runAsAdmin("""
-            \(Self.removeEveryInstallCommand) && \
+            { \(Self.removeEveryInstallCommand) && \
             mkdir -p '\(Self.libexecDir)' && \
             install -m 0755 -o root -g wheel \(Self.shellEscape(bundledSingBox)) '\(Self.rootSingBoxPath)' && \
             install -m 0755 -o root -g wheel \(Self.shellEscape(tmpRun)) '\(Self.runScriptPath)' && \
             install -m 0755 -o root -g wheel \(Self.shellEscape(tmpStop)) '\(Self.stopScriptPath)' && \
             visudo -qcf \(Self.shellEscape(tmpSudoers)) && \
-            install -m 0440 -o root -g wheel \(Self.shellEscape(tmpSudoers)) '\(Self.sudoersFile)'
+            install -m 0440 -o root -g wheel \(Self.shellEscape(tmpSudoers)) '\(Self.sudoersFile)'; }
+            rc=$?
+            rm -f \(staged.map(Self.shellEscape).joined(separator: " "))
+            exit $rc
             """)
-        // Only once osascript returned by itself, so its root shell is done with them: one ended from
-        // outside may leave that shell running. Left behind, they are rewritten by the next install.
         if status != nil { removeStaged() }
         passwordlessOperationFinished()
         if isPasswordless {
@@ -354,8 +358,9 @@ final class ProcessManager {
         }
     }
 
-    // osascript's admin dialog, then the command as root. Its exit status, or nil when it did not
-    // run or something outside the app ended it; and osascript's own account of a failure — "User
+    // osascript's admin dialog, then the command as root. Its exit status — 127 when it did not
+    // launch — or nil when something outside the app ended it, which may leave its root shell
+    // running; and osascript's own account of a failure — "User
     // canceled." for the dialog, the command's stderr for a root step — since its status is 1
     // either way.
     private func runAsAdmin(_ command: String) async -> (status: Int32?, failure: String) {
@@ -369,7 +374,8 @@ final class ProcessManager {
         do {
             try process.run()
         } catch {
-            return (nil, error.localizedDescription)
+            // 127, the shell's "could not run": no root shell exists to wait for.
+            return (127, error.localizedDescription)
         }
         for await _ in exits {}
         let text = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
