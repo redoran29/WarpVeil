@@ -335,7 +335,7 @@ final class ProcessManager {
         if isPasswordless {
             logs.append("[Helper installed]")
         } else {
-            logs.append("[The helper was not installed: \(failure)]")
+            logs.append(failure.isEmpty ? "[The helper was not installed]" : "[The helper was not installed: \(failure)]")
         }
         return isPasswordless
     }
@@ -353,7 +353,7 @@ final class ProcessManager {
             let (status, failure) = await runAsAdmin(Self.removeEveryInstallCommand)
             logs.append(status == 0
                 ? "[Helper removed — the next connect installs it again]"
-                : "[The helper was not removed: \(failure)]")
+                : failure.isEmpty ? "[The helper was not removed]" : "[The helper was not removed: \(failure)]")
             passwordlessOperationFinished()
         }
     }
