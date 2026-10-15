@@ -39,3 +39,24 @@ that exists. One mode: the first connect installs the helper with one password; 
 
 ### Leaves out
 - An uninstaller beyond Remove; a launchd or SMAppService helper.
+
+### Built (2026-10-15)
+`54ffbb4`. Checked: run.sh's shell with a stand-in engine and `ifconfig` — the stop on TERM, a
+TERM before the start, an engine that exits by itself, a second TERM inside cleanup, no staged
+file or PID file left. Not run live: the install from a connect needs the owner's password — at
+the 1.3 install.
+
+### Review (2026-10-15, round 1 — round 7 of plan 17's series)
+`/code-review f8548e4..feb5b12`, findings and what was done:
+- A restart or a second connect during the install's dialog found the install busy and failed;
+  a disconnect, a quit or an update left the dialog up: one shared install, ended by a disconnect
+  (`35c6bd2`); its files staged in `$TMPDIR`, not `/private/tmp` (`e55321a`).
+- A second TERM inside run.sh's cleanup skipped its EXIT trap, leaving the PID file and the staged
+  config; the PID file's trap came after the file: one TERM, cleanup ignores more, trap first
+  (`f526e1d`).
+- Remove mid-session made the next restart ask for the password; the row went stale after another
+  build's install (`c3dc6e0`).
+- A log poll appended after the helper's exit had ended the session (`f2a511a`); connect carried
+  the bundled sing-box's path for nothing (`a7b2047`); comments and canon still spoke of the removed
+  mode (`46dda5e`).
+- An engine that ignores TERM: taken to the owner, decided above — live at the 1.3 install.
