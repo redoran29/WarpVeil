@@ -8,13 +8,21 @@ import SystemConfiguration
 final class ProcessManager {
     var logs: [String] = []
     var isRunning = false {
-        didSet { if !isRunning { isTunnelUp = false } }
+        didSet {
+            guard !isRunning else { return }
+            engineStarted = false
+            isTunnelUp = false
+        }
     }
     // The session starts before any engine — while a name resolves, xray comes up and, without
-    // passwordless, a password dialog waits — and the tunnel counts as up once the engine shell
-    // says sing-box started: its own line, not upstream's wording. What the UI calls Connected.
+    // passwordless, a password dialog waits. The tunnel counts as up once the engine shell says
+    // sing-box started — its own line, not upstream's wording — and the TUN's address is on an
+    // interface, which sing-box puts there only after it read its config and made the TUN. What
+    // the UI calls Connected.
     private(set) var isTunnelUp = false
+    private var engineStarted = false
     private static let engineStartedMarker = "[sing-box] started"
+    private nonisolated static let tunAddress = "172.19.0.1"
 
     private var helperProcess: Process?
     private var xrayProcess: Process?
@@ -770,7 +778,7 @@ final class ProcessManager {
                     "type": "tun",
                     "tag": "tun-in",
                     // IPv6 joins at connect time, only when the host has it (fitTunToHost).
-                    "address": ["172.19.0.1/30"],
+                    "address": ["\(tunAddress)/30"],
                     "auto_route": true,
                     "strict_route": true
                 ] as [String: Any]
@@ -894,11 +902,35 @@ final class ProcessManager {
         // Poll log file every 0.25s instead of DispatchSource (which fires per-write, hundreds/sec)
         logDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             let data = handle.readDataToEndOfFile()
-            Task { @MainActor [weak self] in self?.appendLog(data) }
+            Task { @MainActor [weak self] in
+                self?.appendLog(data)
+                self?.checkTunnel()
+            }
         }
     }
 
     // The last poll can miss an engine's final lines — usually the reason it stopped.
+    private func checkTunnel() {
+        guard isRunning, engineStarted, !isTunnelUp, Self.tunAddressIsUp() else { return }
+        isTunnelUp = true
+    }
+
+    private static func tunAddressIsUp() -> Bool {
+        var list: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&list) == 0, let first = list else { return false }
+        defer { freeifaddrs(first) }
+        let target = inet_addr(tunAddress)
+        var node: UnsafeMutablePointer<ifaddrs>? = first
+        while let entry = node {
+            if let address = entry.pointee.ifa_addr, address.pointee.sa_family == UInt8(AF_INET),
+               address.withMemoryRebound(to: sockaddr_in.self, capacity: 1, { $0.pointee.sin_addr.s_addr == target }) {
+                return true
+            }
+            node = entry.pointee.ifa_next
+        }
+        return false
+    }
+
     private func stopLogTail() {
         logDebounceTimer?.invalidate()
         logDebounceTimer = nil
@@ -913,7 +945,7 @@ final class ProcessManager {
         guard !data.isEmpty else { return }
         let text = String(decoding: data, as: UTF8.self)
         let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
-        if isRunning, lines.contains(where: { $0.hasPrefix(Self.engineStartedMarker) }) { isTunnelUp = true }
+        if isRunning, lines.contains(where: { $0.hasPrefix(Self.engineStartedMarker) }) { engineStarted = true }
         logs.append(contentsOf: lines)
         if logs.count > 600 {
             logs = Array(logs.suffix(500))

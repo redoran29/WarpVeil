@@ -118,10 +118,12 @@ shadowsocks, socks) or flat in `settings`, and a config without one is refused. 
 outbound it dials through if it names one (`sockopt.dialerProxy`; a `proxySettings` dialer is
 rewritten into one, since xray hands that dial to the sibling by name, past the pin), a freedom
 `direct`, no routing rules, which would send "direct" traffic back through the TUN. A session
-counts as Connected only once the engine shell's own `[sing-box] started` line reaches the log
-the app tails (`ProcessManager.isTunnelUp`) — not when the helper launches, which without
-passwordless is a password dialog: the status, the uptime, the menu-bar shield, the speed
-monitor and the location polling wait for it, and the window says Connecting until then.
+counts as Connected (`ProcessManager.isTunnelUp`) once the engine shell's own `[sing-box]
+started` line has reached the log the app tails — not when the helper launches, which without
+passwordless is a password dialog — and the TUN's address, 172.19.0.1, is on an interface, which
+sing-box does only after reading its config and making the TUN. The status, the uptime, the
+menu-bar shield, the speed monitor and the location polling wait for it, and the window says
+Connecting until then.
 
 ---
 
