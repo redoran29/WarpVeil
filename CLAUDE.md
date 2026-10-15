@@ -422,7 +422,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - `~/.config/warpveil/release-signing.key` — the release key's private half, 0600, the owner's
   machine only
 - `$TMPDIR/warpveil-update-<uuid>/` — an update's download and unpack directory, 0700, one per
-  attempt, removed once the update is staged or refused
+  attempt, removed once the update is staged or refused; the zip goes as soon as it is unpacked.
+  A quit while the engines stop leaves the unpacked app to `dirhelper`, which clears `$TMPDIR` of
+  files older than 3 days, daily at 3:35
 - `<bundle dir>/.WarpVeil.app.new`, `.WarpVeil.app.old` — the update being swapped in and the old
   bundle on its way out; both gone after the relaunch
 

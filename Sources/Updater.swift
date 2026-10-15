@@ -196,6 +196,7 @@ final class Updater {
 
         let unpacked = work.appendingPathComponent("unpacked")
         try await unzip(archive, into: unpacked)
+        try? FileManager.default.removeItem(at: archive)
         let bundle = unpacked.appendingPathComponent("WarpVeil.app")
         try verify(bundle: bundle, version: release.version)
         return bundle
