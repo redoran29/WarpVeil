@@ -126,23 +126,27 @@ unreachable busy guard and writes the staged list once). Also:
   now releases only its own, which closes the case found.
 - Next, as decided: one control round, fixing only what breaks a real scenario.
 
-### Where it stopped (2026-10-15, session end)
+### Review (2026-10-15, control round)
+`/code-review 1691509..e3c819b`. Under the rule decided above, fixed only what breaks a real
+scenario (2026-10-16):
+- A restart no longer waits for xray, so its connect parked in the xray wait with the parameters it
+  was called with and lost a routing edit made meanwhile (`a521655`): the parked connect starts from
+  `lastConnection` (`24c7c57`).
+- The teardown deadline ran on ContinuousClock, which counts through sleep: a lid closed during a
+  restart's wait skipped it at wake, the wake's own restart gave way to the stop, and nothing
+  reconnected (`bbb6b62`): SuspendingClock (`69d187e`).
+- An update that failed after it stopped the engines left the tunnel down: a session it stopped
+  connects again (`e6bf742`). An engine still stopping refuses that connect — the TERM question
+  below.
+Recorded, not fixed: the quit-then-update order of the connect hold, an unbounded xray wait, the
+root shell's `rm` racing a next install after an external kill, staged files left after a kill at
+the dialog, the canon's "at its dialog" wording, the temp stderr file missing from the canon, a
+duplicated failure format, the AppleScript code left in failure lines, `a521655` bundling two
+findings.
+
+### Next
 Plans 17 and 21 are built and pushed; nothing of them is installed — the owner's Mac runs 1.2 with
-the updater (`f0c7e41`). The control review round (`/code-review 1691509..e3c819b`) was launched and
-came back after the stop, unprocessed. Under the rule decided above, these break a real scenario and
-are next:
-- A restart no longer waits for xray, so its connect parks in the xray wait with the parameters it
-  was called with: a routing edit made during that wait is lost (`a521655`).
-- The teardown deadline runs on ContinuousClock, which counts through sleep: a lid closed during a
-  restart's wait skips it at wake, the wake's own restart is refused by `isStopping`, and nothing
-  reconnects — SuspendingClock, as the restart's delay uses (`bbb6b62`).
-- An update that fails after it stopped the engines leaves the tunnel down; nothing reconnects.
-The rest — the quit-then-update order of the connect hold, an unbounded xray wait, the root shell's
-`rm` racing a next install after an external kill, staged files left after a kill at the dialog,
-the canon's "at its dialog" wording, the temp stderr file missing from the canon, a duplicated
-failure format, the AppleScript code left in failure lines, `a521655` bundling two findings — is
-recorded, not fixed.
-Then, with the owner at the Mac: `./install.sh` 1.3 — the first connect installs the helper (one
+the updater (`f0c7e41`). With the owner at the Mac: `./install.sh` 1.3 — the first connect installs the helper (one
 password); check Disconnect, a restart, a quit; `kill -9` on the root sing-box and `netstat -rn`
 (decided above); then close plans 21 and 17, and ask before `./release.sh` publishes 1.3. The owner
 still has to back up `~/.config/warpveil/release-signing.key` and read the 1.3 notes in
