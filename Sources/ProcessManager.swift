@@ -936,11 +936,13 @@ final class ProcessManager {
         return nil
     }
 
+    // The deadline stops during sleep, as the restart's delay does: a lid closed mid-wait would
+    // otherwise skip the restart at wake, and the wake's own restart gives way to the stop under way.
     @discardableResult
     func awaitTeardown(timeout: Duration, sessionOnly: Bool = false) async -> String? {
-        let deadline = ContinuousClock.now + timeout
+        let deadline = SuspendingClock.now + timeout
         while let blocker = teardownBlocker(sessionOnly: sessionOnly) {
-            guard ContinuousClock.now < deadline, !Task.isCancelled else { return blocker }
+            guard SuspendingClock.now < deadline, !Task.isCancelled else { return blocker }
             try? await Task.sleep(for: .milliseconds(100))
         }
         return nil
