@@ -162,8 +162,10 @@ final class AppState {
             // still the user's tunnel, and should the update fail it has to come back. Only the
             // install that set the hold releases it — a second one, refused, never set it.
             var held = false
+            var wasRunning = false
             let handedOver = await updater.install {
                 held = true
+                wasRunning = pm.isRunning
                 pm.connectHold = ProcessManager.updateHoldMessage
                 disconnect()
                 return await pm.awaitTeardown(timeout: .seconds(30))
@@ -173,6 +175,7 @@ final class AppState {
                 quit()
             } else if held, pm.connectHold == ProcessManager.updateHoldMessage {
                 pm.connectHold = nil
+                if wasRunning { connect() }
             }
         }
     }

@@ -372,7 +372,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
   than the running one, arm64; anything else is refused with its reason in the row. Then
   `disconnect()` and `awaitTeardown`, with every connect, a restart's too, held from there on:
   anything of the session, or a helper dialog, still open after 30 s cancels the
-  update — the new version's tag cannot stop the old one's sing-box. Once the engines are down the
+  update — the new version's tag cannot stop the old one's sing-box. An update that fails after
+  this stop connects again a session it stopped. Once the engines are down the
   bundle is staged as `.WarpVeil.app.new` next to the running one, wherever that is, so an app
   quit during the wait leaves nothing there. A `/bin/sh` helper spawned before `NSApp.terminate`
   waits for the app to exit, moves the old bundle aside and the new one in (or the old one back),
