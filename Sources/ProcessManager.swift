@@ -532,18 +532,6 @@ final class ProcessManager {
             logs.append("[The helper is being removed — connect after it]")
             return
         }
-        // An xray still exiting holds the port the next one needs.
-        if let xray = xrayProcess, xray.isRunning {
-            logs.append("[Waiting for the previous xray to stop...]")
-            reconnectTask = Task {
-                while xray.isRunning, !Task.isCancelled {
-                    try? await Task.sleep(for: .milliseconds(100))
-                }
-                guard !Task.isCancelled else { return }
-                connect(config: config, xrayPath: xrayPath, bypassDomains: bypassDomains)
-            }
-            return
-        }
         guard !config.isEmpty else {
             logs.append("[Error: no config provided]")
             return
@@ -560,6 +548,20 @@ final class ProcessManager {
         }
 
         lastConnection = (config, xrayPath, bypassDomains)
+
+        // An xray still exiting holds the port the next one needs. The connect then starts from
+        // lastConnection as it is when xray has gone, so a routing edit made meanwhile is not lost.
+        if let xray = xrayProcess, xray.isRunning {
+            logs.append("[Waiting for the previous xray to stop...]")
+            reconnectTask = Task {
+                while xray.isRunning, !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                guard !Task.isCancelled, let params = lastConnection else { return }
+                connect(config: params.config, xrayPath: params.xrayPath, bypassDomains: params.bypassDomains)
+            }
+            return
+        }
 
         if !bypassDomains.isEmpty {
             logs.append("[Bypass] \(bypassDomains.count) domain(s) will route direct")
