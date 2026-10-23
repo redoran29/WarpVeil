@@ -69,28 +69,33 @@ final class ProcessManager {
     // xray's SOCKS inbound, which the TUN wrapper forwards everything to.
     nonisolated static let xraySocksPort: UInt16 = 10808
 
-    // Shared by run.sh and stop.sh. Kills only a process the PID file
-    // names whose executable is the given engine — TERM, then KILL after 5 s — and waits for it
-    // to be gone, so the next sing-box never races the old one for the TUN. A killed sing-box
-    // takes its routes with it: the kernel removes its utun and every route through it. A stale or
-    // foreign PID is dropped. Returns non-zero, keeping the file, when the engine outlives KILL
+    // Shared by run.sh and stop.sh. stop_pid stops an engine — TERM, then KILL after 5 s — and
+    // waits for it to be gone, so the next sing-box never races the old one for the TUN. A killed
+    // sing-box takes its routes with it: the kernel removes its utun and every route through it.
+    // kill_pid_file stops only a process the PID file names whose executable is the given engine;
+    // a stale or foreign PID is dropped. Non-zero, keeping the file, when the engine outlives KILL
     // too: with no pkill left that file is the only handle on it, and starting a second engine
     // over a held TUN fails anyway.
-    private static let killPidFileFunction = """
+    private static let stopFunctions = """
+        stop_pid() {
+            local pid="$1" name="$2" sig
+            for sig in TERM KILL; do
+                [[ "$sig" == TERM ]] || echo "[$name did not stop in 5 s — killing it]"
+                kill -s "$sig" "$pid" 2>/dev/null || true
+                for _ in $(seq 1 50); do
+                    kill -0 "$pid" 2>/dev/null || return 0
+                    sleep 0.1
+                done
+            done
+            return 1
+        }
         kill_pid_file() {
-            local f="$1" name="$2" pid sig
+            local f="$1" name="$2" pid
             [[ -f "$f" ]] || return 0
             pid=$(cat "$f" 2>/dev/null || true)
             [[ "$pid" =~ ^[0-9]+$ ]] || { rm -f "$f"; return 0; }
             if [[ "$(ps -o comm= -p "$pid" 2>/dev/null)" == *"$name" ]]; then
-                for sig in TERM KILL; do
-                    kill -s "$sig" "$pid" 2>/dev/null || true
-                    for _ in $(seq 1 50); do
-                        kill -0 "$pid" 2>/dev/null || break 2
-                        sleep 0.1
-                    done
-                done
-                kill -0 "$pid" 2>/dev/null && return 1
+                stop_pid "$pid" "$name" || return 1
             fi
             rm -f "$f"
         }
@@ -159,15 +164,14 @@ final class ProcessManager {
     // interface carries the address: a tunnel another build or client holds there is never ours.
     // It also stops its own sing-box on the TERM sudo passes on when the app ends the helper, so a
     // disconnect needs no privileged stop. The trap is set before sing-box starts, so a TERM right
-    // after the start still stops it; it waits for sing-box and kills it after 5 s, as
-    // kill_pid_file does.
+    // after the start still stops it, with the same stop_pid as kill_pid_file.
     private static let engineShell: String = {
         let binary = "'\(rootSingBoxPath)'"
         return """
         export PATH=/usr/bin:/bin:/usr/sbin:/sbin
         export HOME=/var/empty
         \(configFunctions)
-        \(killPidFileFunction)
+        \(stopFunctions)
         CFG=$(stage_config) || exit 1
         NAMED=
         trap 'rm -f "$CFG" ${NAMED:+"$NAMED"}' EXIT
@@ -183,22 +187,15 @@ final class ProcessManager {
         # jobs -p names sing-box from its start on, before VPN_PID does.
         cleanup() {
             # A second TERM inside cleanup would end bash before its EXIT trap: the PID file and
-            # the staged config would stay.
+            # the staged config would stay. A failed echo — the log's disk full — must not keep
+            # the engine running: under set -e it would end cleanup, and bash 3.2 hands its unwritten
+            # text to the next $(…), so the engine's PID is read before anything is echoed.
             trap '' TERM INT
-            echo '[stopping...]'
+            set +e
             local engine
             engine=$(jobs -p)
-            if [[ -n "$engine" ]]; then
-                kill $engine 2>/dev/null || true
-                for _ in $(seq 1 50); do
-                    kill -0 $engine 2>/dev/null || break
-                    sleep 0.1
-                done
-                if kill -0 $engine 2>/dev/null; then
-                    echo '[sing-box did not stop in 5 s — killing it]'
-                    kill -9 $engine 2>/dev/null || true
-                fi
-            fi
+            echo '[stopping...]'
+            [[ -z "$engine" ]] || stop_pid $engine sing-box
             wait
             echo '[stopped]'
             exit 0
@@ -233,7 +230,7 @@ final class ProcessManager {
     private static let stopShContent: String = """
         #!/bin/bash
         export PATH=/usr/bin:/bin:/usr/sbin:/sbin
-        \(killPidFileFunction)
+        \(stopFunctions)
         kill_pid_file \(singboxPidFile) sing-box
         """
 
