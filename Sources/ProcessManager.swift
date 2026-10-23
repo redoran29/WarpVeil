@@ -789,17 +789,19 @@ final class ProcessManager {
         return false
     }
 
-    // Mirrors kill_pid_file: only a live process whose executable is xray is signalled, then
-    // given up to 5 s to let go of the port. One that outlives the wait keeps its PID file —
-    // the only handle on it — and the connect stops, since the new xray could not bind.
+    // Mirrors kill_pid_file: only a live process whose executable is xray is signalled — TERM,
+    // then KILL after 5 s — and given 5 s more to let go of the port. One that outlives both keeps
+    // its PID file — the only handle on it — and the connect stops, since the new xray could not bind.
     private func stopOrphanedXray() async -> Bool {
         guard let text = try? String(contentsOfFile: Self.xrayPidFile, encoding: .utf8) else { return true }
         if let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)), Self.isXray(pid) {
-            kill(pid, SIGTERM)
-            var waited = 0
-            while Self.isXray(pid), waited < 50, !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(100))
-                waited += 1
+            for signal in [SIGTERM, SIGKILL] where Self.isXray(pid) && !Task.isCancelled {
+                kill(pid, signal)
+                var waited = 0
+                while Self.isXray(pid), waited < 50, !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    waited += 1
+                }
             }
             guard !Self.isXray(pid) else { return false }
         }
