@@ -70,22 +70,25 @@ final class ProcessManager {
     nonisolated static let xraySocksPort: UInt16 = 10808
 
     // Shared by run.sh and stop.sh. Kills only a process the PID file
-    // names whose executable is the given engine, then waits for it to be gone — up to 5 s — so
-    // the next sing-box never races the old one for the TUN. A stale or foreign PID is dropped.
-    // Returns non-zero, keeping the file, when the engine outlives the wait: with no pkill left
-    // that file is the only handle on it, and starting a second engine over a held TUN fails
-    // anyway. No SIGKILL — sing-box exits on TERM, and a forced kill leaves its routes behind.
+    // names whose executable is the given engine — TERM, then KILL after 5 s — and waits for it
+    // to be gone, so the next sing-box never races the old one for the TUN. A killed sing-box
+    // takes its routes with it: the kernel removes its utun and every route through it. A stale or
+    // foreign PID is dropped. Returns non-zero, keeping the file, when the engine outlives KILL
+    // too: with no pkill left that file is the only handle on it, and starting a second engine
+    // over a held TUN fails anyway.
     private static let killPidFileFunction = """
         kill_pid_file() {
-            local f="$1" name="$2" pid
+            local f="$1" name="$2" pid sig
             [[ -f "$f" ]] || return 0
             pid=$(cat "$f" 2>/dev/null || true)
             [[ "$pid" =~ ^[0-9]+$ ]] || { rm -f "$f"; return 0; }
             if [[ "$(ps -o comm= -p "$pid" 2>/dev/null)" == *"$name" ]]; then
-                kill "$pid" 2>/dev/null || true
-                for _ in $(seq 1 50); do
-                    kill -0 "$pid" 2>/dev/null || break
-                    sleep 0.1
+                for sig in TERM KILL; do
+                    kill -s "$sig" "$pid" 2>/dev/null || true
+                    for _ in $(seq 1 50); do
+                        kill -0 "$pid" 2>/dev/null || break 2
+                        sleep 0.1
+                    done
                 done
                 kill -0 "$pid" 2>/dev/null && return 1
             fi
@@ -156,8 +159,8 @@ final class ProcessManager {
     // interface carries the address: a tunnel another build or client holds there is never ours.
     // It also stops its own sing-box on the TERM sudo passes on when the app ends the helper, so a
     // disconnect needs no privileged stop. The trap is set before sing-box starts, so a TERM right
-    // after the start still stops it; it waits for sing-box, which exits on TERM — no SIGKILL, for
-    // kill_pid_file's reason.
+    // after the start still stops it; it waits for sing-box and kills it after 5 s, as
+    // kill_pid_file does.
     private static let engineShell: String = {
         let binary = "'\(rootSingBoxPath)'"
         return """
@@ -185,7 +188,17 @@ final class ProcessManager {
             echo '[stopping...]'
             local engine
             engine=$(jobs -p)
-            [[ -z "$engine" ]] || kill $engine 2>/dev/null || true
+            if [[ -n "$engine" ]]; then
+                kill $engine 2>/dev/null || true
+                for _ in $(seq 1 50); do
+                    kill -0 $engine 2>/dev/null || break
+                    sleep 0.1
+                done
+                if kill -0 $engine 2>/dev/null; then
+                    echo '[sing-box did not stop in 5 s — killing it]'
+                    kill -9 $engine 2>/dev/null || true
+                fi
+            fi
             wait
             echo '[stopped]'
             exit 0

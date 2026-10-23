@@ -288,8 +288,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
   sudo passes on when the app ends the helper, and the session ends when the helper exits, which
   it does only after its sing-box — so a disconnect, a restart and a quit ask no password and
   leave nothing behind a window that reads Disconnected. The shell's trap is set before sing-box
-  starts, so a TERM that lands right after the start still stops it; it waits for sing-box, which
-  exits on TERM — no SIGKILL, for `kill_pid_file`'s reason. A restart waits for the session to end
+  starts, so a TERM that lands right after the start still stops it; it waits for sing-box and
+  kills one still running after 5 s, as `kill_pid_file` does. A restart waits for the session to end
   and gives way to an engine that does not stop in 30 s. `stop.sh` is only for an engine a crash
   orphaned — `install.sh`'s sweep — besides the next connect's `kill_pid_file`. Before, the app
   ran a privileged stop of its own, and the order of that stop and the helper's end was changed
@@ -341,8 +341,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
   `secure_path` and keeps the caller's `HOME`. The only config the app hands root is the wrapper
   it builds, which names no file; the policy is what holds when something else feeds `run.sh`
 - **PID files**: `run.sh` and `stop.sh` kill by PID file only — one
-  shared `kill_pid_file`, which checks that the PID's executable is sing-box, then waits up to
-  5 s for it to exit before the file is removed; nothing else on the machine is touched. The
+  shared `kill_pid_file`, which checks that the PID's executable is sing-box, sends TERM and,
+  after 5 s, KILL, and removes the file once it has exited; nothing else on the machine is
+  touched. A killed sing-box leaves no routes behind (Gotchas). The
   file is `/var/run/warpveil-<tag>/singbox.pid`, in a root-owned directory: in `/tmp` root's
   write would follow a symlink planted at its name. xray's file is the app's own
   (`$TMPDIR/warpveil-<tag>-xray.pid`), read by `ProcessManager.stopOrphanedXray` at the next
@@ -486,6 +487,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
   tag reads ~800 ms for every server and never moves between runs
 - `kill -0` on a root-owned engine from the user's shell fails with "not permitted", which reads
   as "dead" — the scripts read `ps -o comm=` instead, which also keeps them off a recycled PID
+- A sing-box killed with SIGKILL takes its routes with it: the kernel destroys its utun, and every
+  route through it goes too. Measured 2026-10-23: `kill -9` on the root engine, and within a second
+  `netstat -rn` had none of its 9 routes and the host was online through its own interface
 - The TUN's IP families follow the host's, set at connect time (`BypassService.fitTunToHost`,
   configd's `State:/Network/Global/IPv6`). While connected, a change of that key schedules one
   comparison 5 s later; if the host has gained or lost global IPv6 by then, the engines restart.
