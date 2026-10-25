@@ -11,7 +11,9 @@ kill switch that blocks traffic while there is no tunnel is not wanted. Backlog 
 - A tunnel that stays up for a minute starts the next failure from 2 s again.
 - `sudo -n /usr/local/libexec/warpveil-<tag>/stop.sh` while connected (a SIGTERM, as another build of
   the same version sends): the app shows Disconnected and does not reconnect.
-- Disconnect, quit and sleep never trigger the watchdog; with passwordless off it tries once.
+- Disconnect, quit and sleep never trigger the watchdog.
+- A retry that finds no helper for this version (another build's install removed it) asks the
+  password once; a cancelled dialog stops the retries, and Logs say so.
 
 ### Decided
 - A watchdog only, no pf kill switch (owner, 2026-10-15).
@@ -22,8 +24,8 @@ kill switch that blocks traffic while there is no tunnel is not wanted. Backlog 
 ### Open for the owner
 - A server that stops answering while its engine keeps running is not an engine death and is not
   caught. Default: not in this stage; noticing a dead server belongs with backlog 6 (auto-select).
-- With passwordless off every attempt is a password dialog. Default: one attempt, then Disconnected
-  with a log line saying why.
+- A retry that finds the helper gone installs it, as every connect does since plan 21 — a password
+  dialog. Default: one dialog; cancelled, the retries stop and the app stays Disconnected.
 - An engine stopped with SIGTERM — `stop.sh`, the sweeps in `install.sh` and `dev-run.sh`, another
   build of the same version taking the tunnel — is a deliberate stop. Default: no reconnect, or two
   copies would take the tunnel from each other forever.
@@ -31,11 +33,12 @@ kill switch that blocks traffic while there is no tunnel is not wanted. Backlog 
   tunnel. Default: reported as today, no retries.
 
 ### Depends on
-- Nothing missing today. The root scripts do not change, so no new password prompt after the update.
+- Nothing missing today. The root scripts need no change; the update's own version bump asks the
+  password once anyway, to install its helper.
 
 ### Risk
 - A retry loop that never stops: guarded by the backoff's 60 s ceiling, by Disconnect cancelling it,
-  and by the SIGTERM and passwordless rules above.
+  and by the SIGTERM and missing-helper rules above.
 - A retry racing the existing wake and IPv6 reconnects: they go through one restart path, so a newer
   restart replaces a pending one.
 
@@ -50,10 +53,14 @@ kill switch that blocks traffic while there is no tunnel is not wanted. Backlog 
 - Health checks of a running engine (see Open).
 - A notification when the tunnel drops: backlog 4.
 
-### What we know (2026-10-15)
+### What we know (2026-10-15, checked 2026-10-25)
 - An unexpected exit of the root helper logs `[Disconnected (exit N)]` and leaves the app
   disconnected; an xray that exits while connected logs `[xray exited (exit N)]` and disconnects
-  (code: both termination handlers in the process manager).
+  (code: both termination handlers in the process manager). Both are errors, shown at the Logs
+  page's default level (plan 22).
+- Since 2026-10-23 an engine that ignores TERM is killed after 5 s — `stop.sh` and the next
+  connect's `kill_pid_file` included — and a killed sing-box takes its routes with it (CLAUDE.md,
+  Gotchas).
 - Wake and a change of the host's IPv6 already reconnect through one delayed restart that replays the
   last connection (code: the process manager's restart path).
 - How often engines die is unknown: the engine log is truncated at every connect, and the current
