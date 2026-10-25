@@ -35,23 +35,26 @@ struct ConnectionView: View {
 
     private func updateBanner(version: String) -> some View {
         let state = app.updater.state
+        let isInstalling = state == .installing
         return HStack(spacing: 10) {
             Image(systemName: "arrow.down.circle.fill")
                 .font(.system(size: 22))
                 .foregroundStyle(Color.lavender)
             VStack(alignment: .leading, spacing: 2) {
-                Text("WarpVeil \(version) is available")
+                Text(isInstalling ? "Installing WarpVeil \(version)…" : "WarpVeil \(version) is available")
                     .font(.system(size: 13, weight: .medium))
                 // A failed install says why here too, or the banner would only lose its button.
                 Text(state == .available(version) ? "You have \(Updater.currentVersion)" : app.updater.statusText)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            if state != .installing {
+            if !isInstalling {
+                // Not during a check: its answer would be dropped for the release known before it.
                 Button("Install") { app.installUpdate() }
                     .buttonStyle(.borderedProminent)
+                    .disabled(state == .checking)
             }
         }
         .padding(12)

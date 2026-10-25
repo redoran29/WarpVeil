@@ -128,7 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         open.target = self
         menu.addItem(open)
 
-        if let version = app.updater.availableVersion {
+        if let version = app.updater.newerVersion, app.updater.state != .installing {
             let update = NSMenuItem(title: "Update to \(version)…", action: #selector(updateAction), keyEquivalent: "")
             update.target = self
             menu.addItem(update)

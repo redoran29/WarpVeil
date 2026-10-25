@@ -692,7 +692,8 @@ final class ProcessManager {
         return BypassService.fitTunToHost(wrapper, hostHasIPv6: hostHasIPv6)
     }
 
-    // Both engines read their config on stdin, so the server's credentials never touch the disk.
+    // Both engines read their config on stdin, so a session's xray config, which carries the
+    // server's credentials, never touches the disk (a ping's still does, for its run).
     // Written off the main actor: a config past the pipe's buffer waits for the engine to read
     // it. No SIGPIPE: an engine that exits before reading fails the write, not the app.
     private static func feed(_ config: String, through pipe: Pipe) {

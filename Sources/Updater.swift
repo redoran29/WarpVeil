@@ -14,13 +14,9 @@ final class Updater {
 
     var state: State = .idle
 
-    var availableVersion: String? {
-        guard case .available(let version) = state else { return nil }
-        return version
-    }
-
     // The release found newer than the running app, kept through a later check, an install and a
-    // failed install — what the connection column's banner offers until the app is replaced.
+    // failed install — what the banner, Advanced and the status menu offer until the app is
+    // replaced.
     var newerVersion: String? {
         guard let version = release?.version, Self.isNewer(version) else { return nil }
         return version

@@ -50,7 +50,7 @@ struct AdvancedView: View {
 
             Section("Updates") {
                 LabeledContent {
-                    if app.updater.availableVersion != nil {
+                    if app.updater.newerVersion != nil {
                         Button("Install") { app.installUpdate() }
                     } else {
                         Button("Check for Updates") { Task { await app.updater.check(manual: true) } }
