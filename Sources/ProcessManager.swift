@@ -72,18 +72,25 @@ final class ProcessManager {
     // Shared by run.sh and stop.sh. stop_pid stops an engine — TERM, then KILL after 5 s — and
     // waits for it to be gone, so the next sing-box never races the old one for the TUN. A killed
     // sing-box takes its routes with it: the kernel removes its utun and every route through it.
+    // Every signal and every poll checks the PID's executable again: PIDs are recycled, and a KILL
+    // from root must not land on whatever took the number. The check is a pipe, not a $(…), which
+    // after a failed echo would carry its unwritten text (bash 3.2, probed with stdout closed).
     // kill_pid_file stops only a process the PID file names whose executable is the given engine;
     // a stale or foreign PID is dropped. Non-zero, keeping the file, when the engine outlives KILL
     // too: with no pkill left that file is the only handle on it, and starting a second engine
     // over a held TUN fails anyway.
     private static let stopFunctions = """
+        is_engine() {
+            ps -o comm= -p "$1" 2>/dev/null | grep "$2$" >/dev/null
+        }
         stop_pid() {
-            local pid="$1" name="$2" sig
+            local pid="$1" name="$2" sig i
             for sig in TERM KILL; do
+                is_engine "$pid" "$name" || return 0
                 [[ "$sig" == TERM ]] || echo "[$name did not stop in 5 s — killing it]"
                 kill -s "$sig" "$pid" 2>/dev/null || true
-                for _ in $(seq 1 50); do
-                    kill -0 "$pid" 2>/dev/null || return 0
+                for ((i = 0; i < 50; i++)); do
+                    is_engine "$pid" "$name" || return 0
                     sleep 0.1
                 done
             done
@@ -94,9 +101,7 @@ final class ProcessManager {
             [[ -f "$f" ]] || return 0
             pid=$(cat "$f" 2>/dev/null || true)
             [[ "$pid" =~ ^[0-9]+$ ]] || { rm -f "$f"; return 0; }
-            if [[ "$(ps -o comm= -p "$pid" 2>/dev/null)" == *"$name" ]]; then
-                stop_pid "$pid" "$name" || return 1
-            fi
+            stop_pid "$pid" "$name" || return 1
             rm -f "$f"
         }
         """
