@@ -544,6 +544,7 @@ final class ProcessManager {
         reconnectTask?.cancel()
         reconnectTask = nil
         // After the pending restart is dropped, so a refused one is not left for a wake to take up.
+        // An event, not an error: a hold is a state the user started (owner, 2026-10-25).
         if let connectHold {
             log(connectHold)
             return
