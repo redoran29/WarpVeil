@@ -395,7 +395,10 @@ Write the simplest code that works. Prioritize readability over cleverness.
   gets past it. The way in is System Settings → Privacy & Security → Security → Open Anyway,
   there for about an hour after the blocked launch, then the password. The notes and the README
   say so and offer a Terminal install, which has no dialog because `curl` sets no quarantine. An
-  update the app installs carries none, so Gatekeeper is a first-install matter
+  update the app installs carries none, so Gatekeeper is a first-install matter. Not run on a
+  clean account (owner closed plan 17 without it, 2026-10-25): whether the engines nested in a
+  quarantined bundle run after Open Anyway — if a user reports they do not, the planned way out is
+  the app clearing the quarantine from its own bundle at launch
 - **No routing modes, no Clash API in the tunnel** (owner, 2026-10-15): Global and Rule are the
   bypass toggle off and on, and Direct is a disconnect. An active connections page was the one
   other user of a production Clash API and was dropped too — debugging goes through Logs
