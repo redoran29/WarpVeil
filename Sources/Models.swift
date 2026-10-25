@@ -64,3 +64,29 @@ struct Subscription: Codable, Identifiable {
         self.lastUpdated = nil
     }
 }
+
+struct LogLine: Identifiable {
+    // The Logs page shows a level and every one before it: Errors, Events, Everything.
+    enum Level: Int, Comparable {
+        case error, event, traffic
+
+        static func < (lhs: Level, rhs: Level) -> Bool { lhs.rawValue < rhs.rawValue }
+    }
+
+    let id: Int
+    let level: Level
+    let text: String
+
+    // An engine line's level is its own: xray writes `[Error]`, `[Warning]`, `[Info]` and an access
+    // line per connection, sing-box `ERROR`, `WARN`, `INFO`, run.sh `[error]` and `[warning]`, a Go
+    // crash `panic:`. Traffic is only what says it is info, debug or access: a line with no level
+    // of its own — a start failure, the rest of a crash trace — stays an event.
+    static func engineLevel(of text: String) -> Level {
+        if text.range(of: errorPattern, options: .regularExpression) != nil { return .error }
+        if text.range(of: trafficPattern, options: .regularExpression) != nil { return .traffic }
+        return .event
+    }
+
+    private static let errorPattern = #"^(\[error\]|\S+ \S+ \[Error\]|(FATAL|ERROR|PANIC)\b|panic: )"#
+    private static let trafficPattern = #"^(\S+ \S+ \[(Info|Debug)\]|\S+ \S+ from \S+ (accepted|rejected) |(INFO|DEBUG|TRACE)\b)"#
+}

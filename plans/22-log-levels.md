@@ -28,7 +28,7 @@ by default only the important ones shown. Backlog 22.
 - The level across launches. Default: every launch opens on Events.
 - What an engine line with no level of its own is — a crash trace, a start failure, a line from
   run.sh. Default: an event, so nothing an engine says outside its info traffic is hidden by default.
-- How much is kept. Default: the last 500 app lines and the last 500 engine lines, each on its own.
+- How much is kept. Default: the last 500 events and the last 500 lines of traffic, each on its own.
 
 ### Steps
 1. **Levels on the Logs page.** App lines and engine lines are kept apart, every line carries its

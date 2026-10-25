@@ -2,18 +2,26 @@ import SwiftUI
 
 struct LogView: View {
     var app: AppState
+    @State private var level = LogLine.Level.event
 
     var body: some View {
-        // Snapshot: the tail trims logs to 500 whenever they pass 600, and SwiftUI re-runs a
-        // row's closure with the index it was built for — read live, that index is gone.
-        let lines = app.pm.logs
+        let lines = shownLines
 
         VStack(spacing: 0) {
             HStack {
                 Text("Log")
                 Spacer()
+                Picker("Level", selection: $level) {
+                    Text("Errors").tag(LogLine.Level.error)
+                    Text("Events").tag(LogLine.Level.event)
+                    Text("Everything").tag(LogLine.Level.traffic)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+                .fixedSize()
                 Button {
-                    let text = app.pm.logs.joined(separator: "\n")
+                    let text = lines.map(\.text).joined(separator: "\n")
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
                 } label: {
@@ -41,8 +49,8 @@ struct LogView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(lines.indices.reversed(), id: \.self) { index in
-                        Text(lines[index])
+                    ForEach(lines.reversed()) { line in
+                        Text(line.text)
                             .font(.system(size: 10, design: .monospaced))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -57,6 +65,15 @@ struct LogView: View {
             .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .quaternarySystemFill)))
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
+        }
+    }
+
+    // Read only at Everything, so traffic alone does not redraw the page at the other levels.
+    private var shownLines: [LogLine] {
+        switch level {
+        case .error: app.pm.events.filter { $0.level == .error }
+        case .event: app.pm.events
+        case .traffic: (app.pm.events + app.pm.traffic).sorted { $0.id < $1.id }
         }
     }
 }

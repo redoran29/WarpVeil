@@ -6,7 +6,10 @@ import SystemConfiguration
 @Observable
 @MainActor
 final class ProcessManager {
-    var logs: [String] = []
+    // The engines' connection traffic is kept apart, so it never pushes the app's lines out.
+    private(set) var events: [LogLine] = []
+    private(set) var traffic: [LogLine] = []
+    private var lastLogID = 0
     var isRunning = false {
         didSet {
             guard !isRunning else { return }
@@ -299,7 +302,7 @@ final class ProcessManager {
 
     private func runHelperInstall() async -> Bool {
         guard let bundledSingBox = Self.findBinary("sing-box") else {
-            logs.append("[Error: bundled sing-box not found]")
+            logError("[Error: bundled sing-box not found]")
             return false
         }
         isPasswordlessBusy = true
@@ -324,7 +327,7 @@ final class ProcessManager {
             try Self.runShContent.write(toFile: tmpRun, atomically: true, encoding: .utf8)
             try Self.stopShContent.write(toFile: tmpStop, atomically: true, encoding: .utf8)
         } catch {
-            logs.append("[Error: cannot stage the helper: \(error.localizedDescription)]")
+            logError("[Error: cannot stage the helper: \(error.localizedDescription)]")
             removeStaged()
             passwordlessOperationFinished()
             return false
@@ -348,9 +351,9 @@ final class ProcessManager {
         if status != nil { removeStaged() }
         passwordlessOperationFinished()
         if isPasswordless {
-            logs.append("[Helper installed]")
+            log("[Helper installed]")
         } else {
-            logs.append(failure.isEmpty ? "[The helper was not installed]" : "[The helper was not installed: \(failure)]")
+            logError(failure.isEmpty ? "[The helper was not installed]" : "[The helper was not installed: \(failure)]")
         }
         return isPasswordless
     }
@@ -366,9 +369,11 @@ final class ProcessManager {
         isPasswordlessBusy = true
         Task {
             let (status, failure) = await runAsAdmin(Self.removeEveryInstallCommand)
-            logs.append(status == 0
-                ? "[Helper removed — the next connect installs it again]"
-                : failure.isEmpty ? "[The helper was not removed]" : "[The helper was not removed: \(failure)]")
+            if status == 0 {
+                log("[Helper removed — the next connect installs it again]")
+            } else {
+                logError(failure.isEmpty ? "[The helper was not removed]" : "[The helper was not removed: \(failure)]")
+            }
             passwordlessOperationFinished()
         }
     }
@@ -433,7 +438,7 @@ final class ProcessManager {
     init() {
         refreshPasswordless()
         if !isPasswordless, Self.otherInstallExists {
-            logs.append("[The helper is from another build — the next connect installs this one]")
+            log("[The helper is from another build — the next connect installs this one]")
         }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
@@ -466,7 +471,7 @@ final class ProcessManager {
               SCDynamicStoreSetDispatchQueue(store, .main)
         else {
             box.release()
-            logs.append("[Cannot watch the network's IPv6 — reconnect after switching networks]")
+            log("[Cannot watch the network's IPv6 — reconnect after switching networks]")
             return
         }
         ipv6Watcher = store
@@ -499,7 +504,7 @@ final class ProcessManager {
         // A teardown under way is a disconnect or a restart: a wake or a routing edit during it
         // must not bring the tunnel back after it.
         guard lastConnection != nil, !isStopping else { return }
-        logs.append(message)
+        log(message)
         reconnectTask?.cancel()
         if isRunning { tearDownEngines() }
 
@@ -512,7 +517,7 @@ final class ProcessManager {
                 guard !Task.isCancelled else { return }
                 reconnectTask = nil
                 // The only blocker of a session-only wait is the engine, so the change never applied.
-                logs.append("[Restart skipped: \(blocker) — the tunnel keeps its old settings]")
+                log("[Restart skipped: \(blocker) — the tunnel keeps its old settings]")
                 return
             }
             guard !Task.isCancelled, let params = lastConnection else { return }
@@ -538,27 +543,27 @@ final class ProcessManager {
         reconnectTask = nil
         // After the pending restart is dropped, so a refused one is not left for a wake to take up.
         if let connectHold {
-            logs.append(connectHold)
+            log(connectHold)
             return
         }
         // During an install the connect joins it; during a removal it would read the helper as
         // still there and start through scripts about to go.
         guard !isPasswordlessBusy || helperInstall != nil else {
-            logs.append("[The helper is being removed — connect after it]")
+            log("[The helper is being removed — connect after it]")
             return
         }
         guard !config.isEmpty else {
-            logs.append("[Error: no config provided]")
+            logError("[Error: no config provided]")
             return
         }
         guard FileManager.default.isExecutableFile(atPath: xrayPath) else {
-            logs.append("[Error: binary not found at \(xrayPath)]")
+            logError("[Error: binary not found at \(xrayPath)]")
             return
         }
         // Without the server's address the wrapper has no rule for xray's own dial, which would
         // loop back through the TUN with nothing in Logs.
         guard let serverHost = BypassService.xrayServerHost(config) else {
-            logs.append("[Error: the server's address is not in its config]")
+            logError("[Error: the server's address is not in its config]")
             return
         }
 
@@ -567,7 +572,7 @@ final class ProcessManager {
         // An xray still exiting holds the port the next one needs. The connect then starts from
         // lastConnection as it is when xray has gone, so a routing edit made meanwhile is not lost.
         if let xray = xrayProcess, xray.isRunning {
-            logs.append("[Waiting for the previous xray to stop...]")
+            log("[Waiting for the previous xray to stop...]")
             reconnectTask = Task {
                 while xray.isRunning, !Task.isCancelled {
                     try? await Task.sleep(for: .milliseconds(100))
@@ -579,11 +584,11 @@ final class ProcessManager {
         }
 
         if !bypassDomains.isEmpty {
-            logs.append("[Bypass] \(bypassDomains.count) domain(s) will route direct")
+            log("[Bypass] \(bypassDomains.count) domain(s) will route direct")
         }
 
         refreshPasswordless()
-        logs.append(isPasswordless ? "[Connecting...]" : "[Connecting — installing the helper (password prompt)...]")
+        log(isPasswordless ? "[Connecting...]" : "[Connecting — installing the helper (password prompt)...]")
 
         // 0600: other local users shouldn't read VPN logs. One append-mode handle for everything
         // that writes it — xray, the helper and its sing-box share one file offset, so their
@@ -591,7 +596,7 @@ final class ProcessManager {
         FileManager.default.createFile(atPath: logFile, contents: nil, attributes: [.posixPermissions: 0o600])
         let logDescriptor = open(logFile, O_WRONLY | O_APPEND)
         guard logDescriptor >= 0 else {
-            logs.append("[Error: cannot open the log file]")
+            logError("[Error: cannot open the log file]")
             return
         }
         let engineLog = FileHandle(fileDescriptor: logDescriptor, closeOnDealloc: true)
@@ -612,7 +617,7 @@ final class ProcessManager {
                 guard await installHelper() else {
                     guard !Task.isCancelled else { return }
                     reconnectTask = nil
-                    logs.append("[The helper is needed to connect — connect again to install it]")
+                    log("[The helper is needed to connect — connect again to install it]")
                     endSession()
                     return
                 }
@@ -656,7 +661,7 @@ final class ProcessManager {
     // fails is retried until half a minute has passed — the last lookup may run past it by its
     // own timeout, which nothing can cut short.
     private func resolve(_ host: String) async -> [String] {
-        logs.append("[Resolving \(host)...]")
+        log("[Resolving \(host)...]")
         let deadline = ContinuousClock.now + .seconds(30)
         while !Task.isCancelled {
             let addresses = await Task.detached { BypassService.resolveAddresses(of: host) }.value
@@ -664,7 +669,7 @@ final class ProcessManager {
             guard ContinuousClock.now + .seconds(2) < deadline else { break }
             try? await Task.sleep(for: .seconds(2))
         }
-        if !Task.isCancelled { logs.append("[Error: \(host) does not resolve]") }
+        if !Task.isCancelled { logError("[Error: \(host) does not resolve]") }
         return []
     }
 
@@ -701,7 +706,7 @@ final class ProcessManager {
         // build's install may have removed this one's meanwhile.
         refreshPasswordless()
         guard isPasswordless else {
-            logs.append("[Error: the helper was removed while connecting — connect again to install it]")
+            logError("[Error: the helper was removed while connecting — connect again to install it]")
             endSession()
             return
         }
@@ -723,7 +728,7 @@ final class ProcessManager {
                 // stopped — in first. An exit code only for an engine that ended without being asked.
                 let requested = self.isStopping
                 self.endSession()
-                self.logs.append(requested ? "[Disconnected]" : "[Disconnected (exit \(status))]")
+                if requested { self.log("[Disconnected]") } else { self.logError("[Disconnected (exit \(status))]") }
             }
         }
 
@@ -731,7 +736,7 @@ final class ProcessManager {
             try process.run()
             helperProcess = process
         } catch {
-            logs.append("[Error: \(error.localizedDescription)]")
+            logError("[Error: \(error.localizedDescription)]")
             endSession()
         }
     }
@@ -740,24 +745,24 @@ final class ProcessManager {
     // Its dial to the server enters the TUN like any other connection, and the wrapper routes it
     // direct by address — that rule never looks at who dialed. The PID file is the handle on an
     // xray a crashed app left holding the port. True once the port accepts connections.
-    private func startXray(binaryPath: String, configFile: String, log: FileHandle) async -> Bool {
+    private func startXray(binaryPath: String, configFile: String, log engineLog: FileHandle) async -> Bool {
         guard await stopOrphanedXray() else {
             if !Task.isCancelled {
-                logs.append("[Error: an xray from an earlier run is still running — quit it and connect again]")
+                logError("[Error: an xray from an earlier run is still running — quit it and connect again]")
             }
             return false
         }
         guard !Task.isCancelled else { return false }
         // Whatever else holds the port would take the wrapper's traffic, and our xray could not bind.
         guard !PingService.isListening(Self.xraySocksPort) else {
-            logs.append("[Error: port \(Self.xraySocksPort) is already in use — quit whatever holds it and connect again]")
+            logError("[Error: port \(Self.xraySocksPort) is already in use — quit whatever holds it and connect again]")
             return false
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binaryPath)
         process.arguments = ["run", "-config", configFile]
-        process.standardOutput = log
-        process.standardError = log
+        process.standardOutput = engineLog
+        process.standardError = engineLog
         process.terminationHandler = { [weak self] p in
             let status = p.terminationStatus
             Task { @MainActor in
@@ -767,30 +772,30 @@ final class ProcessManager {
                 // The wrapper would keep the TUN and send everything to a dead port. disconnect
                 // also cancels a start still waiting for the port.
                 guard self.isRunning else { return }
-                self.logs.append("[xray exited (exit \(status))]")
+                self.logError("[xray exited (exit \(status))]")
                 self.disconnect()
             }
         }
         do {
             try process.run()
         } catch {
-            logs.append("[Error: cannot start xray: \(error.localizedDescription)]")
+            logError("[Error: cannot start xray: \(error.localizedDescription)]")
             return false
         }
         xrayProcess = process
         try? String(process.processIdentifier).write(toFile: Self.xrayPidFile, atomically: true, encoding: .utf8)
-        logs.append("[xray] started pid=\(process.processIdentifier)")
+        log("[xray] started pid=\(process.processIdentifier)")
 
         for _ in 0..<50 {
             guard !Task.isCancelled else { return false }
             guard process.isRunning else {
-                logs.append("[Error: xray exited before opening port \(Self.xraySocksPort)]")
+                logError("[Error: xray exited before opening port \(Self.xraySocksPort)]")
                 return false
             }
             if PingService.isListening(Self.xraySocksPort) { return true }
             try? await Task.sleep(for: .milliseconds(100))
         }
-        logs.append("[Error: xray did not open port \(Self.xraySocksPort) in 5 s]")
+        logError("[Error: xray did not open port \(Self.xraySocksPort) in 5 s]")
         return false
     }
 
@@ -915,7 +920,7 @@ final class ProcessManager {
         reconnectTask = nil
         guard isRunning else { return }
         // The stop may be a restart's, which this click has just turned into a disconnect.
-        logs.append(isStopping ? "[Disconnecting — the engine is already stopping]" : "[Disconnecting...]")
+        log(isStopping ? "[Disconnecting — the engine is already stopping]" : "[Disconnecting...]")
         tearDownEngines()
     }
 
@@ -973,8 +978,27 @@ final class ProcessManager {
         return nil
     }
 
+    func log(_ text: String) {
+        append([text], level: { _ in .event })
+    }
+
+    func logError(_ text: String) {
+        append([text], level: { _ in .error })
+    }
+
     func clearLogs() {
-        logs.removeAll()
+        events.removeAll()
+        traffic.removeAll()
+    }
+
+    private func append(_ lines: [String], level: (String) -> LogLine.Level) {
+        for text in lines {
+            lastLogID += 1
+            let line = LogLine(id: lastLogID, level: level(text), text: text)
+            if line.level == .traffic { traffic.append(line) } else { events.append(line) }
+        }
+        if events.count > 600 { events = Array(events.suffix(500)) }
+        if traffic.count > 600 { traffic = Array(traffic.suffix(500)) }
     }
 
     // MARK: - Log file tailing
@@ -1013,12 +1037,12 @@ final class ProcessManager {
         partialLogLine = Data(pending[end...])
         guard end > pending.startIndex else { return }
         let text = String(decoding: pending[..<end], as: UTF8.self)
-        let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
+        // sing-box colours its level even into a file.
+        let lines = text.components(separatedBy: .newlines)
+            .map { $0.replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression) }
+            .filter { !$0.isEmpty }
         if isRunning, lines.contains(where: { $0.hasPrefix(Self.engineStartedMarker) }) { isTunnelUp = true }
-        logs.append(contentsOf: lines)
-        if logs.count > 600 {
-            logs = Array(logs.suffix(500))
-        }
+        append(lines, level: LogLine.engineLevel)
     }
 
     // MARK: - Binary auto-detection

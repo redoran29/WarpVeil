@@ -92,18 +92,18 @@ final class AppState {
     func connect() {
         // During the download: a session started now would be stopped again for the swap.
         guard updater.state != .installing else {
-            pm.logs.append(ProcessManager.updateHoldMessage)
+            pm.log(ProcessManager.updateHoldMessage)
             return
         }
         guard let server = selectedServer, let sub = selectedSubscription else {
-            pm.logs.append("[Error: no server selected]")
+            pm.logError("[Error: no server selected]")
             return
         }
 
         // Every server runs on xray. A sing-box config an earlier build stored is rebuilt by its
         // feed's next refresh; a manual one has to be added again.
         guard (server.engine ?? sub.engine) == .xray else {
-            pm.logs.append(sub.isManual
+            pm.logError(sub.isManual
                 ? "[Error: \(server.name) is a sing-box config — add it again as a link or an xray config]"
                 : "[Error: \(server.name) is still a sing-box config — refresh \(sub.name) to rebuild it]")
             return

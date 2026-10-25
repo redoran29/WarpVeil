@@ -247,7 +247,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - All UI in SwiftUI. AppKit appears only in `WarpVeilApp.swift`, which owns the window, the
   status item and its menu — everything hosted inside is SwiftUI
 - No external Swift package dependencies
-- `ProcessManager.logs` is trimmed to the last 500 entries once it passes 600
+- Logs keep the app's lines and the engines' warnings and errors (`ProcessManager.events`) apart
+  from their info and access traffic (`traffic`), each trimmed to its last 500 once it passes 600;
+  the engines write at info, and the Logs page's level — Errors, Events, Everything — only filters
 
 ---
 
