@@ -517,7 +517,7 @@ final class ProcessManager {
                 guard !Task.isCancelled else { return }
                 reconnectTask = nil
                 // The only blocker of a session-only wait is the engine, so the change never applied.
-                log("[Restart skipped: \(blocker) — the tunnel keeps its old settings]")
+                logError("[Restart skipped: \(blocker) — the tunnel keeps its old settings]")
                 return
             }
             guard !Task.isCancelled, let params = lastConnection else { return }
@@ -617,7 +617,7 @@ final class ProcessManager {
                 guard await installHelper() else {
                     guard !Task.isCancelled else { return }
                     reconnectTask = nil
-                    log("[The helper is needed to connect — connect again to install it]")
+                    logError("[The helper is needed to connect — connect again to install it]")
                     endSession()
                     return
                 }
