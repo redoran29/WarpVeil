@@ -57,23 +57,12 @@ struct AdvancedView: View {
                     }
                 } label: {
                     Text("WarpVeil \(Updater.currentVersion)")
-                    Text(updateStatus)
+                    Text(app.updater.statusText)
                 }
                 .disabled(app.updater.state == .checking || app.updater.state == .installing)
             }
         }
         .formStyle(.grouped)
-    }
-
-    private var updateStatus: String {
-        switch app.updater.state {
-        case .idle: "Checked once a day"
-        case .checking: "Checking..."
-        case .upToDate: "Up to date"
-        case .available(let version): "Version \(version) is available"
-        case .installing: "Downloading and installing — the app relaunches when done"
-        case .failed(let reason): reason
-        }
     }
 
     private var helperStatus: String {

@@ -19,6 +19,24 @@ final class Updater {
         return version
     }
 
+    // The release found newer than the running app, kept through a later check, an install and a
+    // failed install — what the connection column's banner offers until the app is replaced.
+    var newerVersion: String? {
+        guard let version = release?.version, Self.isNewer(version) else { return nil }
+        return version
+    }
+
+    var statusText: String {
+        switch state {
+        case .idle: "Checked once a day"
+        case .checking: "Checking..."
+        case .upToDate: "Up to date"
+        case .available(let version): "Version \(version) is available"
+        case .installing: "Downloading and installing — the app relaunches when done"
+        case .failed(let reason): reason
+        }
+    }
+
     nonisolated static let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
 
     private struct Release: Decodable {

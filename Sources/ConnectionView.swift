@@ -23,8 +23,8 @@ struct ConnectionView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // This column is on every page, so a new version is seen without opening Advanced.
         .safeAreaInset(edge: .bottom) {
-            if app.updater.availableVersion != nil || app.updater.state == .installing {
-                updateBanner
+            if let version = app.updater.newerVersion {
+                updateBanner(version: version)
                     .frame(maxWidth: 360)
                     .padding([.horizontal, .bottom], 20)
             }
@@ -33,21 +33,23 @@ struct ConnectionView: View {
 
     // MARK: - Update
 
-    private var updateBanner: some View {
-        let version = app.updater.availableVersion
+    private func updateBanner(version: String) -> some View {
+        let state = app.updater.state
         return HStack(spacing: 10) {
             Image(systemName: "arrow.down.circle.fill")
                 .font(.system(size: 22))
                 .foregroundStyle(Color.lavender)
             VStack(alignment: .leading, spacing: 2) {
-                Text(version.map { "WarpVeil \($0) is available" } ?? "Installing the update…")
+                Text("WarpVeil \(version) is available")
                     .font(.system(size: 13, weight: .medium))
-                Text(version == nil ? "The app relaunches when done" : "You have \(Updater.currentVersion)")
+                // A failed install says why here too, or the banner would only lose its button.
+                Text(state == .available(version) ? "You have \(Updater.currentVersion)" : app.updater.statusText)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
             Spacer()
-            if version != nil {
+            if state != .installing {
                 Button("Install") { app.installUpdate() }
                     .buttonStyle(.borderedProminent)
             }
