@@ -78,9 +78,10 @@ struct AdvancedView: View {
 
     private var helperStatus: String {
         if app.pm.isPasswordlessBusy { return "Waiting for admin prompt..." }
-        return app.pm.isPasswordless
+        guard app.pm.isPasswordless else { return "The next connect installs it, with your password once" }
+        return app.pm.canRemoveHelper
             ? "Starts the engine without a password"
-            : "The next connect installs it, with your password once"
+            : "Starts the engine without a password — disconnect to remove it"
     }
 
     @ViewBuilder
