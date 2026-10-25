@@ -167,8 +167,9 @@ final class Updater {
         }
         // "$1" ends as the new app or the old one back. Only then do the other copies go: if a
         // rollback failed too, both stay where they are rather than nowhere.
+        // The relaunched app inherits this PATH through open, so it is the system's full one.
         let script = """
-            export PATH=/usr/bin:/bin
+            export PATH=/usr/bin:/bin:/usr/sbin:/sbin
             while kill -0 "$4" 2>/dev/null; do sleep 0.2; done
             rm -rf "$3"
             mv "$1" "$3" && { mv "$2" "$1" || mv "$3" "$1"; }

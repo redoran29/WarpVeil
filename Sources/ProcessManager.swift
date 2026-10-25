@@ -382,7 +382,10 @@ final class ProcessManager {
     private func runAsAdmin(_ command: String) async -> (status: Int32?, failure: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(command)) with administrator privileges"]
+        // PATH pinned like every root shell's: do shell script takes the app's, and an app the
+        // updater relaunched has /usr/bin:/bin alone — no visudo, every install failing.
+        let pinned = "export PATH=/usr/bin:/bin:/usr/sbin:/sbin\n" + command
+        process.arguments = ["-e", "do shell script \(Self.appleScriptEscape(pinned)) with administrator privileges"]
         // A file, not a pipe: osascript repeats the command's whole stderr, and past a pipe's buffer
         // it would block on the write and never exit; a root shell outliving it would hold a pipe open.
         let errorFile = FileManager.default.temporaryDirectory.appendingPathComponent("warpveil-admin-\(UUID().uuidString)")

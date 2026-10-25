@@ -541,6 +541,10 @@ Write the simplest code that works. Prioritize readability over cleverness.
   `ps -o comm=` says `sudo`, so it cannot be tracked by PID file. xray is started by the app
 - Two `FileHandle(forWritingAtPath:)` on one log overwrite each other: they are separate open
   file descriptions at offset 0. Writers that share a log get one handle opened `O_APPEND`
+- `open` passes its caller's environment to the app it launches, and `do shell script` runs with
+  the app's PATH: an app the updater relaunched had `/usr/bin:/bin` alone, and every helper install
+  failed on `visudo: command not found` (1.3.1, 2026-10-25). The admin shells pin PATH, and the
+  updater's shell exports the full one
 - `/usr/bin/jq` exists from macOS 15, and every root connect needs it for the config policy —
   that is why the deployment target is 15
 - A file the app downloads with `URLSession`, or `curl` downloads, gets `com.apple.provenance`
