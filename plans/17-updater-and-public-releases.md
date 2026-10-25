@@ -25,6 +25,9 @@ ready — what is in `main` plus the updater — and every later feature arrives
   item in the menu-bar menu while one is known; a check once a day. No toggle, no notification, no
   dialog (owner, 2026-10-14).
 - An update installs on a click, not by itself (owner, 2026-10-14).
+- An update is loud: a banner with Install at the foot of the connection column, on every page,
+  besides the Advanced row and the menu item — still no notification and no dialog (owner,
+  2026-10-25).
 - Ad-hoc signed releases: the README and the notes tell a stranger exactly what macOS will show
   and what to click (owner, 2026-10-14).
 - `release.sh` refuses what cannot be released, and its notes come from a hand-written
@@ -75,6 +78,11 @@ ready — what is in `main` plus the updater — and every later feature arrives
 2. **The updater.** The Updates row, the daily check, and Install. Done when: the second check above.
 3. **Publish 1.3.** The engine shell's start line, the version bump, the README's Download
    section, the release on GitHub, the owner's Mac on 1.3. Done when: the last four checks above.
+
+4. **A loud update, tried for real.** The banner, then 1.3.1 published and installed on the
+   owner's Mac from the banner with the tunnel up. Done when: the banner offers 1.3.1, Install
+   relaunches into 1.3.1, the first connect installs 1.3.1's helper with one password, and Advanced
+   reads Up to date.
 
 ### Leaves out
 - Notarization and a Developer ID; Sparkle; delta updates; a progress bar.

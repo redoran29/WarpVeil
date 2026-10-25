@@ -368,8 +368,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
   GitHub's `releases/latest`, the newest release that is neither a draft nor a prerelease — 15 s
   after bootstrap, then a day after the last check that got an answer (asked hourly, so one that
   failed offline after a wake is retried within the hour), and on Check for Updates in Advanced; a
-  version numerically newer than the running one shows Install there and `Update to X…` in the
-  status menu. Homegrown, since the canon takes no packages (no Sparkle); no toggle, no
+  version numerically newer than the running one shows Install there, `Update to X…` in the
+  status menu, and a banner with Install at the foot of the connection column, on every page
+  (owner, 2026-10-25: an update has to be seen). Homegrown, since the canon takes no packages (no Sparkle); no toggle, no
   notification, no dialog, and it installs only on a click. Authenticity is our own ed25519
   signature over the release zip (`<zip>.sig`, made by `release.sh`), checked against
   `WVUpdatePublicKey` before anything unpacks it — the app's own signature is ad-hoc and proves

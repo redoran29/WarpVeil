@@ -21,6 +21,39 @@ struct ConnectionView: View {
         }
         .padding(.horizontal, 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // This column is on every page, so a new version is seen without opening Advanced.
+        .safeAreaInset(edge: .bottom) {
+            if app.updater.availableVersion != nil || app.updater.state == .installing {
+                updateBanner
+                    .frame(maxWidth: 360)
+                    .padding([.horizontal, .bottom], 20)
+            }
+        }
+    }
+
+    // MARK: - Update
+
+    private var updateBanner: some View {
+        let version = app.updater.availableVersion
+        return HStack(spacing: 10) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 22))
+                .foregroundStyle(Color.lavender)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(version.map { "WarpVeil \($0) is available" } ?? "Installing the update…")
+                    .font(.system(size: 13, weight: .medium))
+                Text(version == nil ? "The app relaunches when done" : "You have \(Updater.currentVersion)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if version != nil {
+                Button("Install") { app.installUpdate() }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.lavender.opacity(0.12)))
     }
 
     // MARK: - Power Button
