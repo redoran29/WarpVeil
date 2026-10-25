@@ -28,7 +28,8 @@ by default only the important ones shown. Backlog 22.
 - The level across launches. Default: every launch opens on Events.
 - What an engine line with no level of its own is — a crash trace, a start failure, a line from
   run.sh. Default: an event, so nothing an engine says outside its info traffic is hidden by default.
-- How much is kept. Default: the last 500 events and the last 500 lines of traffic, each on its own.
+- How much is kept. Default: the last 500 of each buffer — the app's lines, the engines' other lines,
+  the engines' traffic.
 
 ### Steps
 1. **Levels on the Logs page.** App lines and engine lines are kept apart, every line carries its
@@ -37,6 +38,25 @@ by default only the important ones shown. Backlog 22.
 ### Leaves out
 - A search field, an export to a file, a log kept on disk across launches.
 - A setting for the engines' own log level; a separate page per engine.
+
+### Built (2026-10-25)
+`f6bfee1`, then `7cd9fb2` and `3993fa3` from the review below. Checked live on the 1.3 install with
+`curl` traffic: Events shows the app's lines and xray's warnings and no connection line, Everything
+shows both engines' traffic without sing-box's colour codes, Errors shows only the refused connect
+of a taken port 10808. The classifier over 1572 lines of a live log: 1566 traffic, 6 events. Open:
+the restart and the cancelled install at the default level after ten minutes (needs the owner).
+
+### Review (2026-10-25, round 1)
+`/code-review f6bfee1`, findings and what was done:
+- Splitting engine lines by level left a run of failed connections (sing-box ERROR per connection)
+  or a crash trace pushing the app's lines out: three buffers by source (`3993fa3`).
+- A regex built per line, three per engine line on the main actor; Everything sorted 1,200 lines on
+  every tick; an unused ordering of levels; a closure per app line; the canon's "500 rows": prefix
+  checks, one strip per read, a one-pass merge, and the canon and comments say up to 1,800
+  (`3993fa3`).
+- A skipped restart and a cancelled install were events, invisible at Errors (`7cd9fb2`).
+- Not changed: sing-box's session INFO lines (default interface, the utun taken) count as traffic
+  and show only at Everything; Errors has no buffer of its own beyond the app's 500 lines.
 
 ### What we know (2026-10-25)
 - The tunnel's xray runs at `loglevel: info` with the access log on, the TUN wrapper's sing-box at
