@@ -2,6 +2,11 @@
 
 Each `## <version>` section is what `release.sh` publishes as that release's notes.
 
+## 1.3.2
+
+- **Connects after an update.** An app that had just updated itself could not install its helper and so could not connect; 1.3.2 fixes it. If 1.3.1 does not connect, install 1.3.2 from the banner.
+- The first connect after this update asks for your password once, to install this version's helper.
+
 ## 1.3.1
 
 - **Updates are seen.** When a new version is out, the connection panel — on every page — says so, with Install; a failed install says why there and can be tried again.
