@@ -72,21 +72,20 @@ struct LogLine: Identifiable {
     let level: Level
     let text: String
 
-    // An engine line's level is only what it says itself: sing-box writes `ERROR`, `WARN`, `INFO`
-    // first, xray `[Error]`, `[Warning]`, `[Info]` after its timestamp and an access line per
-    // connection, run.sh `[error]`. A line that says nothing — a start failure, a crash trace, a
-    // tool's own complaint — is an event, next to the app's own error line about the same failure
-    // (owner, 2026-10-25): guessing errors from other programs' wording is a list that never ends.
+    // An engine line's level is only the marker it carries: sing-box writes `ERROR`, `WARN`,
+    // `INFO` first, xray `[Error]`, `[Warning]`, `[Info]` after its timestamp (its access log is
+    // off), run.sh `[error]`. A line that says nothing — a start failure, a crash trace, a tool's
+    // own complaint — is an event, next to the app's own error line about the same failure (owner,
+    // 2026-10-25): guessing errors from other programs' wording is a list that never ends.
     static func engineLevel(of text: String) -> Level {
-        let afterTimestamp = xrayBody(of: text)
-        if ["ERROR", "FATAL", "PANIC", "[error]"].contains(where: text.hasPrefix)
-            || afterTimestamp?.hasPrefix("[Error]") == true { return .error }
-        if ["INFO", "DEBUG", "TRACE"].contains(where: text.hasPrefix) { return .traffic }
-        guard let afterTimestamp else { return .event }
-        let isAccess = afterTimestamp.hasPrefix("from ")
-            && (afterTimestamp.contains(" accepted ") || afterTimestamp.contains(" rejected "))
-        return isAccess || afterTimestamp.hasPrefix("[Info]") || afterTimestamp.hasPrefix("[Debug]") ? .traffic : .event
+        let marker = xrayBody(of: text) ?? Substring(text)
+        if errorMarkers.contains(where: marker.hasPrefix) { return .error }
+        if trafficMarkers.contains(where: marker.hasPrefix) { return .traffic }
+        return .event
     }
+
+    private static let errorMarkers = ["ERROR", "FATAL", "PANIC", "[error]", "[Error]"]
+    private static let trafficMarkers = ["INFO", "DEBUG", "TRACE", "[Info]", "[Debug]"]
 
     // xray's lines start "2026/10/25 16:25:51.925813 ".
     private static func xrayBody(of text: String) -> Substring? {

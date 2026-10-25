@@ -491,7 +491,9 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         let direct: [[String: Any]] = dialers.contains { ($0["tag"] as? String) == "direct" }
             ? [] : [["protocol": "freedom", "tag": "direct"]]
         let config: [String: Any] = [
-            "log": ["loglevel": "info"],
+            // No access log: sing-box's info lines already name every connection, and a level
+            // is then the marker each line carries.
+            "log": ["loglevel": "info", "access": "none"],
             "inbounds": [
                 [
                     "tag": "socks-in",
