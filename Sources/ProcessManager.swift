@@ -473,7 +473,7 @@ final class ProcessManager {
               SCDynamicStoreSetDispatchQueue(store, .main)
         else {
             box.release()
-            log("[Cannot watch the network's IPv6 — reconnect after switching networks]")
+            logError("[Cannot watch the network's IPv6 — reconnect after switching networks]")
             return
         }
         ipv6Watcher = store
@@ -545,13 +545,13 @@ final class ProcessManager {
         reconnectTask = nil
         // After the pending restart is dropped, so a refused one is not left for a wake to take up.
         if let connectHold {
-            log(connectHold)
+            logError(connectHold)
             return
         }
         // During an install the connect joins it; during a removal it would read the helper as
         // still there and start through scripts about to go.
         guard !isPasswordlessBusy || helperInstall != nil else {
-            log("[The helper is being removed — connect after it]")
+            logError("[The helper is being removed — connect after it]")
             return
         }
         guard !config.isEmpty else {

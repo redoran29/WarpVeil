@@ -92,7 +92,7 @@ final class AppState {
     func connect() {
         // During the download: a session started now would be stopped again for the swap.
         guard updater.state != .installing else {
-            pm.log(ProcessManager.updateHoldMessage)
+            pm.logError(ProcessManager.updateHoldMessage)
             return
         }
         guard let server = selectedServer, let sub = selectedSubscription else {
