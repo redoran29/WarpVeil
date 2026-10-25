@@ -40,7 +40,7 @@ by default only the important ones shown. Backlog 22.
 - A setting for the engines' own log level; a separate page per engine.
 
 ### Built (2026-10-25)
-`f6bfee1`, then `7cd9fb2` and `3993fa3` from the review below. Checked live on the 1.3 install with
+`f6bfee1`, then the fixes of the review rounds below. Checked live on the 1.3 install with
 `curl` traffic: Events shows the app's lines and xray's warnings and no connection line, Everything
 shows both engines' traffic without sing-box's colour codes, Errors shows only the refused connect
 of a taken port 10808. The classifier over 1572 lines of a live log: 1566 traffic, 6 events. Open:
@@ -57,6 +57,21 @@ the restart and the cancelled install at the default level after ten minutes (ne
 - A skipped restart and a cancelled install were events, invisible at Errors (`7cd9fb2`).
 - Not changed: sing-box's session INFO lines (default interface, the utun taken) count as traffic
   and show only at Everything; Errors has no buffer of its own beyond the app's 500 lines.
+
+### Review (2026-10-25, round 2)
+`/code-review f6bfee1..3993fa3`, findings and what was done:
+- `trim` took its buffer inout, so traffic alone invalidated the engine buffer and redrew the page
+  at every level: it writes only over the cap (`2bad010`).
+- Refused connects held by an update, a quit or a removal, and the IPv6 watch failing, were events
+  (`093d7c2`); xray's `Failed to start`, a Go `fatal error:`, sudo's and bash's errors were events,
+  so Errors lost the reason an engine died; the canon says a bump re-checks the classifier
+  (`e45e861`).
+- Not changed: a dead server's per-connection ERROR lines fill the engine buffer and push its start
+  lines out — they are the only sign of why nothing loads, so they stay visible; the buffers cover
+  different spans at Everything — the price of keeping them apart (owner, above); `log` and
+  `logError` stay two names, which read better at 25 call sites than a level argument; Errors
+  refilters on engine lines only, which are rare once traffic is apart; xray's access log to a file
+  of its own instead of reading levels from text — a second file to tail for one engine.
 
 ### What we know (2026-10-25)
 - The tunnel's xray runs at `loglevel: info` with the access log on, the TUN wrapper's sing-box at
