@@ -937,7 +937,15 @@ final class ProcessManager {
     private func endSession() {
         helperProcess?.terminate()
         helperProcess = nil
-        xrayProcess?.terminate()
+        // An xray that ignores TERM is killed after 5 s, as kill_pid_file does: the next connect
+        // waits for its port, a quit for its exit. It is our unreaped child, so the PID is still its.
+        if let xray = xrayProcess {
+            xray.terminate()
+            Task {
+                try? await Task.sleep(for: .seconds(5))
+                if xray.isRunning { kill(xray.processIdentifier, SIGKILL) }
+            }
+        }
         stopLogTail()
         isStopping = false
         isRunning = false
