@@ -982,12 +982,12 @@ final class ProcessManager {
 
     func log(_ text: String) {
         appLines.append(nextLine(text, .event))
-        trim(&appLines)
+        trim(\.appLines)
     }
 
     func logError(_ text: String) {
         appLines.append(nextLine(text, .error))
-        trim(&appLines)
+        trim(\.appLines)
     }
 
     func clearLogs() {
@@ -1001,8 +1001,11 @@ final class ProcessManager {
         return LogLine(id: lastLogID, level: level, text: text)
     }
 
-    private func trim(_ lines: inout [LogLine]) {
-        if lines.count > 600 { lines = Array(lines.suffix(500)) }
+    // Not inout: writing an observed buffer back invalidates its readers even when nothing was
+    // cut, and traffic alone would redraw the Logs page at every level.
+    private func trim(_ buffer: ReferenceWritableKeyPath<ProcessManager, [LogLine]>) {
+        guard self[keyPath: buffer].count > 600 else { return }
+        self[keyPath: buffer] = Array(self[keyPath: buffer].suffix(500))
     }
 
     // MARK: - Log file tailing
@@ -1049,8 +1052,8 @@ final class ProcessManager {
             let line = nextLine(text, LogLine.engineLevel(of: text))
             if line.level == .traffic { trafficLines.append(line) } else { engineLines.append(line) }
         }
-        trim(&engineLines)
-        trim(&trafficLines)
+        trim(\.engineLines)
+        trim(\.trafficLines)
     }
 
     // MARK: - Binary auto-detection
