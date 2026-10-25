@@ -84,6 +84,19 @@ ready — what is in `main` plus the updater — and every later feature arrives
    relaunches into 1.3.1, the first connect installs 1.3.1's helper with one password, and Advanced
    reads Up to date.
 
+### Review (2026-10-25, step 4)
+`/code-review 601b248..1c5bbbc`, then `1c5bbbc..f7d8aae`, findings and what was done:
+- The banner vanished at a failed install and for every daily check; the state's wording was
+  written twice; Advanced and the status menu kept their own test (`f7d8aae`, then one source,
+  `Updater.newerVersion`, an Install that waits out a check, a full failure reason).
+- The session's configs were removed only at a clean end, so a crash left the server's
+  credentials in `$TMPDIR` under a PID nothing looks for: both engines read them on stdin now
+  (`02326d9`).
+- Not changed: files an earlier build left are dirhelper's (3 days); a failed write into an
+  engine's stdin shows as the engine's own error; the window's minimum grows with the banner
+  (`sizingOptions` `[.minSize]`) rather than overlapping; a ping still writes its configs for the
+  length of its run.
+
 ### Leaves out
 - Notarization and a Developer ID; Sparkle; delta updates; a progress bar.
 - Installing an update without a click.
