@@ -84,6 +84,17 @@ ready — what is in `main` plus the updater — and every later feature arrives
    relaunches into 1.3.1, the first connect installs 1.3.1's helper with one password, and Advanced
    reads Up to date.
 
+### Built (2026-10-25, step 4)
+The banner (`1c5bbbc`, `f7d8aae`, `7791104`), the session's configs on stdin (`02326d9`), then
+1.3.1 published and installed from the banner on the owner's Mac with the tunnel up: the swap and
+relaunch worked, but the relaunched app could not install its helper — `visudo: command not found`,
+the swap shell's `PATH=/usr/bin:/bin` reaching `do shell script` through `open`. Fixed in `e9af589`
+(admin shells pin PATH, the swap shell exports the full one) and shipped as 1.3.2, installed from
+1.3.1's banner: the relaunched app still has `/usr/bin:/bin`, and its helper installed with one
+password, the sudoers entry and libexec of 1-3-2 are in place, no `.WarpVeil.app.new`/`.old` is
+left, the tunnel connects, and `releases/latest` answers v1.3.2. Left of this plan: the
+clean-account check and a live connect while another build holds 172.19.0.1.
+
 ### Review (2026-10-25, step 4)
 `/code-review 601b248..1c5bbbc`, then `1c5bbbc..f7d8aae`, findings and what was done:
 - The banner vanished at a failed install and for every daily check; the state's wording was
