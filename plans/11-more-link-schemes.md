@@ -12,7 +12,7 @@ is for the people the public build (backlog 17) brings, with other providers. Ba
 - Each new scheme carries traffic: a local server for that protocol on localhost, a user-space xray
   client built from the parsed link, and `curl` through it succeeds. Ping shows a delay for the same
   server.
-- The owner's vless feed lists the same eight servers as before.
+- The owner's vless feed lists the same servers as before (nine on 2026-10-25).
 
 ### Decided
 - Links only, in a feed and in the Add field; no Clash YAML and no QR import (owner, 2026-10-15).
@@ -46,7 +46,9 @@ is for the people the public build (backlog 17) brings, with other providers. Ba
 
 ### What we know (2026-10-15)
 - A feed's lines go through the vless and the vmess parser only; a comment in that loop says "Can add
-  trojan://, ss:// etc. later" (code: the subscription service's URI feed path).
+  trojan://, ss:// etc. later" (code: the subscription service's URI feed path; still so on
+  2026-10-25). Trojan, shadowsocks and socks servers already connect when they come as xray configs
+  — a panel's `?format=xray` or a pasted one (1.3) — so this plan is about the links only.
 - The Add field takes one `vless://`/`vmess://` link or a subscription URL; manual JSON has its own
   field (code: the Servers page's add sheet).
 - Xray 26.3.27 implements ss, trojan, vless, vmess and a Hysteria 2 client (`infra/conf/hysteria.go`,
