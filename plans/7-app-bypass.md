@@ -5,7 +5,8 @@ goes through the VPN. One list, no modes (routing modes were dropped). Backlog 7
 ### Done when
 - Safari added to the list, VPN on: `https://api.ipify.org` opened in Safari shows the home address,
   in Chrome the VPN's exit address; the engine log shows Safari matched by its path.
-- Both topologies: the same check holds on an xray server and on a sing-box server.
+- The same check holds for a server given by an address and one given by a name (whose wrapper
+  rule already reads xray's process path).
 - Safari removed from the list: after the reconnect, Safari shows the VPN's exit address again.
 - The bypass toggle off: apps on the list go through the VPN like everything else.
 - An app moved or deleted after it was added: its row says it is not found, and the connect goes on.
@@ -22,8 +23,8 @@ goes through the VPN. One list, no modes (routing modes were dropped). Backlog 7
 
 ### Depends on
 - Process matching works only in the root engine: on this macOS the socket list it reads is empty for
-  a user process and full for root (measured below). Both topologies route in a root sing-box, so
-  nothing is missing today.
+  a user process and full for root (measured below). Every server routes in the root sing-box
+  wrapper (one topology since plan 19), so nothing is missing today.
 
 ### Risk
 - Traffic an app hands to a system daemon (background downloads through `nsurlsessiond`, App Store)
@@ -31,12 +32,12 @@ goes through the VPN. One list, no modes (routing modes were dropped). Backlog 7
 - With a non-empty list the engine looks up the process of every new connection (a ~600 KB sysctl
   snapshot, cached 200 ms). Guarded by adding the rule only when the list is not empty; Done when is
   checked with a normal browsing load.
-- A wrong rule position would send everything direct or nothing; guarded by the browser check in both
-  topologies.
+- A wrong rule position would send everything direct or nothing; guarded by the browser check for
+  both kinds of server.
 
 ### Steps
-1. **App bypass.** An "Apps" section under the bypass toggle with "Add app…"; listed apps go direct in
-   both topologies. Done when: every check above.
+1. **App bypass.** An "Apps" section under the bypass toggle with "Add app…"; listed apps go direct.
+   Done when: every check above.
 
 ### Leaves out
 - An "only these apps through the VPN" list, and any routing mode (owner, 2026-10-15).
@@ -50,5 +51,8 @@ goes through the VPN. One list, no modes (routing modes were dropped). Backlog 7
   "Engine facts").
 - sing-box matches a TCP connection to its socket on the exact local and remote address and port; a
   TUN connection's local address is the TUN's own (same source).
-- The owner's domain bypass list is empty today (`bypassDomains = ""`).
+- The owner's domain bypass list holds one domain, left from plan 22's restart check (2026-10-25).
+- A server given by name already has a process rule in the wrapper — xray's path and its addresses,
+  a `logical` and — so sing-box looks up every TUN connection's process while one is connected
+  (CLAUDE.md, Architecture); app bypass adds rules of the same kind.
 - The old plan's design: `git show 975f8b4:plans/client-feature-parity.md`, item 7.
