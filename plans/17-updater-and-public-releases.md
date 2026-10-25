@@ -108,6 +108,14 @@ ready — what is in `main` plus the updater — and every later feature arrives
   fresh start, a tunnel already held, a held one that goes, and a TERM before the TUN), `5f96111`
   (1.3), `9d4896a` (README). Left: the owner's word, the release, 1.3 on the owner's Mac, the
   clean-account check.
+- Step 3, 2026-10-25: plans 21 and 22 landed in 1.3 first (owner). The owner's word, then
+  `release.sh`: v1.3 on GitHub, neither draft nor prerelease, with the zip and its `.sig`, notes
+  from `CHANGELOG.md`; `releases/latest` answers v1.3. The downloaded zip verifies against
+  `WVUpdatePublicKey` and a one-byte change does not; it unpacks to a 1.3 arm64 bundle that passes
+  `codesign --verify --deep`. The owner's Mac runs 1.3 (`install.sh` from the same tree) and
+  Advanced reads "WarpVeil 1.3 — Up to date". Left: the clean-account check, and a connect while
+  another build holds 172.19.0.1 — live, it needs a dev copy's helper install, which takes the
+  installed copy's helper away and asks the owner's password twice.
 
 ### Review (2026-10-15, round 1)
 `/code-review 3777f09..9d4896a`, findings and what was done:
