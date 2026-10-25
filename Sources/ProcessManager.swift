@@ -545,13 +545,13 @@ final class ProcessManager {
         reconnectTask = nil
         // After the pending restart is dropped, so a refused one is not left for a wake to take up.
         if let connectHold {
-            logError(connectHold)
+            log(connectHold)
             return
         }
         // During an install the connect joins it; during a removal it would read the helper as
         // still there and start through scripts about to go.
         guard !isPasswordlessBusy || helperInstall != nil else {
-            logError("[The helper is being removed — connect after it]")
+            log("[The helper is being removed — connect after it]")
             return
         }
         guard !config.isEmpty else {

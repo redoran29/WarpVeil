@@ -250,8 +250,9 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - Logs are three buffers — the app's lines, the engines' other lines, the engines' info and access
   traffic (`ProcessManager.appLines`, `engineLines`, `trafficLines`) — each trimmed to its last 500
   once it passes 600, so nothing an engine writes pushes the app's lines out. The engines write at
-  info; the Logs page's level — Errors, Events, Everything — only filters. A line's level is read
-  from its own text (`LogLine.engineLevel`), so an engine bump re-checks that against the new output
+  info; the Logs page's level — Errors, Events, Everything — only filters. An engine line's level is
+  only the marker it carries itself (`LogLine.engineLevel`) — an unmarked line is an event — so an
+  engine bump re-checks those markers against the new output
 
 ---
 

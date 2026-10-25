@@ -23,11 +23,14 @@ by default only the important ones shown. Backlog 22.
 - App events are kept apart from engine traffic, so traffic never pushes them out (owner,
   2026-10-25).
 - Lands in 1.3, before plan 21 closes (owner, 2026-10-25).
+- An engine line is an error only when it marks itself so; an unmarked one — a start failure, a
+  crash trace, a tool's complaint — is an event, next to the app's own error line (owner,
+  2026-10-25, on review round 3: a list of other programs' wording never ends).
+- A connect held by a quit, an update or a helper removal is an event: a state the user started,
+  not a failure (owner, 2026-10-25, on review round 3).
 
 ### Open for the owner
 - The level across launches. Default: every launch opens on Events.
-- What an engine line with no level of its own is — a crash trace, a start failure, a line from
-  run.sh. Default: an event, so nothing an engine says outside its info traffic is hidden by default.
 - How much is kept. Default: the last 500 of each buffer — the app's lines, the engines' other lines,
   the engines' traffic.
 
@@ -72,6 +75,13 @@ the restart and the cancelled install at the default level after ten minutes (ne
   `logError` stay two names, which read better at 25 call sites than a level argument; Errors
   refilters on engine lines only, which are rare once traffic is apart; xray's access log to a file
   of its own instead of reading levels from text — a second file to tail for one engine.
+
+### Review (2026-10-25, round 3)
+`/code-review 3993fa3..e45e861`. The classifier was being fixed a third time, each round adding other
+programs' wording (jq, mktemp, a multi-line policy refusal after round 2's xray, Go, sudo, bash), and
+one finding undid round 2's refused-connect fix. Both taken to the owner, decided above: round 2's
+wording list goes, and held connects are events again; the multi-line refusal and the `contains`
+cost went with the list.
 
 ### What we know (2026-10-25)
 - The tunnel's xray runs at `loglevel: info` with the access log on, the TUN wrapper's sing-box at

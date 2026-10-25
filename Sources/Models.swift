@@ -72,15 +72,14 @@ struct LogLine: Identifiable {
     let level: Level
     let text: String
 
-    // An engine line's level is its own: sing-box writes `ERROR`, `WARN`, `INFO` first, xray
-    // `[Error]`, `[Warning]`, `[Info]` after its timestamp and an access line per connection,
-    // run.sh `[error]`. Unmarked failures are known by their start: xray's `Failed to start`, a Go
-    // crash, sudo's and bash's own errors. Traffic is only what says it is info, debug or access:
-    // any other line — the rest of a crash trace among them — is an event. An engine bump
-    // re-checks this against its output.
+    // An engine line's level is only what it says itself: sing-box writes `ERROR`, `WARN`, `INFO`
+    // first, xray `[Error]`, `[Warning]`, `[Info]` after its timestamp and an access line per
+    // connection, run.sh `[error]`. A line that says nothing — a start failure, a crash trace, a
+    // tool's own complaint — is an event, next to the app's own error line about the same failure
+    // (owner, 2026-10-25): guessing errors from other programs' wording is a list that never ends.
     static func engineLevel(of text: String) -> Level {
         let afterTimestamp = xrayBody(of: text)
-        if errorStarts.contains(where: text.hasPrefix) || text.contains("/run.sh: line ")
+        if ["ERROR", "FATAL", "PANIC", "[error]"].contains(where: text.hasPrefix)
             || afterTimestamp?.hasPrefix("[Error]") == true { return .error }
         if ["INFO", "DEBUG", "TRACE"].contains(where: text.hasPrefix) { return .traffic }
         guard let afterTimestamp else { return .event }
@@ -88,10 +87,6 @@ struct LogLine: Identifiable {
             && (afterTimestamp.contains(" accepted ") || afterTimestamp.contains(" rejected "))
         return isAccess || afterTimestamp.hasPrefix("[Info]") || afterTimestamp.hasPrefix("[Debug]") ? .traffic : .event
     }
-
-    private static let errorStarts = [
-        "ERROR", "FATAL", "PANIC", "panic: ", "fatal error: ", "Failed to start", "sudo: ", "[error]",
-    ]
 
     // xray's lines start "2026/10/25 16:25:51.925813 ".
     private static func xrayBody(of text: String) -> Substring? {
