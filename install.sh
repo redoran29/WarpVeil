@@ -52,16 +52,31 @@ installed_is_running() {
     pgrep -f "^${INSTALLED_BIN}$" >/dev/null 2>&1
 }
 
-# xray runs as the user and its PID file is the app's own, in $TMPDIR: no sudo needed.
+is_xray() {
+    ps -o comm= -p "$1" 2>/dev/null | grep 'xray$' >/dev/null
+}
+
+# xray runs as the user and its PID file is the app's own, in $TMPDIR: no sudo needed. TERM, then
+# KILL after 5 s, as kill_pid_file; one that outlives both keeps its file for the next connect.
 stop_user_xray() {
-    local pid
+    local pid sig i
     [ -f "$XRAY_PID_FILE" ] || return 0
     pid=$(cat "$XRAY_PID_FILE" 2>/dev/null || true)
+    if [[ "$pid" =~ ^[0-9]+$ ]] && is_xray "$pid"; then
+        for sig in TERM KILL; do
+            kill -s "$sig" "$pid" 2>/dev/null || true
+            for ((i = 0; i < 50; i++)); do
+                is_xray "$pid" || break 2
+                sleep 0.1
+            done
+        done
+        if is_xray "$pid"; then
+            echo "xray still running (pid: $pid)"
+            return 0
+        fi
+        echo "stopped: xray"
+    fi
     rm -f "$XRAY_PID_FILE"
-    [[ "$pid" =~ ^[0-9]+$ ]] || return 0
-    case "$(ps -o comm= -p "$pid" 2>/dev/null)" in
-        *xray) kill "$pid" 2>/dev/null || true; echo "stopped: xray" ;;
-    esac
 }
 
 # PIDs from the installed version's PID files that are still alive.
@@ -115,7 +130,17 @@ stop_installed() {
         [ -n "$(live_engine_pids)" ] || break
         sleep 0.1
     done
-    echo "stopped: sing-box"
+    # stop.sh sends KILL itself after 5 s; a bare kill does not.
+    leftovers=$(live_engine_pids | tr '\n' ' ' | sed 's/ *$//')
+    if [ -n "$leftovers" ]; then
+        sudo kill -9 $leftovers || true
+        sleep 0.5
+    fi
+    if [ -n "$(live_engine_pids)" ]; then
+        echo "sing-box still running"
+    else
+        echo "stopped: sing-box"
+    fi
 }
 
 # --- Validate binaries exist (Xcode build phase bundles them) ---
