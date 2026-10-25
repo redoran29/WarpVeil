@@ -438,10 +438,8 @@ Write the simplest code that works. Prioritize readability over cleverness.
 `<tag>` is the app version with dots replaced by dashes.
 
 - `$TMPDIR/warpveil-<tag>.log` — VPN process log, tailed by a 0.25s polling timer
-- `$TMPDIR/warpveil-singbox-<pid>.json` — the TUN wrapper's sing-box config, removed when the
-  session ends
-- `$TMPDIR/warpveil-xray-<pid>.json` — xray config; a server given by name has it pinned to the
-  resolved addresses; removed when the session ends
+- No file for a session's configs: they carry the server's credentials, so xray reads its own
+  with `-config stdin:` and `run.sh` the wrapper's on stdin, both written by the app
 - `$TMPDIR/warpveil-ping-{singbox,xray,xray-test-<n>}-<pid>.json` — ping configs, present only during a run
 - `/var/run/warpveil-<tag>/singbox.pid` — sing-box's PID, root's (directory 0755)
 - `$TMPDIR/warpveil-<tag>-xray.pid` — xray's PID, the user's

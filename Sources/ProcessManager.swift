@@ -33,12 +33,6 @@ final class ProcessManager {
     private var partialLogLine = Data()
     private var logDebounceTimer: Timer?
     private let logFile = FileManager.default.temporaryDirectory.path + "/warpveil-\(ProcessManager.versionTag).log"
-    private var xrayConfigFile: String {
-        FileManager.default.temporaryDirectory.path + "/warpveil-xray-\(ProcessInfo.processInfo.processIdentifier).json"
-    }
-    private var singboxConfigFile: String {
-        FileManager.default.temporaryDirectory.path + "/warpveil-singbox-\(ProcessInfo.processInfo.processIdentifier).json"
-    }
 
     // Version-isolated paths — two different app versions coexist without stepping on each other.
     // `.` → `-` because sudo silently ignores /etc/sudoers.d/ files whose names contain a dot.
@@ -642,21 +636,17 @@ final class ProcessManager {
                 }
                 xrayConfig = BypassService.pinXrayServer(config, host: serverHost, addresses: addresses)
             }
-            FileManager.default.createFile(atPath: xrayConfigFile, contents: xrayConfig.data(using: .utf8),
-                                            attributes: [.posixPermissions: 0o600])
             // The wrapper sends everything to xray's port, so it starts once xray listens.
-            let started = await startXray(binaryPath: xrayPath, configFile: xrayConfigFile, log: engineLog)
+            let started = await startXray(binaryPath: xrayPath, config: xrayConfig, log: engineLog)
             guard !Task.isCancelled else { return }
             reconnectTask = nil
             guard started else {
                 endSession()
                 return
             }
-            // Written only now: the TUN's name is picked here, so xray's start does not lie
-            // between the pick and sing-box taking the name.
-            writeWrapperConfig(serverAddresses: addresses, dialerPath: isName ? Self.kernelPath(xrayPath) : nil,
-                               bypassDomains: bypassDomains, hostHasIPv6: hostHasIPv6)
-            startHelper(log: engineLog)
+            let wrapper = wrapperConfig(serverAddresses: addresses, dialerPath: isName ? Self.kernelPath(xrayPath) : nil,
+                                        bypassDomains: bypassDomains, hostHasIPv6: hostHasIPv6)
+            startHelper(config: wrapper, log: engineLog)
         }
     }
 
@@ -694,17 +684,28 @@ final class ProcessManager {
 
     // The wrapper is the only sing-box, so the bypass rule and the host's IP families go there:
     // xray gets IP destinations over SOCKS and never sees a domain.
-    private func writeWrapperConfig(
+    private func wrapperConfig(
         serverAddresses: [String], dialerPath: String?, bypassDomains: [String], hostHasIPv6: Bool
-    ) {
+    ) -> String {
         let wrapper = BypassService.injectSingBox(
             Self.buildTunWrapperConfig(serverAddresses: serverAddresses, dialerPath: dialerPath), domains: bypassDomains)
-        FileManager.default.createFile(atPath: singboxConfigFile,
-                                        contents: BypassService.fitTunToHost(wrapper, hostHasIPv6: hostHasIPv6).data(using: .utf8),
-                                        attributes: [.posixPermissions: 0o600])
+        return BypassService.fitTunToHost(wrapper, hostHasIPv6: hostHasIPv6)
     }
 
-    private func startHelper(log engineLog: FileHandle) {
+    // Both engines read their config on stdin, so the server's credentials never touch the disk.
+    // Written off the main actor: a config past the pipe's buffer waits for the engine to read
+    // it. No SIGPIPE: an engine that exits before reading fails the write, not the app.
+    private static func feed(_ config: String, through pipe: Pipe) {
+        let writer = pipe.fileHandleForWriting
+        _ = fcntl(writer.fileDescriptor, F_SETNOSIGPIPE, 1)
+        let data = Data(config.utf8)
+        DispatchQueue.global().async {
+            try? writer.write(contentsOf: data)
+            try? writer.close()
+        }
+    }
+
+    private func startHelper(config: String, log engineLog: FileHandle) {
         // Re-read: the name lookup and xray's start lie between the connect and here, and another
         // build's install may have removed this one's meanwhile.
         refreshPasswordless()
@@ -716,7 +717,8 @@ final class ProcessManager {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
         process.arguments = [Self.runScriptPath]
-        process.standardInput = FileHandle(forReadingAtPath: singboxConfigFile)
+        let input = Pipe()
+        process.standardInput = input
         process.standardOutput = engineLog
         process.standardError = engineLog
 
@@ -737,6 +739,7 @@ final class ProcessManager {
 
         do {
             try process.run()
+            Self.feed(config, through: input)
             helperProcess = process
         } catch {
             logError("[Error: \(error.localizedDescription)]")
@@ -748,7 +751,7 @@ final class ProcessManager {
     // Its dial to the server enters the TUN like any other connection, and the wrapper routes it
     // direct by address — that rule never looks at who dialed. The PID file is the handle on an
     // xray a crashed app left holding the port. True once the port accepts connections.
-    private func startXray(binaryPath: String, configFile: String, log engineLog: FileHandle) async -> Bool {
+    private func startXray(binaryPath: String, config: String, log engineLog: FileHandle) async -> Bool {
         guard await stopOrphanedXray() else {
             if !Task.isCancelled {
                 logError("[Error: an xray from an earlier run is still running — quit it and connect again]")
@@ -763,7 +766,9 @@ final class ProcessManager {
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binaryPath)
-        process.arguments = ["run", "-config", configFile]
+        process.arguments = ["run", "-config", "stdin:"]
+        let input = Pipe()
+        process.standardInput = input
         process.standardOutput = engineLog
         process.standardError = engineLog
         process.terminationHandler = { [weak self] p in
@@ -785,6 +790,7 @@ final class ProcessManager {
             logError("[Error: cannot start xray: \(error.localizedDescription)]")
             return false
         }
+        Self.feed(config, through: input)
         xrayProcess = process
         try? String(process.processIdentifier).write(toFile: Self.xrayPidFile, atomically: true, encoding: .utf8)
         log("[xray] started pid=\(process.processIdentifier)")
@@ -955,8 +961,6 @@ final class ProcessManager {
             }
         }
         stopLogTail()
-        // Both are read only at the start and hold the server's credentials.
-        for file in [xrayConfigFile, singboxConfigFile] { try? FileManager.default.removeItem(atPath: file) }
         isStopping = false
         isRunning = false
     }
