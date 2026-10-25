@@ -2,6 +2,12 @@
 
 Each `## <version>` section is what `release.sh` publishes as that release's notes.
 
+## 1.3.1
+
+- **Updates are seen.** When a new version is out, the connection panel — on every page — says so, with Install; a failed install says why there and can be tried again.
+- **Server credentials stay off the disk.** The engines get their configs straight from the app instead of from files in the temporary folder.
+- The first connect after this update asks for your password once, to install this version's helper.
+
 ## 1.3
 
 - **Updates itself.** The app checks GitHub releases once a day and installs only a release signed with the project's key: Advanced → Updates, or "Update to …" in the menu-bar menu. This is the last version to install by hand.
