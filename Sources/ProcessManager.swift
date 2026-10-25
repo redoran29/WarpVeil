@@ -955,6 +955,8 @@ final class ProcessManager {
             }
         }
         stopLogTail()
+        // Both are read only at the start and hold the server's credentials.
+        for file in [xrayConfigFile, singboxConfigFile] { try? FileManager.default.removeItem(atPath: file) }
         isStopping = false
         isRunning = false
     }
