@@ -444,6 +444,10 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - `$TMPDIR/warpveil-<tag>-xray.pid` — xray's PID, the user's
 - `/usr/local/libexec/warpveil-<tag>/{run.sh,stop.sh,sing-box}` — the passwordless helper,
   root-owned
+- `$TMPDIR/warpveil-<tag>-{sudoers,run.sh,stop.sh}` — the helper's install, staged for its root
+  shell, which removes them when it ends; the app removes them only where no root shell ran
+- `$TMPDIR/warpveil-admin-<uuid>` — osascript's stderr during an install or a removal, removed when
+  it exits
 - `/var/run/warpveil-<tag>/stage/singbox.XXXXXX` — the root-owned copy of the sing-box config the
   engine runs (directory 0700), removed when its shell ends
 - `~/.config/warpveil/subscriptions.json` — subscriptions, shared across all builds; written with
