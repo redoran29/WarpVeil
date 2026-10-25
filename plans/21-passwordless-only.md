@@ -24,10 +24,11 @@ that exists. One mode: the first connect installs the helper with one password; 
 - The review loop: after round 5's fixes, one control round, fixing from it only what breaks a
   real scenario — a lost tunnel, a leak, a hang — and recording the rest; then the live checks at
   the 1.3 install (owner, 2026-10-15).
-- An engine that ignores TERM: TERM only for now. At the 1.3 install, a `kill -9` on the root
-  sing-box and `netstat -rn` decide it: if its routes go with the TUN, a KILL after 5 s goes into
-  run.sh's cleanup and `kill_pid_file`, and the "a forced kill leaves its routes behind" rule is
-  corrected; if they stay, the rule is confirmed (owner, 2026-10-15).
+- An engine that ignores TERM: at the 1.3 install, a `kill -9` on the root sing-box and
+  `netstat -rn` decide it: if its routes go with the TUN, a KILL after 5 s goes into run.sh's
+  cleanup and `kill_pid_file`, and the "a forced kill leaves its routes behind" rule is corrected;
+  if they stay, the rule is confirmed (owner, 2026-10-15). They went (Live checks below): KILL
+  after 5 s, `8964960`.
 
 ### Open for the owner
 - What Advanced keeps. Default: one row — the helper installed or not, with Remove — instead of the
@@ -144,11 +145,29 @@ the dialog, the canon's "at its dialog" wording, the temp stderr file missing fr
 duplicated failure format, the AppleScript code left in failure lines, `a521655` bundling two
 findings.
 
-### Next
-Plans 17 and 21 are built and pushed; nothing of them is installed — the owner's Mac runs 1.2 with
-the updater (`f0c7e41`). With the owner at the Mac: `./install.sh` 1.3 — the first connect installs the helper (one
-password); check Disconnect, a restart, a quit; `kill -9` on the root sing-box and `netstat -rn`
-(decided above); then close plans 21 and 17, and ask before `./release.sh` publishes 1.3. The owner
-still has to back up `~/.config/warpveil/release-signing.key` and read the 1.3 notes in
-`CHANGELOG.md`.
+### Live checks (2026-10-23, the 1.3 install)
+- `./install.sh` 1.3; the first connect installed the helper with one password and connected.
+- `kill -9` on the root sing-box: within a second `netstat -rn` had none of its 9 routes and the
+  host was online through its own interface — the KILL decision above (`8964960`), the engine
+  stop folded into one `stop_pid` (`47f062a`), an orphaned xray killed the same way (`1262c50`).
 
+### Review (2026-10-25, of the KILL commits)
+`/code-review 77a8e84..1262c50`, findings and what was done:
+- stop_pid sent root's KILL after checking only `kill -0`, so a PID recycled during the wait could
+  take it: the executable is checked before every signal and on every poll, through a pipe — a
+  `$(…)` after a failed echo carries its text (probed on bash 3.2) (`3af33de`).
+- The app's own xray got TERM only, and a connect parked behind one that ignores it waited
+  forever: KILL after 5 s (`7584373`).
+- install.sh's and dev-run.sh's sweeps dropped xray's PID file before a TERM-only kill and said
+  "stopped" either way: TERM, then KILL, the file kept for a survivor, the message true
+  (`62896d4`).
+- Not changed: `stopOrphanedXray` checks `isXray` in its `where` and its poll — the `where` is what
+  skips the KILL for an xray already gone.
+
+### Next
+Plans 17 and 21 are built and pushed. The 1.3 on the owner's Mac predates `3af33de`, and run.sh
+changed since, so the next `./install.sh` reads the helper as stale and its first connect asks the
+password again. With the owner at the Mac: `./install.sh`, the connect with its password, then
+Disconnect, a restart, a quit, Remove and a connect, a cancelled install dialog; then close plans
+21 and 17, and ask before `./release.sh` publishes 1.3. The owner still has to back up
+`~/.config/warpveil/release-signing.key` and read the 1.3 notes in `CHANGELOG.md`.
