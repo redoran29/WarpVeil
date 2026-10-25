@@ -9,15 +9,13 @@ Backlog 9.
 - Three taps on different servers within two seconds: one reconnect, to the last one tapped.
 - A tap on the server already in use: nothing happens.
 - Disconnected, a tap only selects, as today.
-- Works between an xray and a sing-box server in both directions.
+- Works between a server given by an address and one given by a name, in both directions.
 
 ### Decided
 - Only the tap in the window; the menu-bar menu gets no server list (owner, 2026-10-15).
 
 ### Open for the owner
 - The pause that merges a burst of taps. Default: 2 s, as for routing changes.
-- With passwordless off a switch costs a password dialog — the start's; the stop asks none since
-  plan 17. Default: accepted; the canon already says passwordless off means dialogs.
 
 ### Depends on
 - Nothing missing today. Plan 6's "Fastest" row, if built first, switches the same way.
@@ -39,5 +37,6 @@ Backlog 9.
 - The server rows set the selection and nothing else (code: the Servers page's tap handler); the
   selection is an observable on the app state, persisted on write.
 - The restart path replays the last connection's config, so it cannot carry a new server (code: the
-  process manager's restart).
+  process manager's restart). A connect parked behind a stopping xray starts from the last connection
+  as well (code: connect's xray wait, 2026-10-16).
 - The old plan's design: `git show 975f8b4:plans/client-feature-parity.md`, item 9.
