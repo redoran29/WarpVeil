@@ -68,7 +68,7 @@ the restart and the cancelled install at the default level after ten minutes (ne
 - Refused connects held by an update, a quit or a removal, and the IPv6 watch failing, were events
   (`093d7c2`); xray's `Failed to start`, a Go `fatal error:`, sudo's and bash's errors were events,
   so Errors lost the reason an engine died; the canon says a bump re-checks the classifier
-  (`e45e861`).
+  (`e45e861`). Both but the IPv6 watch were undone in round 3 by the owner's decisions above.
 - Not changed: a dead server's per-connection ERROR lines fill the engine buffer and push its start
   lines out — they are the only sign of why nothing loads, so they stay visible; the buffers cover
   different spans at Everything — the price of keeping them apart (owner, above); `log` and
@@ -81,7 +81,23 @@ the restart and the cancelled install at the default level after ten minutes (ne
 programs' wording (jq, mktemp, a multi-line policy refusal after round 2's xray, Go, sudo, bash), and
 one finding undid round 2's refused-connect fix. Both taken to the owner, decided above: round 2's
 wording list goes, and held connects are events again; the multi-line refusal and the `contains`
-cost went with the list.
+cost went with the list (`9845bf8`).
+
+### Review (2026-10-25, round 4)
+`/code-review e45e861..9845bf8`, findings and what was done:
+- The canon said a level is only a line's marker, while xray's access lines were still read by
+  their wording: xray's access log is off — sing-box's info lines already name every connection —
+  and the marker lists are built once (`0d1bb50`).
+- This plan still recorded round 2's reverted fixes and the first classifier's measurement:
+  corrected, and re-measured below.
+- Not changed, by the owner's round-3 decisions: unmarked failures and a multi-line refusal's
+  later lines are events; a cancelled install and "no server selected" stay errors — they are the
+  connect failing, not a hold the user started.
+
+### Re-measured (2026-10-25, the final classifier)
+The installed build, a fresh session and 20 `curl` requests: xray's config carries `access: none`,
+the engine log has no access line, and it splits into 251 traffic lines and 6 events — xray's
+banner and warnings, the shell's two start lines.
 
 ### What we know (2026-10-25)
 - The tunnel's xray runs at `loglevel: info` with the access log on, the TUN wrapper's sing-box at
