@@ -42,5 +42,5 @@ not this stage's business. Backlog 6.
 - Ping results live per server ID and keep the best of three passes; a run measures every server at
   once through user-space engines (code: the ping service; CLAUDE.md, "Ping is a user-space
   measurement").
-- The owner has one subscription with eight servers.
+- The owner has one subscription with nine servers (2026-10-25; eight on 2026-10-15).
 - The old plan's design: `git show 975f8b4:plans/client-feature-parity.md`, item 6.
