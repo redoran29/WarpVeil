@@ -66,27 +66,31 @@ struct Subscription: Codable, Identifiable {
 }
 
 struct LogLine: Identifiable {
-    // The Logs page shows a level and every one before it: Errors, Events, Everything.
-    enum Level: Int, Comparable {
-        case error, event, traffic
-
-        static func < (lhs: Level, rhs: Level) -> Bool { lhs.rawValue < rhs.rawValue }
-    }
+    enum Level { case error, event, traffic }
 
     let id: Int
     let level: Level
     let text: String
 
-    // An engine line's level is its own: xray writes `[Error]`, `[Warning]`, `[Info]` and an access
-    // line per connection, sing-box `ERROR`, `WARN`, `INFO`, run.sh `[error]` and `[warning]`, a Go
-    // crash `panic:`. Traffic is only what says it is info, debug or access: a line with no level
-    // of its own — a start failure, the rest of a crash trace — stays an event.
+    // An engine line's level is its own: sing-box writes `ERROR`, `WARN`, `INFO` first, xray
+    // `[Error]`, `[Warning]`, `[Info]` after its timestamp and an access line per connection, run.sh
+    // `[error]`, a Go crash `panic:`. Traffic is only what says it is info, debug or access: a line
+    // with no level of its own — a start failure, the rest of a crash trace — is an event.
     static func engineLevel(of text: String) -> Level {
-        if text.range(of: errorPattern, options: .regularExpression) != nil { return .error }
-        if text.range(of: trafficPattern, options: .regularExpression) != nil { return .traffic }
-        return .event
+        let afterTimestamp = xrayBody(of: text)
+        if ["ERROR", "FATAL", "PANIC", "panic: ", "[error]"].contains(where: text.hasPrefix)
+            || afterTimestamp?.hasPrefix("[Error]") == true { return .error }
+        if ["INFO", "DEBUG", "TRACE"].contains(where: text.hasPrefix) { return .traffic }
+        guard let afterTimestamp else { return .event }
+        let isAccess = afterTimestamp.hasPrefix("from ")
+            && (afterTimestamp.contains(" accepted ") || afterTimestamp.contains(" rejected "))
+        return isAccess || afterTimestamp.hasPrefix("[Info]") || afterTimestamp.hasPrefix("[Debug]") ? .traffic : .event
     }
 
-    private static let errorPattern = #"^(\[error\]|\S+ \S+ \[Error\]|(FATAL|ERROR|PANIC)\b|panic: )"#
-    private static let trafficPattern = #"^(\S+ \S+ \[(Info|Debug)\]|\S+ \S+ from \S+ (accepted|rejected) |(INFO|DEBUG|TRACE)\b)"#
+    // xray's lines start "2026/10/25 16:25:51.925813 ".
+    private static func xrayBody(of text: String) -> Substring? {
+        let parts = text.split(separator: " ", maxSplits: 2)
+        guard parts.count == 3, parts[0].count == 10, parts[0].filter({ $0 == "/" }).count == 2 else { return nil }
+        return parts[2]
+    }
 }

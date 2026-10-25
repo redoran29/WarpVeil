@@ -6,9 +6,11 @@ import SystemConfiguration
 @Observable
 @MainActor
 final class ProcessManager {
-    // The engines' connection traffic is kept apart, so it never pushes the app's lines out.
-    private(set) var events: [LogLine] = []
-    private(set) var traffic: [LogLine] = []
+    // Three buffers, so nothing the engines write — their connection traffic, a run of failed
+    // connections, a crash trace — pushes the app's own lines out.
+    private(set) var appLines: [LogLine] = []
+    private(set) var engineLines: [LogLine] = []
+    private(set) var trafficLines: [LogLine] = []
     private var lastLogID = 0
     var isRunning = false {
         didSet {
@@ -979,26 +981,28 @@ final class ProcessManager {
     }
 
     func log(_ text: String) {
-        append([text], level: { _ in .event })
+        appLines.append(nextLine(text, .event))
+        trim(&appLines)
     }
 
     func logError(_ text: String) {
-        append([text], level: { _ in .error })
+        appLines.append(nextLine(text, .error))
+        trim(&appLines)
     }
 
     func clearLogs() {
-        events.removeAll()
-        traffic.removeAll()
+        appLines.removeAll()
+        engineLines.removeAll()
+        trafficLines.removeAll()
     }
 
-    private func append(_ lines: [String], level: (String) -> LogLine.Level) {
-        for text in lines {
-            lastLogID += 1
-            let line = LogLine(id: lastLogID, level: level(text), text: text)
-            if line.level == .traffic { traffic.append(line) } else { events.append(line) }
-        }
-        if events.count > 600 { events = Array(events.suffix(500)) }
-        if traffic.count > 600 { traffic = Array(traffic.suffix(500)) }
+    private func nextLine(_ text: String, _ level: LogLine.Level) -> LogLine {
+        lastLogID += 1
+        return LogLine(id: lastLogID, level: level, text: text)
+    }
+
+    private func trim(_ lines: inout [LogLine]) {
+        if lines.count > 600 { lines = Array(lines.suffix(500)) }
     }
 
     // MARK: - Log file tailing
@@ -1036,13 +1040,17 @@ final class ProcessManager {
         let end = flush ? pending.endIndex : pending.lastIndex(of: UInt8(ascii: "\n")).map { $0 + 1 } ?? pending.startIndex
         partialLogLine = Data(pending[end...])
         guard end > pending.startIndex else { return }
-        let text = String(decoding: pending[..<end], as: UTF8.self)
         // sing-box colours its level even into a file.
-        let lines = text.components(separatedBy: .newlines)
-            .map { $0.replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression) }
-            .filter { !$0.isEmpty }
+        let text = String(decoding: pending[..<end], as: UTF8.self)
+            .replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression)
+        let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
         if isRunning, lines.contains(where: { $0.hasPrefix(Self.engineStartedMarker) }) { isTunnelUp = true }
-        append(lines, level: LogLine.engineLevel)
+        for text in lines {
+            let line = nextLine(text, LogLine.engineLevel(of: text))
+            if line.level == .traffic { trafficLines.append(line) } else { engineLines.append(line) }
+        }
+        trim(&engineLines)
+        trim(&trafficLines)
     }
 
     // MARK: - Binary auto-detection

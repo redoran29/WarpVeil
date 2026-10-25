@@ -59,7 +59,7 @@ struct LogView: View {
                 }
                 .padding(10)
             }
-            // A grouped Form cannot host the log — it builds all 500 rows at once, its row
+            // A grouped Form cannot host the log — it builds every row at once, its row
             // separators and insets are fixed, and one Text of every line costs ~110 ms per
             // update against ~11 ms here — so these are the Form's metrics copied by hand.
             .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .quaternarySystemFill)))
@@ -68,12 +68,28 @@ struct LogView: View {
         }
     }
 
-    // Read only at Everything, so traffic alone does not redraw the page at the other levels.
+    // Traffic is read only at Everything, so it does not redraw the page at the other levels.
     private var shownLines: [LogLine] {
+        let pm = app.pm
         switch level {
-        case .error: app.pm.events.filter { $0.level == .error }
-        case .event: app.pm.events
-        case .traffic: (app.pm.events + app.pm.traffic).sorted { $0.id < $1.id }
+        case .error: return merged(pm.appLines.filter { $0.level == .error }, pm.engineLines.filter { $0.level == .error })
+        case .event: return merged(pm.appLines, pm.engineLines)
+        case .traffic: return merged(merged(pm.appLines, pm.engineLines), pm.trafficLines)
         }
+    }
+
+    // Both are in the order they were written, so one pass keeps that order.
+    private func merged(_ a: [LogLine], _ b: [LogLine]) -> [LogLine] {
+        var result: [LogLine] = []
+        result.reserveCapacity(a.count + b.count)
+        var i = 0, j = 0
+        while i < a.count || j < b.count {
+            if j == b.count || (i < a.count && a[i].id < b[j].id) {
+                result.append(a[i]); i += 1
+            } else {
+                result.append(b[j]); j += 1
+            }
+        }
+        return result
     }
 }

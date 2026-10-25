@@ -247,9 +247,10 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - All UI in SwiftUI. AppKit appears only in `WarpVeilApp.swift`, which owns the window, the
   status item and its menu — everything hosted inside is SwiftUI
 - No external Swift package dependencies
-- Logs keep the app's lines and the engines' warnings and errors (`ProcessManager.events`) apart
-  from their info and access traffic (`traffic`), each trimmed to its last 500 once it passes 600;
-  the engines write at info, and the Logs page's level — Errors, Events, Everything — only filters
+- Logs are three buffers — the app's lines, the engines' other lines, the engines' info and access
+  traffic (`ProcessManager.appLines`, `engineLines`, `trafficLines`) — each trimmed to its last 500
+  once it passes 600, so nothing an engine writes pushes the app's lines out. The engines write at
+  info; the Logs page's level — Errors, Events, Everything — only filters
 
 ---
 
@@ -270,9 +271,10 @@ Write the simplest code that works. Prioritize readability over cleverness.
   every sidebar item needs middle-column content. The frame is autosaved as `MainWindow`; the
   column widths are not
 - **Page chrome**: every middle-column page wears the grouped-`Form` look. Servers, Routing and
-  Advanced are real `Form { Section }`s. Logs is not: a grouped `Form` on macOS builds all 500 log
-  rows at once, its row separators and insets cannot be removed, and one `Text` of every line
-  costs ~110 ms per log update against ~11 ms for the `LazyVStack` — so `LogView` keeps
+  Advanced are real `Form { Section }`s. Logs is not: a grouped `Form` on macOS builds every log
+  row at once — up to 1,800 at Everything — its row separators and insets cannot be removed, and
+  with 500 lines one `Text` of every line cost ~110 ms per log update against ~11 ms for the
+  `LazyVStack` — so `LogView` keeps
   `ScrollView { LazyVStack }` and copies the Form's metrics by hand (13 pt semibold header at
   30 pt, card 20 pt from the edges, corner radius 10, row inset 10, `quaternarySystemFill`).
   A change to one of the two has to be made to the other. Servers' page header ("Servers", Ping
