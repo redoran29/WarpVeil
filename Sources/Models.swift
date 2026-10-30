@@ -53,6 +53,8 @@ struct Subscription: Codable, Identifiable {
     var engine: Engine = .xray
     var servers: [Server]
     var lastUpdated: Date?
+    // The feed's own `profile-update-interval`, in hours, as of its last refresh.
+    var refreshHours: Double?
 
     init(name: String, url: String = "", isManual: Bool = false, engine: Engine = .xray) {
         self.id = UUID()
@@ -62,6 +64,13 @@ struct Subscription: Codable, Identifiable {
         self.engine = engine
         self.servers = []
         self.lastUpdated = nil
+    }
+
+    // A feed refreshes on the interval it asks for, 24 h when it names none (owner, 2026-10-15).
+    var isRefreshDue: Bool {
+        guard !isManual else { return false }
+        guard let lastUpdated else { return true }
+        return Date().timeIntervalSince(lastUpdated) >= (refreshHours ?? 24) * 3600
     }
 }
 

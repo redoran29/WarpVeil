@@ -190,12 +190,12 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         let urlString = subscriptions[idx].url
 
         // A list of links first, then the panel's xray format: every server runs on xray.
-        if let servers = await fetchAndParseURIs(urlString), !servers.isEmpty {
-            store(servers, in: id)
+        if let feed = await fetchAndParseURIs(urlString) {
+            store(feed, in: id)
             return true
         }
-        if let servers = await fetchXrayFormat(urlString), !servers.isEmpty {
-            store(servers, in: id)
+        if let feed = await fetchXrayFormat(urlString) {
+            store(feed, in: id)
             return true
         }
         return false
@@ -225,28 +225,24 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         return result
     }
 
-    private func store(_ servers: [Server], in id: UUID) {
+    private func store(_ feed: Feed, in id: UUID) {
         guard let idx = subscriptions.firstIndex(where: { $0.id == id }) else { return }
         subscriptions[idx].engine = .xray
-        subscriptions[idx].servers = keepingIDs(from: subscriptions[idx].servers, servers)
+        subscriptions[idx].servers = keepingIDs(from: subscriptions[idx].servers, feed.servers)
         subscriptions[idx].lastUpdated = Date()
+        subscriptions[idx].refreshHours = feed.response
+            .value(forHTTPHeaderField: "profile-update-interval")
+            .flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+            .flatMap { $0 > 0 ? $0 : nil }
         save()
-    }
-
-    func refreshAll() async {
-        // Sequentially, one unreachable feed at a 15s timeout would hold up auto-connect
-        // behind all the others.
-        let ids = subscriptions.filter { !$0.isManual }.map(\.id)
-        await withTaskGroup(of: Void.self) { group in
-            for id in ids {
-                group.addTask { await self.refreshSubscription(id) }
-            }
-        }
     }
 
     // MARK: - Fetch helpers
 
-    private func fetchData(from urlString: String) async -> Data? {
+    // The servers a feed lists and the response that carried them, whose headers describe the feed.
+    private typealias Feed = (servers: [Server], response: HTTPURLResponse)
+
+    private func fetchData(from urlString: String) async -> (Data, HTTPURLResponse)? {
         // Never downgrade https→http: a handshake failure could be a MITM RST
         // that would leak the subscription token in the URL over cleartext.
         let urlsToTry: [String]
@@ -261,7 +257,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             do {
                 let (data, response) = try await session.data(from: url)
                 if let http = response as? HTTPURLResponse, http.statusCode == 200, !data.isEmpty {
-                    return data
+                    return (data, http)
                 }
             } catch {
                 continue
@@ -270,8 +266,8 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         return nil
     }
 
-    private func fetchAndParseURIs(_ urlString: String) async -> [Server]? {
-        guard let data = await fetchData(from: urlString),
+    private func fetchAndParseURIs(_ urlString: String) async -> Feed? {
+        guard let (data, response) = await fetchData(from: urlString),
               let text = String(data: data, encoding: .utf8)
         else { return nil }
 
@@ -299,10 +295,10 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             }
             // Can add trojan://, ss:// etc. later
         }
-        return servers.isEmpty ? nil : servers
+        return servers.isEmpty ? nil : (servers, response)
     }
 
-    private func fetchXrayFormat(_ urlString: String) async -> [Server]? {
+    private func fetchXrayFormat(_ urlString: String) async -> Feed? {
         guard var components = URLComponents(string: urlString) else { return nil }
         var items = components.queryItems ?? []
         items.removeAll { $0.name == "format" }
@@ -310,12 +306,12 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         components.queryItems = items
         guard let urlStr = components.string else { return nil }
 
-        guard let data = await fetchData(from: urlStr),
+        guard let (data, response) = await fetchData(from: urlStr),
               let json = String(data: data, encoding: .utf8)
         else { return nil }
 
         let servers = parseXray(json)
-        return servers.isEmpty ? nil : servers
+        return servers.isEmpty ? nil : (servers, response)
     }
 
     // MARK: - vless:// URI parser

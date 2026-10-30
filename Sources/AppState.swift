@@ -19,7 +19,7 @@ final class AppState {
     private var tunnelWasUp = false
 
     // Servers load synchronously in SubscriptionService.init, so the Servers page appears with a
-    // stale set. Pinging it would measure ids that refreshAll is about to replace.
+    // stale set. Pinging it would measure ids that the launch's refresh is about to replace.
     private(set) var isBootstrapped = false
 
     // Observable, unlike the @AppStorage-mirrored keys below: two columns show the selection and
@@ -78,7 +78,7 @@ final class AppState {
     func bootstrap() async {
         setup.checkAll()
         async let location: Void = loc.detect()
-        async let feeds: Void = subs.refreshAll()
+        async let feeds: Void = refreshFeeds(subs.subscriptions.filter { !$0.isManual })
         _ = await (location, feeds)
 
         if defaults.bool(forKey: "autoConnect"), !pm.isRunning, selectedServer != nil {
@@ -87,6 +87,7 @@ final class AppState {
 
         isBootstrapped = true
         startUpdateChecks()
+        startFeedRefreshes()
     }
 
     func connect() {
@@ -137,6 +138,41 @@ final class AppState {
     // Not gated on isRunning: a reconnect pending after wake has to pick the change up too.
     func routingChanged() {
         pm.reconnect(bypassDomains: activeBypassDomains)
+    }
+
+    // MARK: - Feeds
+
+    // Every feed at launch, then each once its own interval has passed: the app lives in the menu
+    // bar for weeks. Asked hourly, so a Mac woken past the interval refreshes within the hour, and
+    // a feed that is down is tried again an hour later.
+    private func startFeedRefreshes() {
+        Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.refreshDueFeeds() }
+        }
+    }
+
+    // A feed refreshing by hand right now is left to that refresh.
+    private func refreshDueFeeds() async {
+        let refreshing = subs.refreshingIDs
+        await refreshFeeds(subs.subscriptions.filter { $0.isRefreshDue && !refreshing.contains($0.id) })
+    }
+
+    // Side by side: one unreachable feed at a 15 s timeout would hold up auto-connect behind the rest.
+    private func refreshFeeds(_ feeds: [Subscription]) async {
+        await withTaskGroup(of: Void.self) { group in
+            for feed in feeds {
+                group.addTask { await self.refreshFeed(feed) }
+            }
+        }
+    }
+
+    private func refreshFeed(_ feed: Subscription) async {
+        guard await subs.refreshSubscription(feed.id) else {
+            pm.logError("[\(feed.name) did not refresh — its servers are unchanged]")
+            return
+        }
+        let count = subs.subscriptions.first { $0.id == feed.id }?.servers.count ?? 0
+        pm.log("[\(feed.name) refreshed — \(count) server(s)]")
     }
 
     // MARK: - Updates
