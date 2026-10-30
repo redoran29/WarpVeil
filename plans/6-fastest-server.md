@@ -91,6 +91,10 @@ slow, reconnects to a faster one by itself. Backlog 6.
 - After round 2, live: the same freeze moved the tunnel to another server — the exit address went
   from New Jersey's to Chicago 1's, a probe answered 204 in 0.34 s — 34 s from the freeze to the new
   xray, 5 s of it the KILL a frozen xray needs. The slow path is not seen live.
+- After round 3, live: two freezes a minute apart, each moved the tunnel to the server the fresh
+  measurement put first — New Jersey to Chicago 1, then Chicago 1 to a third — 34 s and 46 s from
+  freeze to new xray. A dead server reconnected to as still the fastest, and its second death
+  within 5 minutes, are not seen live in this version: the fresh run never put the frozen one first.
 
 ### Review round 1 (2026-10-30)
 - A run where every server failed still counted as fresh, so a connect within 10 minutes refused
@@ -137,4 +141,22 @@ slow, reconnects to a faster one by itself. Backlog 6.
   waiter takes the run with it.
 - An update clicked within a restart's pending second finds no session to resume — as before this
   plan; not fixed here.
+
+### Review round 4 (2026-10-30)
+- A ping cancelled with its waiter could be someone else's — a joined Ping all, or a later run — and
+  a run cut short left blank rows trusted as fresh: a waiter cancels only a run it started, and only
+  that one; a cancelled run counts as stale.
+- The slow rest lived in the watch and was lost at every restart: it is kept with its server and
+  cleared by a connect. A retry now names the server it reconnected with.
+- Two servers that both ping fine but both fail through the tunnel bounced the tunnel every half
+  minute: the owner's 30 s rule extended — from the third death within 5 minutes of the one
+  before, each reconnect waits 30, 60, then 120 s. The owner's first two steps are unchanged.
+- A restart's pending second now counts as a session to resume after a failed update.
+- Found outside the review, from the owner's "it drops all the time": a connect after a restart
+  could start before the old xray's exit was handled, and that handler then disconnected the new
+  session — fixed in the process manager. And a network blink of a few seconds read as a dead
+  server and cost every connection a reconnect: a tunnel that answers again after the
+  measurement stays.
+- Monitored 14:05–14:14 with no tests running, 148 probes: the tunnel missed 6 single probes, the
+  office network 1, and Auto never reconnected — single misses are not a death.
 

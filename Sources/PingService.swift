@@ -79,30 +79,42 @@ final class PingService {
     }
 
     // Joins a run under way, which measures every server as well — starting over would kill its
-    // engines — or starts one, and returns once the results are in.
+    // engines — or measures in one of its own, and returns once the results are in.
     func run(_ servers: [Server]) async {
-        if !isRunning { start(servers) }
-        await waitUntilDone()
+        guard !isRunning else { return await waitUntilDone() }
+        await runFresh(servers)
     }
 
-    // Returns once the run under way, if any, has ended — and the one that superseded it. A waiter
-    // that is cancelled — a disconnect, the tunnel going down — takes the run with it: nobody else
-    // is waiting for its results.
-    func waitUntilDone() async {
+    // A run of its own, which a cancelled waiter — a disconnect, the tunnel going down — takes with
+    // it: nobody else waits for it. Only that run: a later one, by then, is someone else's.
+    func runFresh(_ servers: [Server]) async {
+        guard !servers.isEmpty else { return }
+        start(servers)
+        let run = generation
         await withTaskCancellationHandler {
-            while isRunning, let task, !Task.isCancelled {
-                await task.value
-            }
+            await waitUntilDone()
         } onCancel: {
-            Task { @MainActor in self.cancel() }
+            Task { @MainActor in
+                guard run == self.generation else { return }
+                self.cancel()
+            }
         }
     }
 
-    // Synchronous on purpose: the quit path calls it and exits without waiting.
+    // Returns once the run under way, if any, has ended — and the one that superseded it.
+    func waitUntilDone() async {
+        while isRunning, let task, !Task.isCancelled {
+            await task.value
+        }
+    }
+
+    // Synchronous on purpose: the quit path calls it and exits without waiting. A run cut short
+    // leaves its rows blank, so nothing on record counts as fresh any more.
     func cancel() {
         task?.cancel()
         stopEngines()
         isRunning = false
+        lastFinished = nil
     }
 
     // MARK: - Run

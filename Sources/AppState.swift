@@ -138,7 +138,8 @@ final class AppState {
         }
         activeServer = server
         activeIsAuto = auto
-        lastRetry = nil
+        deadStreak = nil
+        slowRest = nil
         pm.connect(
             config: server.config,
             xrayPath: ProcessManager.findBinary("xray") ?? "",
@@ -187,9 +188,12 @@ final class AppState {
     private(set) var activeIsAuto = false
     private var pickTask: Task<Void, Never>?
     private var watchTask: Task<Void, Never>?
-    // The last reconnect to a dead server that still pinged best. It outlives that reconnect —
-    // the watch does not — and a connect clears it, so it never reaches into another session.
-    private var lastRetry: (serverID: String, at: Date)?
+    // The watch's reconnects for a dead server — the server it went to, when, and how many came
+    // within 5 minutes of the one before — and a slow server that stayed as still the fastest, with
+    // the end of its rest. Both outlive a reconnect, which the watch does not, and a connect clears
+    // them, so they never reach into another session.
+    private var deadStreak: (serverID: String, at: Date, count: Int)?
+    private var slowRest: (serverID: String, until: Date)?
 
     // An Auto connect still measuring, before any session exists.
     var isPicking: Bool { pickTask != nil }
@@ -238,7 +242,6 @@ final class AppState {
             var failed = 0
             var slow = 0
             var best: Duration?
-            var slowQuietUntil = Date.distantPast
             while !Task.isCancelled {
                 // Stopped during sleep, as the restart's delay is: at wake that restart is the one
                 // that runs, not a probe through a network still coming up.
@@ -249,16 +252,18 @@ final class AppState {
                 if let delay { best = min(best ?? delay, delay) }
                 let bar = min(max(.milliseconds(1500), (best ?? .zero) * 3), .seconds(4))
                 let isSlow = delay.map { $0 > bar } ?? true
+                let isResting = slowRest.map { $0.serverID == server.id && Date() < $0.until } ?? false
                 failed = delay == nil ? failed + 1 : 0
-                slow = isSlow && Date() >= slowQuietUntil ? slow + 1 : 0
+                slow = isSlow && !isResting ? slow + 1 : 0
                 if failed >= 2 {
                     failed = 0
                     slow = 0
                     await leaveDead(server)
                 } else if slow >= 3 {
                     slow = 0
-                    // Still the fastest: slow is not asked again for 10 minutes (owner, 2026-10-30).
-                    if await !leaveSlow(server) { slowQuietUntil = Date().addingTimeInterval(600) }
+                    await leaveSlow(server)
+                    // Moved, this watch is over; stayed, slow rests 10 minutes (owner, 2026-10-30).
+                    slowRest = (server.id, Date().addingTimeInterval(600))
                 }
             }
         }
@@ -266,8 +271,17 @@ final class AppState {
 
     // A dead server that still pings best is reconnected to — the network blinked or the session
     // broke, not the server. Dead again within 5 minutes of that, the next best is taken; when it is
-    // the only one that answers, it is reconnected to after 30 s (owner, 2026-10-30).
+    // the only one that answers, it is reconnected to after 30 s (owner, 2026-10-30). Deaths that
+    // keep coming after that wait 30, 60, then 120 s before each measurement, so a fault no server
+    // can fix — on this Mac's side — cannot tear the tunnel down every half minute.
     private func leaveDead(_ server: Server) async {
+        let streak = deadStreak.flatMap { Date().timeIntervalSince($0.at) < 300 ? $0 : nil }
+        if let streak, streak.count >= 2 {
+            let pause = min(30 << (streak.count - 2), 120)
+            pm.logError("[Auto: \(server.name) stopped answering again — waiting \(pause) s]")
+            try? await Task.sleep(for: .seconds(pause), clock: .suspending)
+            guard !Task.isCancelled, pm.isTunnelUp else { return }
+        }
         guard await measureForMove("\(server.name) stopped answering") else { return }
         // The office network blinks for seconds at a time: a tunnel that answers again by now keeps
         // its connections rather than lose them all to a reconnect.
@@ -277,56 +291,53 @@ final class AppState {
             return
         }
         guard !Task.isCancelled, pm.isTunnelUp else { return }
-        let justRetried = lastRetry.map { $0.serverID == server.id && Date().timeIntervalSince($0.at) < 300 } ?? false
+        let justRetried = streak?.serverID == server.id
         guard let best = (justRetried ? fastest(excluding: server.id) : nil) ?? fastestServer else {
             pm.logError("[Auto: no server answered — staying on \(server.name)]")
             // The network itself is likely down; measuring again at once would only repeat that.
             try? await Task.sleep(for: .seconds(30), clock: .suspending)
             return
         }
-        guard best.id == server.id else {
-            move(to: best)
-            return
+        let message: String
+        if best.id != server.id {
+            message = "[Auto: moving to \(best.name), \(delay(of: best) ?? 0) ms]"
+        } else if justRetried {
+            if streak.map({ $0.count < 2 }) ?? true {
+                pm.logError("[Auto: \(server.name) is the only server that answers — reconnecting to it in 30 s]")
+                try? await Task.sleep(for: .seconds(30), clock: .suspending)
+                guard !Task.isCancelled, pm.isTunnelUp else { return }
+            }
+            message = "[Auto: reconnecting to \(server.name)]"
+        } else {
+            message = "[Auto: \(server.name) still pings best — reconnecting to it]"
         }
-        if justRetried {
-            pm.logError("[Auto: \(server.name) is the only server that answers — reconnecting to it in 30 s]")
-            try? await Task.sleep(for: .seconds(30), clock: .suspending)
-            guard !Task.isCancelled, pm.isTunnelUp else { return }
-        }
-        if pm.reconnect(config: best.config, "[Auto: \(server.name) still pings best — reconnecting to it]") {
-            lastRetry = (server.id, Date())
-        }
+        guard pm.reconnect(config: best.config, message) else { return }
+        activeServer = best
+        deadStreak = (best.id, Date(), (streak?.count ?? 0) + 1)
     }
 
-    // A slow server is left only for one that pings faster. False when the tunnel stays.
-    private func leaveSlow(_ server: Server) async -> Bool {
-        guard await measureForMove("\(server.name) is slow") else { return false }
+    // A slow server is left only for one that pings faster.
+    private func leaveSlow(_ server: Server) async {
+        guard await measureForMove("\(server.name) is slow") else { return }
         guard let best = fastestServer else {
             pm.logError("[Auto: no server answered — staying on \(server.name)]")
-            return false
+            return
         }
         guard best.id != server.id else {
             pm.log("[Auto: \(server.name) is still the fastest — staying on it]")
-            return false
+            return
         }
-        return move(to: best)
+        if pm.reconnect(config: best.config, "[Auto: moving to \(best.name), \(delay(of: best) ?? 0) ms]") {
+            activeServer = best
+        }
     }
 
     // A fresh run: one started before the failure would vouch for the server. False when the
     // session ended meanwhile.
     private func measureForMove(_ reason: String) async -> Bool {
         pm.logError("[Auto: \(reason) — measuring every server...]")
-        ping.start(xrayServers)
-        await ping.waitUntilDone()
+        await ping.runFresh(xrayServers)
         return !Task.isCancelled && pm.isTunnelUp
-    }
-
-    @discardableResult
-    private func move(to server: Server) -> Bool {
-        guard pm.reconnect(config: server.config, "[Auto: moving to \(server.name), \(delay(of: server) ?? 0) ms]")
-        else { return false }
-        activeServer = server
-        return true
     }
 
     // MARK: - Feeds
