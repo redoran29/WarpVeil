@@ -32,7 +32,8 @@ slow, reconnects to a faster one by itself. Backlog 6.
 
 ### Open for the owner
 - How the running server is watched. Default: an HTTPS request to the ping's test URL through xray's
-  SOCKS port every 10 s, 5 s timeout, a new connection each time.
+  SOCKS port every 10 s, 5 s timeout, a new connection each time; after a failure the next one goes
+  at once.
 - What counts as degraded. Default: two failed probes in a row, or three in a row slower than 1.5 s.
 - Degraded, and the running server pings best anyway. Default: reconnect to it — the session, not the
   server, is what broke.
@@ -75,3 +76,13 @@ slow, reconnects to a faster one by itself. Backlog 6.
 - A probe through xray's SOCKS port while connected: HTTPS to the test URL answers 204 in 0.34–0.42 s
   (2026-10-30, the owner's office).
 - The old plan's design: `git show 975f8b4:plans/client-feature-parity.md`, item 6.
+
+### Built (2026-10-30)
+- Step 1, live on the owner's Mac: Logs read `[Auto: measuring every server...]`, then
+  `[Auto: 🇺🇸 New Jersey, 307 ms]`, the lowest ping of the eight; the status read
+  "Auto → 🇺🇸 New Jersey" and the exit address moved off the hand-picked server's.
+- Step 2, live: the session's xray frozen with `kill -STOP` — Logs read `stopped answering —
+  measuring every server...`, then `still pings best — reconnecting to it` (only xray was frozen,
+  the server pinged fine), and a probe through the new session answered 204 in 0.3 s. 44 s from
+  the freeze to the new xray with a probe every 10 s; the confirming probe now goes at once. A move
+  to another server, and the slow path, are not yet seen live.

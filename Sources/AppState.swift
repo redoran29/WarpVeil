@@ -162,14 +162,18 @@ final class AppState {
 
     // MARK: - Auto
     //
-    // "Auto" connects to the lowest ping (owner, 2026-10-15).
+    // "Auto" connects to the lowest ping and, while connected, leaves a server that stops answering
+    // or turns slow for the fastest one (owner, 2026-10-30). A move is a reconnect to one server,
+    // so the exit address changes only then; a server chosen by hand is never left.
 
     static let autoServerID = "auto"
     var isAuto: Bool { selectedServerID == Self.autoServerID }
 
-    // The server the session was started with, kept as it was: a refresh may drop it from its feed.
+    // The server the session was started with, kept as it was: a refresh that drops it from its
+    // feed does not stop the watch from leaving it.
     private(set) var activeServer: Server?
     private var pickTask: Task<Void, Never>?
+    private var watchTask: Task<Void, Never>?
 
     // An Auto connect still measuring, before any session exists.
     var isPicking: Bool { pickTask != nil }
@@ -203,6 +207,52 @@ final class AppState {
             pm.log("[Auto: \(server.name), \(delay(of: server) ?? 0) ms]")
             start(server)
         }
+    }
+
+    // A probe through the tunnel every 10 s, and one at once after a failure to confirm it. Two
+    // that fail in a row, or three in a row slower than 1.5 s, and every server is measured; the
+    // tunnel moves to the fastest — the same server too, when it still pings best, since then the
+    // session is what broke.
+    private func watchTunnel() -> Task<Void, Never> {
+        Task {
+            var failed = 0
+            var slow = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: failed > 0 ? .seconds(1) : .seconds(10))
+                guard !Task.isCancelled else { return }
+                guard isAuto, let server = activeServer else {
+                    failed = 0
+                    slow = 0
+                    continue
+                }
+                let delay = await PingService.probeTunnel()
+                guard !Task.isCancelled else { return }
+                let isSlow = delay.map { $0 > .milliseconds(1500) } ?? true
+                failed = delay == nil ? failed + 1 : 0
+                slow = isSlow ? slow + 1 : 0
+                guard failed >= 2 || slow >= 3 else { continue }
+                let reason = failed >= 2 ? "stopped answering" : "is slow"
+                failed = 0
+                slow = 0
+                await moveOff(server, because: reason)
+            }
+        }
+    }
+
+    private func moveOff(_ server: Server, because reason: String) async {
+        pm.logError("[Auto: \(server.name) \(reason) — measuring every server...]")
+        await ping.run(xrayServers)
+        guard !Task.isCancelled, isAuto, pm.isTunnelUp else { return }
+        guard let best = fastestServer else {
+            pm.logError("[Auto: no server answered — staying on \(server.name)]")
+            // The network itself is likely down; measuring again at once would only repeat that.
+            try? await Task.sleep(for: .seconds(30))
+            return
+        }
+        activeServer = best
+        pm.reconnect(config: best.config, best.id == server.id
+            ? "[Auto: \(server.name) still pings best — reconnecting to it]"
+            : "[Auto: moving to \(best.name), \(delay(of: best) ?? 0) ms]")
     }
 
     // MARK: - Feeds
@@ -327,8 +377,11 @@ final class AppState {
             connectedAt = Date()
             net.start()
             startLocationTimer()
+            watchTask = watchTunnel()
         } else {
             connectedAt = nil
+            watchTask?.cancel()
+            watchTask = nil
             net.stop()
             locationTimer?.invalidate()
             locationTimer = nil

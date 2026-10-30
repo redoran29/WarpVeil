@@ -928,6 +928,14 @@ final class ProcessManager {
         restart("[Routing changed — reconnecting...]", after: .seconds(1))
     }
 
+    // A move to another server: the restart path, carrying that server's config in place of the
+    // last one, so a wake or a routing edit after it replays the new server.
+    func reconnect(config: String, _ message: String) {
+        guard isRunning, lastConnection != nil else { return }
+        lastConnection?.config = config
+        restart(message, after: .seconds(1))
+    }
+
     func disconnect() {
         reconnectTask?.cancel()
         reconnectTask = nil

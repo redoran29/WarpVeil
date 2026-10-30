@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import Network
 import SystemConfiguration
 
 enum PingResult: Equatable {
@@ -431,6 +432,25 @@ final class PingService {
         return ([proxy] + dialers).map { outbound in
             interface.map { BypassService.settingSockopt(outbound, "interface", $0) } ?? outbound
         }
+    }
+
+    // MARK: - The running tunnel
+
+    // One request through the session's xray, the way the user's traffic goes, on a connection of
+    // its own: a session is per probe, so a server that takes no new connections cannot hide
+    // behind one that stays open. nil when nothing answered in 5 s.
+    static func probeTunnel() async -> Duration? {
+        let config = URLSessionConfiguration.ephemeral
+        config.proxyConfigurations = [ProxyConfiguration(socksv5Proxy: .hostPort(
+            host: "127.0.0.1", port: NWEndpoint.Port(rawValue: ProcessManager.xraySocksPort) ?? 10808))]
+        config.timeoutIntervalForRequest = 5
+        config.timeoutIntervalForResource = 5
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        guard let url = URL(string: testURL) else { return nil }
+        let start = ContinuousClock.now
+        guard (try? await session.data(from: url)) != nil else { return nil }
+        return ContinuousClock.now - start
     }
 
     // MARK: - Helpers
