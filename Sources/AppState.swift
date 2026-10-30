@@ -208,12 +208,10 @@ final class AppState {
     private func connectAuto() {
         guard pickTask == nil, !pm.isRunning else { return }
         pickTask = Task {
-            // Older than 10 minutes, none, or none that answered: measured first. A run under way
-            // is as fresh, and starting over would kill its engines.
+            // Older than 10 minutes, none, or none that answered: measured first.
             if fastestServer == nil || ping.lastFinished.map({ Date().timeIntervalSince($0) > 600 }) ?? true {
                 pm.log("[Auto: measuring every server...]")
-                if !ping.isRunning { ping.start(xrayServers) }
-                await ping.waitUntilDone()
+                await ping.run(xrayServers)
             }
             guard !Task.isCancelled else { return }
             pickTask = nil

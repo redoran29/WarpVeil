@@ -78,10 +78,23 @@ final class PingService {
         }
     }
 
-    // Returns once the run under way, if any, has ended — and the one that superseded it.
+    // Joins a run under way, which measures every server as well — starting over would kill its
+    // engines — or starts one, and returns once the results are in.
+    func run(_ servers: [Server]) async {
+        if !isRunning { start(servers) }
+        await waitUntilDone()
+    }
+
+    // Returns once the run under way, if any, has ended — and the one that superseded it. A waiter
+    // that is cancelled — a disconnect, the tunnel going down — takes the run with it: nobody else
+    // is waiting for its results.
     func waitUntilDone() async {
-        while isRunning, let task {
-            await task.value
+        await withTaskCancellationHandler {
+            while isRunning, let task, !Task.isCancelled {
+                await task.value
+            }
+        } onCancel: {
+            Task { @MainActor in self.cancel() }
         }
     }
 
