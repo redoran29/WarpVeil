@@ -234,7 +234,9 @@ final class AppState {
             var slow = 0
             var best: Duration?
             while !Task.isCancelled {
-                try? await Task.sleep(for: failed > 0 ? .seconds(1) : .seconds(10))
+                // Stopped during sleep, as the restart's delay is: at wake that restart is the one
+                // that runs, not a probe through a network still coming up.
+                try? await Task.sleep(for: failed > 0 ? .seconds(1) : .seconds(10), clock: .suspending)
                 guard !Task.isCancelled, let server = activeServer else { return }
                 let delay = await PingService.probeTunnel()
                 guard !Task.isCancelled else { return }
