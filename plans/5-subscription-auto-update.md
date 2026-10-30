@@ -53,7 +53,16 @@ traffic and expiry when the feed has a limit or an end date. Backlog 5.
 
 ### Built (2026-10-30)
 - Step 1, live on the owner's Mac: the launch's refresh logged
-  `[sub-remnawave.comradeserver.com refreshed — 8 server(s)]` and stored `refreshHours: 12` from the
+  `[<feed> refreshed — 8 server(s)]` and stored `refreshHours: 12` from the
   feed's header. Due feeds are asked hourly; the 12 h refresh itself is not yet seen.
 - Step 2: `subscription-userinfo` parsed on sample headers — total and expire 0 give no line, 98 %
   used and a past date are red, floats parse. Not yet seen on a feed with a limit.
+
+### Review round 1 (2026-10-30)
+- `subscription-userinfo` numbers converted unchecked — `total=1e19`, `upload=inf` or a sum past
+  Int64 crashed the app at every launch's refresh: values capped at 10^18, NaN and negatives skipped.
+- A refresh landed seconds after its hourly check, so the next one came an hour late: a due check
+  has 5 minutes of slack.
+- `profile-update-interval: inf` (or huge) made a feed never due again: only 0 < h ≤ 720 is kept.
+- This plan quoted the feed's host, which the public repository must not carry: replaced.
+

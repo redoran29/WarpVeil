@@ -72,7 +72,9 @@ struct Subscription: Codable, Identifiable {
     var isRefreshDue: Bool {
         guard !isManual else { return false }
         guard let lastUpdated else { return true }
-        return Date().timeIntervalSince(lastUpdated) >= (refreshHours ?? 24) * 3600
+        // Checked hourly, and a refresh lands seconds after its check: without the slack the next
+        // one would come an hour late.
+        return Date().timeIntervalSince(lastUpdated) + 300 >= (refreshHours ?? 24) * 3600
     }
 }
 
@@ -87,10 +89,11 @@ struct FeedLimits: Codable {
     init?(header: String?) {
         guard let header else { return nil }
         var fields: [String: Int64] = [:]
+        // Capped, so a feed's number can neither trap the conversion nor overflow the sum.
         for pair in header.split(separator: ";") {
             let parts = pair.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-            guard parts.count == 2, let value = Double(parts[1]) else { continue }
-            fields[parts[0].lowercased()] = Int64(value)
+            guard parts.count == 2, let value = Double(parts[1]), value >= 0 else { continue }
+            fields[parts[0].lowercased()] = Int64(min(value, 1e18))
         }
         let total = fields["total"] ?? 0
         let expire = fields["expire"] ?? 0
