@@ -26,6 +26,8 @@ final class PingService {
     var results: [String: PingResult] = [:]
     var error: String?
     private(set) var isRunning = false
+    // When a run last measured every server it was given, uncancelled.
+    private(set) var lastFinished: Date?
 
     private var task: Task<Void, Never>?
     private var generation = 0
@@ -71,6 +73,16 @@ final class PingService {
             // A superseded run must not clear the flag its successor has already raised.
             guard run == generation else { return }
             isRunning = false
+            if !Task.isCancelled { lastFinished = Date() }
+        }
+    }
+
+    // Returns once the results are in: a run started meanwhile — Ping all, the Servers page
+    // appearing — supersedes this one and measures the same servers, so it is waited for too.
+    func run(_ servers: [Server]) async {
+        start(servers)
+        while isRunning, let task {
+            await task.value
         }
     }
 

@@ -16,7 +16,17 @@ struct ServersView: View {
                 }
             }
 
-            ForEach(Array(app.subs.subscriptions.enumerated()), id: \.element.id) { index, sub in
+            // A section with no rows renders its header alone and drops the next header to footer
+            // style, so the page header rides on the Auto row's section.
+            if !app.subs.subscriptions.isEmpty {
+                Section {
+                    autoRow
+                } header: {
+                    pageHeader
+                }
+            }
+
+            ForEach(app.subs.subscriptions) { sub in
                 Section {
                     // A subscription is saved before its first fetch lands, and an empty section
                     // would render its header alone and drop the next one to footer style.
@@ -36,20 +46,15 @@ struct ServersView: View {
                             .onTapGesture { app.selectedServerID = server.id }
                     }
                 } header: {
-                    // A section with no rows renders its header alone and drops the next header
-                    // to footer style, so the page header rides on the first subscription.
-                    VStack(alignment: .leading, spacing: 10) {
-                        if index == 0 { pageHeader }
-                        subscriptionHeader(sub)
-                    }
+                    subscriptionHeader(sub)
                 }
             }
         }
         .formStyle(.grouped)
+        // Not cancelled when the page goes: Auto may be waiting for the same run.
         .onAppear { app.pingAll() }
         // At launch the page appears before the feeds land, and pingAll() waits for them.
         .onChange(of: app.isBootstrapped) { app.pingAll() }
-        .onDisappear { app.ping.cancel() }
         .sheet(isPresented: $showAddSheet) {
             AddSubscriptionSheet(subs: app.subs)
         }
@@ -63,6 +68,37 @@ struct ServersView: View {
         ) { sub in
             Button("Delete", role: .destructive) { app.removeSubscription(sub.id) }
         }
+    }
+
+    private var autoRow: some View {
+        let pick = app.fastestServer
+        return HStack(spacing: 12) {
+            Image(systemName: "bolt.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(Color.lavender)
+                .frame(width: 32)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Auto")
+                    .font(.system(size: 14, weight: .medium))
+                Text(pick.map { "Fastest now: \($0.name)" } ?? "The fastest server, and off one that slows down")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            PingLabel(ping: pick.flatMap { app.ping.results[$0.id] })
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(app.isAuto ? Color.lavender.opacity(0.15) : .clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { app.selectedServerID = AppState.autoServerID }
     }
 
     // MARK: - Headers
@@ -178,7 +214,7 @@ private struct ServerRowView: View {
 
             Spacer()
 
-            pingLabel
+            PingLabel(ping: ping)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -186,32 +222,6 @@ private struct ServerRowView: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(isSelected ? Color.lavender.opacity(0.15) : .clear)
         )
-    }
-
-    @ViewBuilder
-    private var pingLabel: some View {
-        switch ping {
-        case .measuring:
-            ProgressView().controlSize(.small)
-        case .delay(let milliseconds):
-            Text("\(milliseconds) ms")
-                .font(.system(size: 12))
-                .monospacedDigit()
-                .foregroundStyle(Self.color(forDelay: milliseconds))
-        case .failed:
-            Text("--")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-        case nil:
-            EmptyView()
-        }
-    }
-
-    // A full HEAD request through the proxy, so the bands sit well above TCP-handshake numbers.
-    private static func color(forDelay milliseconds: Int) -> Color {
-        if milliseconds < 300 { return .green }
-        if milliseconds < 800 { return .yellow }
-        return .red
     }
 
     private var protocolLabel: String {
@@ -268,6 +278,37 @@ private struct ServerRowView: View {
             if lower.contains(pattern) { return flag }
         }
         return "\u{1F310}" // globe
+    }
+}
+
+// MARK: - Ping Label
+
+private struct PingLabel: View {
+    let ping: PingResult?
+
+    var body: some View {
+        switch ping {
+        case .measuring:
+            ProgressView().controlSize(.small)
+        case .delay(let milliseconds):
+            Text("\(milliseconds) ms")
+                .font(.system(size: 12))
+                .monospacedDigit()
+                .foregroundStyle(Self.color(forDelay: milliseconds))
+        case .failed:
+            Text("--")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+        case nil:
+            EmptyView()
+        }
+    }
+
+    // A full HEAD request through the proxy, so the bands sit well above TCP-handshake numbers.
+    private static func color(forDelay milliseconds: Int) -> Color {
+        if milliseconds < 300 { return .green }
+        if milliseconds < 800 { return .yellow }
+        return .red
     }
 }
 

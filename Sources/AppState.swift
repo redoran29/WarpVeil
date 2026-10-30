@@ -52,6 +52,10 @@ final class AppState {
         subs.subscriptions.lazy.flatMap(\.servers).first { $0.id == selectedServerID }
     }
 
+    var canConnect: Bool {
+        isAuto ? !xrayServers.isEmpty : selectedServer != nil
+    }
+
     var bypassDomains: [String] {
         (defaults.string(forKey: "bypassDomains") ?? "")
             .split(separator: "\n")
@@ -59,8 +63,15 @@ final class AppState {
             .filter { !$0.isEmpty }
     }
 
-    private var selectedSubscription: Subscription? {
-        subs.subscriptions.first { $0.servers.contains { $0.id == selectedServerID } }
+    private func subscription(of server: Server) -> Subscription? {
+        subs.subscriptions.first { $0.servers.contains { $0.id == server.id } }
+    }
+
+    // What ping measures and Auto picks from: a sing-box config an earlier build stored cannot connect.
+    private var xrayServers: [Server] {
+        subs.subscriptions.flatMap { sub in
+            sub.servers.filter { ($0.engine ?? sub.engine) == .xray }
+        }
     }
 
     // bool(forKey:) reports false for a key that was never written, which would silently
@@ -81,7 +92,7 @@ final class AppState {
         async let feeds: Void = refreshFeeds(subs.subscriptions.filter { !$0.isManual })
         _ = await (location, feeds)
 
-        if defaults.bool(forKey: "autoConnect"), !pm.isRunning, selectedServer != nil {
+        if defaults.bool(forKey: "autoConnect"), !pm.isRunning, canConnect {
             connect()
         }
 
@@ -96,11 +107,19 @@ final class AppState {
             pm.log(ProcessManager.updateHoldMessage)
             return
         }
-        guard let server = selectedServer, let sub = selectedSubscription else {
+        guard !isAuto else {
+            connectAuto()
+            return
+        }
+        guard let server = selectedServer else {
             pm.logError("[Error: no server selected]")
             return
         }
+        start(server)
+    }
 
+    private func start(_ server: Server) {
+        guard let sub = subscription(of: server) else { return }
         // Every server runs on xray. A sing-box config an earlier build stored is rebuilt by its
         // feed's next refresh; a manual one has to be added again.
         guard (server.engine ?? sub.engine) == .xray else {
@@ -109,6 +128,7 @@ final class AppState {
                 : "[Error: \(server.name) is still a sing-box config — refresh \(sub.name) to rebuild it]")
             return
         }
+        activeServer = server
         pm.connect(
             config: server.config,
             xrayPath: ProcessManager.findBinary("xray") ?? "",
@@ -117,6 +137,8 @@ final class AppState {
     }
 
     func disconnect() {
+        pickTask?.cancel()
+        pickTask = nil
         pm.disconnect()
     }
 
@@ -130,14 +152,57 @@ final class AppState {
 
     func pingAll() {
         guard isBootstrapped else { return }
-        ping.start(subs.subscriptions.flatMap { sub in
-            sub.servers.filter { ($0.engine ?? sub.engine) == .xray }
-        })
+        ping.start(xrayServers)
     }
 
     // Not gated on isRunning: a reconnect pending after wake has to pick the change up too.
     func routingChanged() {
         pm.reconnect(bypassDomains: activeBypassDomains)
+    }
+
+    // MARK: - Auto
+    //
+    // "Auto" connects to the lowest ping (owner, 2026-10-15).
+
+    static let autoServerID = "auto"
+    var isAuto: Bool { selectedServerID == Self.autoServerID }
+
+    // The server the session was started with, kept as it was: a refresh may drop it from its feed.
+    private(set) var activeServer: Server?
+    private var pickTask: Task<Void, Never>?
+
+    // An Auto connect still measuring, before any session exists.
+    var isPicking: Bool { pickTask != nil }
+
+    // The lowest ping on record, the first in the list on a tie.
+    var fastestServer: Server? {
+        xrayServers
+            .compactMap { server in delay(of: server).map { (server, $0) } }
+            .min { $0.1 < $1.1 }?.0
+    }
+
+    func delay(of server: Server) -> Int? {
+        guard case .delay(let milliseconds) = ping.results[server.id] else { return nil }
+        return milliseconds
+    }
+
+    private func connectAuto() {
+        guard pickTask == nil, !pm.isRunning else { return }
+        pickTask = Task {
+            // Older than 10 minutes, or none: measured first.
+            if ping.lastFinished.map({ Date().timeIntervalSince($0) > 600 }) ?? true {
+                pm.log("[Auto: measuring every server...]")
+                await ping.run(xrayServers)
+            }
+            guard !Task.isCancelled else { return }
+            pickTask = nil
+            guard let server = fastestServer else {
+                pm.logError("[Auto: no server answered — not connecting]")
+                return
+            }
+            pm.log("[Auto: \(server.name), \(delay(of: server) ?? 0) ms]")
+            start(server)
+        }
     }
 
     // MARK: - Feeds

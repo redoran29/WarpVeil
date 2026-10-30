@@ -63,43 +63,46 @@ struct ConnectionView: View {
 
     // MARK: - Power Button
 
+    // On from the click: an Auto connect measures before any session exists.
+    private var isOn: Bool { app.pm.isRunning || app.isPicking }
+
     private var powerButton: some View {
         Button {
-            if app.pm.isRunning { app.disconnect() } else { app.connect() }
+            if isOn { app.disconnect() } else { app.connect() }
         } label: {
             ZStack {
                 Circle()
-                    .fill(app.pm.isRunning ? Color.lavender.opacity(0.12) : Color.secondary.opacity(0.05))
+                    .fill(isOn ? Color.lavender.opacity(0.12) : Color.secondary.opacity(0.05))
                     .frame(width: 130, height: 130)
 
                 Circle()
-                    .fill(app.pm.isRunning ? Color.lavender.opacity(0.2) : Color.secondary.opacity(0.08))
+                    .fill(isOn ? Color.lavender.opacity(0.2) : Color.secondary.opacity(0.08))
                     .frame(width: 108, height: 108)
 
                 Circle()
-                    .stroke(app.pm.isRunning ? Color.lavender.opacity(0.6) : Color.secondary.opacity(0.2), lineWidth: 1.5)
+                    .stroke(isOn ? Color.lavender.opacity(0.6) : Color.secondary.opacity(0.2), lineWidth: 1.5)
                     .frame(width: 108, height: 108)
 
                 Image(systemName: "power")
                     .font(.system(size: 38, weight: .light))
-                    .foregroundStyle(app.pm.isRunning ? Color.lavender : .secondary)
+                    .foregroundStyle(isOn ? Color.lavender : .secondary)
             }
         }
         .buttonStyle(.plain)
-        .disabled(!app.pm.isRunning && app.selectedServer == nil)
+        .disabled(!isOn && !app.canConnect)
     }
 
     // MARK: - Status
 
     private var statusSection: some View {
         VStack(spacing: 4) {
-            Text(app.pm.isTunnelUp ? "Connected" : app.pm.isRunning ? "Connecting…" : "Disconnected")
+            Text(app.pm.isTunnelUp ? "Connected" : app.pm.isRunning ? "Connecting…" : app.isPicking ? "Measuring…" : "Disconnected")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(app.pm.isTunnelUp ? .green : .secondary)
 
             // In its own column the button no longer sits under the list, so it has to say
             // what it would connect to.
-            Text(app.selectedServer?.name ?? "No server selected")
+            Text(serverLine)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -113,6 +116,12 @@ struct ConnectionView: View {
                 }
             }
         }
+    }
+
+    private var serverLine: String {
+        guard app.isAuto else { return app.selectedServer?.name ?? "No server selected" }
+        guard app.pm.isRunning, let server = app.activeServer else { return "Auto" }
+        return "Auto → \(server.name)"
     }
 
     private var locationSection: some View {
