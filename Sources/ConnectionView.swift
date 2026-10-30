@@ -118,10 +118,12 @@ struct ConnectionView: View {
         }
     }
 
+    // The session's server while one runs: a tap only selects.
     private var serverLine: String {
-        guard app.isAuto else { return app.selectedServer?.name ?? "No server selected" }
-        guard app.pm.isRunning, let server = app.activeServer else { return "Auto" }
-        return "Auto → \(server.name)"
+        guard app.pm.isRunning, let server = app.activeServer else {
+            return app.isAuto ? "Auto" : app.selectedServer?.name ?? "No server selected"
+        }
+        return app.activeIsAuto ? "Auto → \(server.name)" : server.name
     }
 
     private var locationSection: some View {

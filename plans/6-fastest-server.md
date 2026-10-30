@@ -86,3 +86,20 @@ slow, reconnects to a faster one by itself. Backlog 6.
   the server pinged fine), and a probe through the new session answered 204 in 0.3 s. 44 s from
   the freeze to the new xray with a probe every 10 s; the confirming probe now goes at once. A move
   to another server, and the slow path, are not yet seen live.
+
+### Review round 1 (2026-10-30)
+- A run where every server failed still counted as fresh, so a connect within 10 minutes refused
+  without measuring: a connect measures when nothing on record answered.
+- "Slow" is one cold probe against 1.5 s, and a slow server that still pinged best was reconnected
+  to — a loop on a distant link: a slow server is left only for another one, and when it is still
+  the fastest the slow check rests 10 minutes. A dead one is reconnected to once; failing again
+  within 5 minutes, the next best is taken.
+- The watch read Auto from the selection, so Auto tapped while on a hand-picked server would leave
+  it: the session keeps whether Auto started it, and the status names the session's server.
+- The menu-bar menu read Disconnected during Auto's measurement and its Connect did nothing: it says
+  Measuring… and offers Disconnect.
+- The update hold was checked at the click only, so a pick that finished during a download started
+  a session; an update's "was running" missed a pick: both fixed.
+- Ping runs restarted each other — Auto's, the Servers page appearing, the launch: a run under way
+  is waited for, not started over.
+

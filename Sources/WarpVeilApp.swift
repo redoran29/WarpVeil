@@ -113,12 +113,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let status = app.pm.isTunnelUp
             ? "Connected — \(app.loc.flag) \(app.loc.ip)"
-            : app.pm.isRunning ? "Connecting…" : "Disconnected"
+            : app.pm.isRunning ? "Connecting…" : app.isPicking ? "Measuring…" : "Disconnected"
         menu.addItem(NSMenuItem(title: status, action: nil, keyEquivalent: ""))
 
         menu.addItem(.separator())
 
-        let toggle = app.pm.isRunning
+        let toggle = app.pm.isRunning || app.isPicking
             ? NSMenuItem(title: "Disconnect", action: #selector(disconnectAction), keyEquivalent: "")
             : NSMenuItem(title: "Connect", action: #selector(connectAction), keyEquivalent: "")
         toggle.target = self
