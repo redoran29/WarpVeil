@@ -393,9 +393,9 @@ final class AppState {
                 // The session it stops comes back as it was, not as the selection reads now: Auto
                 // picks again, a hand-picked server is looked up afresh — a refresh during the
                 // download may have changed or dropped it, and then the selection connects.
-                if isPicking || (pm.isRunning && activeIsAuto) {
+                if isPicking || (pm.isSessionPending && activeIsAuto) {
                     resume = { self.connectAuto() }
-                } else if pm.isRunning {
+                } else if pm.isSessionPending {
                     let id = activeServer?.id
                     resume = { self.server(id: id).map { self.start($0, auto: false) } ?? self.connect() }
                 }

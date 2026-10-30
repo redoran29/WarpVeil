@@ -531,6 +531,8 @@ final class ProcessManager {
     // edit — would outlive the wait for the engines, under a tag the new version cannot stop or with
     // no app left.
     var connectHold: String?
+    // A session running, starting, or waiting out a restart's delay.
+    var isSessionPending: Bool { isRunning || reconnectTask != nil }
     static let updateHoldMessage = "[An update is installing — connect after it]"
     static let quitHoldMessage = "[WarpVeil is quitting — not connecting]"
 
