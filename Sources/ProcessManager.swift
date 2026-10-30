@@ -571,10 +571,12 @@ final class ProcessManager {
 
         // An xray still exiting holds the port the next one needs. The connect then starts from
         // lastConnection as it is when xray has gone, so a routing edit made meanwhile is not lost.
-        if let xray = xrayProcess, xray.isRunning {
-            log("[Waiting for the previous xray to stop...]")
+        // Gone means its exit handled, not only happened: a handler that ran after this session
+        // began would take it for the one its xray belonged to, and disconnect it.
+        if let xray = xrayProcess {
+            if xray.isRunning { log("[Waiting for the previous xray to stop...]") }
             reconnectTask = Task {
-                while xray.isRunning, !Task.isCancelled {
+                while xrayProcess === xray, !Task.isCancelled {
                     try? await Task.sleep(for: .milliseconds(100))
                 }
                 guard !Task.isCancelled, let params = lastConnection else { return }
