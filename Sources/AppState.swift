@@ -48,8 +48,10 @@ final class AppState {
     // safe because RoutingView both edits the key and holds the matching @AppStorage, so it
     // re-renders itself and reads AppState fresh. Keep that @AppStorage where the editing is.
 
-    var selectedServer: Server? {
-        subs.subscriptions.lazy.flatMap(\.servers).first { $0.id == selectedServerID }
+    var selectedServer: Server? { server(id: selectedServerID) }
+
+    private func server(id: String?) -> Server? {
+        subs.subscriptions.lazy.flatMap(\.servers).first { $0.id == id }
     }
 
     var canConnect: Bool {
@@ -348,12 +350,14 @@ final class AppState {
             var resume: (() -> Void)?
             let handedOver = await updater.install {
                 held = true
-                // The session it stops comes back as it was, not as the selection reads now.
-                if pm.isRunning, let server = activeServer {
-                    let auto = activeIsAuto
-                    resume = { self.start(server, auto: auto) }
-                } else if isPicking {
+                // The session it stops comes back as it was, not as the selection reads now: Auto
+                // picks again, a hand-picked server is looked up afresh — a refresh during the
+                // download may have changed or dropped it, and then the selection connects.
+                if isPicking || (pm.isRunning && activeIsAuto) {
                     resume = { self.connectAuto() }
+                } else if pm.isRunning {
+                    let id = activeServer?.id
+                    resume = { self.server(id: id).map { self.start($0, auto: false) } ?? self.connect() }
                 }
                 pm.connectHold = ProcessManager.updateHoldMessage
                 disconnect()
