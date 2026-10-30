@@ -233,7 +233,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
         subscriptions[idx].refreshHours = feed.response
             .value(forHTTPHeaderField: "profile-update-interval")
             .flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }
-            .flatMap { $0 > 0 && $0 <= 720 ? $0 : nil }
+            .flatMap { $0 > 0 ? min($0, 720) : nil }
         subscriptions[idx].limits = FeedLimits(header: feed.response.value(forHTTPHeaderField: "subscription-userinfo"))
         save()
     }

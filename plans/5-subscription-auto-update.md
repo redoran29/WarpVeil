@@ -66,3 +66,6 @@ traffic and expiry when the feed has a limit or an end date. Backlog 5.
 - `profile-update-interval: inf` (or huge) made a feed never due again: only 0 < h ≤ 720 is kept.
 - This plan quoted the feed's host, which the public repository must not carry: replaced.
 
+### Review round 2 (2026-10-30)
+- An interval over 720 h fell back to 24 h: capped at 720 h instead.
+
