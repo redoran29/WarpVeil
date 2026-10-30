@@ -269,6 +269,14 @@ final class AppState {
     // the only one that answers, it is reconnected to after 30 s (owner, 2026-10-30).
     private func leaveDead(_ server: Server) async {
         guard await measureForMove("\(server.name) stopped answering") else { return }
+        // The office network blinks for seconds at a time: a tunnel that answers again by now keeps
+        // its connections rather than lose them all to a reconnect.
+        if await PingService.probeTunnel() != nil {
+            guard !Task.isCancelled else { return }
+            pm.log("[Auto: \(server.name) answers again — staying on it]")
+            return
+        }
+        guard !Task.isCancelled, pm.isTunnelUp else { return }
         let justRetried = lastRetry.map { $0.serverID == server.id && Date().timeIntervalSince($0.at) < 300 } ?? false
         guard let best = (justRetried ? fastest(excluding: server.id) : nil) ?? fastestServer else {
             pm.logError("[Auto: no server answered — staying on \(server.name)]")
