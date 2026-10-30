@@ -102,6 +102,7 @@ final class AppState {
     }
 
     func connect() {
+        guard !updateHolds() else { return }
         guard !isAuto else {
             connectAuto()
             return
@@ -113,15 +114,18 @@ final class AppState {
         start(server, auto: false)
     }
 
-    // Checked here, not at the click: an Auto connect measures first, and the download may begin
+    // During the download a session started now would be stopped again for the swap. Asked at the
+    // click and again at the start: an Auto connect measures first, and the download may begin
     // meanwhile.
+    private func updateHolds() -> Bool {
+        guard updater.state == .installing else { return false }
+        pm.log(ProcessManager.updateHoldMessage)
+        return true
+    }
+
     private func start(_ server: Server, auto: Bool) {
-        // During the download: a session started now would be stopped again for the swap.
-        guard updater.state != .installing else {
-            pm.log(ProcessManager.updateHoldMessage)
-            return
-        }
-        guard let sub = subscription(of: server) else { return }
+        // A session already up is not replaced, and must keep naming its own server.
+        guard !updateHolds(), !pm.isRunning, let sub = subscription(of: server) else { return }
         // Every server runs on xray. A sing-box config an earlier build stored is rebuilt by its
         // feed's next refresh; a manual one has to be added again.
         guard (server.engine ?? sub.engine) == .xray else {
@@ -180,9 +184,6 @@ final class AppState {
     private(set) var activeIsAuto = false
     private var pickTask: Task<Void, Never>?
     private var watchTask: Task<Void, Never>?
-    // The last reconnect to a server that still pinged best. A second failure soon after means
-    // its sessions keep breaking, and the next best is taken instead.
-    private var retried: (serverID: String, at: Date)?
 
     // An Auto connect still measuring, before any session exists.
     var isPicking: Bool { pickTask != nil }
@@ -205,10 +206,12 @@ final class AppState {
     private func connectAuto() {
         guard pickTask == nil, !pm.isRunning else { return }
         pickTask = Task {
-            // Older than 10 minutes, none, or none that answered: measured first.
+            // Older than 10 minutes, none, or none that answered: measured first. A run under way
+            // is as fresh, and starting over would kill its engines.
             if fastestServer == nil || ping.lastFinished.map({ Date().timeIntervalSince($0) > 600 }) ?? true {
                 pm.log("[Auto: measuring every server...]")
-                await ping.run(xrayServers)
+                if !ping.isRunning { ping.start(xrayServers) }
+                await ping.waitUntilDone()
             }
             guard !Task.isCancelled else { return }
             pickTask = nil
@@ -222,60 +225,63 @@ final class AppState {
     }
 
     // A probe through the tunnel every 10 s, and one at once after a failure to confirm it. Two
-    // that fail in a row, or three in a row slower than 1.5 s, and every server is measured.
+    // that fail in a row, or three in a row slow, and every server is measured. Slow is past 1.5 s
+    // and past three times the session's best probe: a probe is a cold request — new connection,
+    // every handshake — so a distant server is slow by any fixed bar. Runs for an Auto session only.
     private func watchTunnel() -> Task<Void, Never> {
         Task {
             var failed = 0
             var slow = 0
-            // A probe is a cold request — new connection, every handshake — so a distant server
-            // can be slow by this measure and still the fastest; it is then left alone a while.
-            var slowQuietUntil = Date.distantPast
+            var best: Duration?
             while !Task.isCancelled {
                 try? await Task.sleep(for: failed > 0 ? .seconds(1) : .seconds(10))
-                guard !Task.isCancelled else { return }
-                guard activeIsAuto, let server = activeServer else { continue }
+                guard !Task.isCancelled, let server = activeServer else { return }
                 let delay = await PingService.probeTunnel()
                 guard !Task.isCancelled else { return }
-                let isSlow = delay.map { $0 > .milliseconds(1500) } ?? true
+                if let delay { best = min(best ?? delay, delay) }
+                let bar = max(.milliseconds(1500), (best ?? .zero) * 3)
+                let isSlow = delay.map { $0 > bar } ?? true
                 failed = delay == nil ? failed + 1 : 0
-                slow = isSlow && Date() > slowQuietUntil ? slow + 1 : 0
-                guard failed >= 2 || slow >= 3 else { continue }
-                let isDead = failed >= 2
-                failed = 0
-                slow = 0
-                if await !moveOff(server, isDead: isDead) {
-                    slowQuietUntil = Date().addingTimeInterval(600)
+                slow = isSlow ? slow + 1 : 0
+                if failed >= 2 {
+                    failed = 0
+                    slow = 0
+                    await moveOff(server, isDead: true)
+                } else if slow >= 3 {
+                    slow = 0
+                    await moveOff(server, isDead: false)
+                    // Still here, it is still the fastest: this is its speed now.
+                    best = delay
                 }
             }
         }
     }
 
-    // A dead server is left for the fastest — the same one when it still pings best, since then
-    // its session is what broke, unless that was just tried. A slow one is left only for another.
-    // False when the tunnel stays on a slow server that is still the fastest.
-    private func moveOff(_ server: Server, isDead: Bool) async -> Bool {
+    // A dead server is left for the fastest other one that answers — its session failed twice,
+    // whatever the cause — and reconnected to only when no other one does. A slow one is left only
+    // for one that pings faster. The measurement is a fresh run: one started before the failure
+    // would vouch for the server.
+    private func moveOff(_ server: Server, isDead: Bool) async {
         pm.logError("[Auto: \(server.name) \(isDead ? "stopped answering" : "is slow") — measuring every server...]")
-        await ping.run(xrayServers)
-        guard !Task.isCancelled, activeIsAuto, pm.isTunnelUp else { return true }
-        let justRetried = retried.map { $0.serverID == server.id && Date().timeIntervalSince($0.at) < 300 } ?? false
-        guard let best = fastest(excluding: isDead && justRetried ? server.id : nil) else {
+        ping.start(xrayServers)
+        await ping.waitUntilDone()
+        guard !Task.isCancelled, pm.isTunnelUp else { return }
+        guard let best = isDead ? fastest(excluding: server.id) ?? fastestServer : fastestServer else {
             pm.logError("[Auto: no server answered — staying on \(server.name)]")
             // The network itself is likely down; measuring again at once would only repeat that.
             try? await Task.sleep(for: .seconds(30))
-            return true
+            return
         }
         guard best.id != server.id else {
-            guard isDead else {
+            if isDead {
+                pm.reconnect(config: best.config, "[Auto: \(server.name) is the only server that answers — reconnecting to it]")
+            } else {
                 pm.log("[Auto: \(server.name) still pings best — staying on it]")
-                return false
             }
-            retried = (server.id, Date())
-            pm.reconnect(config: best.config, "[Auto: \(server.name) still pings best — reconnecting to it]")
-            return true
+            return
         }
         activeServer = best
         pm.reconnect(config: best.config, "[Auto: moving to \(best.name), \(delay(of: best) ?? 0) ms]")
-        return true
     }
 
     // MARK: - Feeds
@@ -336,10 +342,16 @@ final class AppState {
             // still the user's tunnel, and should the update fail it has to come back. Only the
             // install that set the hold releases it — a second one, refused, never set it.
             var held = false
-            var wasRunning = false
+            var resume: (() -> Void)?
             let handedOver = await updater.install {
                 held = true
-                wasRunning = pm.isRunning || isPicking
+                // The session it stops comes back as it was, not as the selection reads now.
+                if pm.isRunning, let server = activeServer {
+                    let auto = activeIsAuto
+                    resume = { self.start(server, auto: auto) }
+                } else if isPicking {
+                    resume = { self.connectAuto() }
+                }
                 pm.connectHold = ProcessManager.updateHoldMessage
                 disconnect()
                 return await pm.awaitTeardown(timeout: .seconds(30))
@@ -349,7 +361,7 @@ final class AppState {
                 quit()
             } else if held, pm.connectHold == ProcessManager.updateHoldMessage {
                 pm.connectHold = nil
-                if wasRunning { connect() }
+                resume?()
             }
         }
     }
@@ -400,7 +412,7 @@ final class AppState {
             connectedAt = Date()
             net.start()
             startLocationTimer()
-            watchTask = watchTunnel()
+            if activeIsAuto { watchTask = watchTunnel() }
         } else {
             connectedAt = nil
             watchTask?.cancel()

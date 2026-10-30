@@ -34,9 +34,11 @@ slow, reconnects to a faster one by itself. Backlog 6.
 - How the running server is watched. Default: an HTTPS request to the ping's test URL through xray's
   SOCKS port every 10 s, 5 s timeout, a new connection each time; after a failure the next one goes
   at once.
-- What counts as degraded. Default: two failed probes in a row, or three in a row slower than 1.5 s.
-- Degraded, and the running server pings best anyway. Default: reconnect to it — the session, not the
-  server, is what broke.
+- What counts as degraded. Default: two failed probes in a row, or three in a row slower than 1.5 s
+  and than three times the session's best probe.
+- Where a degraded server goes. Default: a dead one to the fastest other server that answers, back
+  to itself only when no other one does; a slow one only to a server that pings faster, else it
+  stays and its speed becomes the new bar.
 - How fresh a measurement must be at connect. Default: 10 minutes.
 - Ties. Default: the first in the list.
 
@@ -102,4 +104,17 @@ slow, reconnects to a faster one by itself. Backlog 6.
   a session; an update's "was running" missed a pick: both fixed.
 - Ping runs restarted each other — Auto's, the Servers page appearing, the launch: a run under way
   is waited for, not started over.
+
+### Review round 2 (2026-10-30)
+- Most findings sat in round 1's own additions — a retry marker kept across sessions that skipped a
+  needed reconnect or left the user on a dead tunnel, and a slow-check rest lost at every restart.
+  The shape changed instead of a third fix: a dead server goes to the fastest other one (itself
+  only when alone), and slow is measured against the session's own best probe, which a stay raises —
+  neither keeps state past the session.
+- The measurement for a move could be a run started before the failure: a move starts a fresh one.
+- A failed update brought back the selection, not the session it stopped: it restores the session.
+- The session's server was recorded before the connect was accepted: a session already up is not
+  replaced. The update hold is checked at the click as well, so Auto does not measure for nothing.
+- The watch ran for hand-picked sessions to do nothing: it starts for Auto ones only. An interval
+  over 720 h is capped rather than dropped to 24 h.
 

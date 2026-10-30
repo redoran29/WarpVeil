@@ -78,10 +78,8 @@ final class PingService {
         }
     }
 
-    // Returns once the results are in. A run under way measures the same servers — every one —
-    // and is waited for rather than started over, which would kill its engines.
-    func run(_ servers: [Server]) async {
-        if !isRunning { start(servers) }
+    // Returns once the run under way, if any, has ended — and the one that superseded it.
+    func waitUntilDone() async {
         while isRunning, let task {
             await task.value
         }
