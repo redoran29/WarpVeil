@@ -50,3 +50,10 @@ traffic and expiry when the feed has a limit or an end date. Backlog 5.
   `expire=0` — unlimited, no end date — plus `profile-title`, `profile-web-page-url`, `support-url`
   (one fetch of the feed on 2026-10-15).
 - The old plan's design: `git show 975f8b4:plans/client-feature-parity.md`, item 5.
+
+### Built (2026-10-30)
+- Step 1, live on the owner's Mac: the launch's refresh logged
+  `[sub-remnawave.comradeserver.com refreshed — 8 server(s)]` and stored `refreshHours: 12` from the
+  feed's header. Due feeds are asked hourly; the 12 h refresh itself is not yet seen.
+- Step 2: `subscription-userinfo` parsed on sample headers — total and expire 0 give no line, 98 %
+  used and a past date are red, floats parse. Not yet seen on a feed with a limit.

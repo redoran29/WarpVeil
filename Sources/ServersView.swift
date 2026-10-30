@@ -148,6 +148,26 @@ struct ServersView: View {
     }
 
     private func subscriptionHeader(_ sub: Subscription) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            subscriptionTitle(sub)
+            if let limits = sub.limits {
+                Text(Self.describe(limits))
+                    .font(.system(size: 11))
+                    .foregroundStyle(limits.isRunningOut ? .red : .secondary)
+            }
+        }
+    }
+
+    // "12.3 GB of 100 GB · until 31 Dec 2026", either half alone when the feed has only that one.
+    private static func describe(_ limits: FeedLimits) -> String {
+        let traffic = limits.total > 0
+            ? "\(limits.used.formatted(.byteCount(style: .file))) of \(limits.total.formatted(.byteCount(style: .file)))"
+            : nil
+        let date = limits.expires.map { "\(traffic == nil ? "Until" : "until") \($0.formatted(date: .abbreviated, time: .omitted))" }
+        return [traffic, date].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private func subscriptionTitle(_ sub: Subscription) -> some View {
         HStack(spacing: 6) {
             Text(sub.name)
                 .lineLimit(1)

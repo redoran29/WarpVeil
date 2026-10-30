@@ -55,6 +55,8 @@ struct Subscription: Codable, Identifiable {
     var lastUpdated: Date?
     // The feed's own `profile-update-interval`, in hours, as of its last refresh.
     var refreshHours: Double?
+    // As of its last refresh; nil for a feed with neither a limit nor an end date.
+    var limits: FeedLimits?
 
     init(name: String, url: String = "", isManual: Bool = false, engine: Engine = .xray) {
         self.id = UUID()
@@ -71,6 +73,35 @@ struct Subscription: Codable, Identifiable {
         guard !isManual else { return false }
         guard let lastUpdated else { return true }
         return Date().timeIntervalSince(lastUpdated) >= (refreshHours ?? 24) * 3600
+    }
+}
+
+// A feed's `subscription-userinfo`: bytes used of the total, and the end date.
+struct FeedLimits: Codable {
+    var used: Int64
+    var total: Int64
+    var expires: Date?
+
+    // `upload=…; download=…; total=…; expire=…` — bytes, and Unix seconds; a total or an expire
+    // of 0 is none (owner, 2026-10-15: shown only for a feed that has one or the other).
+    init?(header: String?) {
+        guard let header else { return nil }
+        var fields: [String: Int64] = [:]
+        for pair in header.split(separator: ";") {
+            let parts = pair.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count == 2, let value = Double(parts[1]) else { continue }
+            fields[parts[0].lowercased()] = Int64(value)
+        }
+        let total = fields["total"] ?? 0
+        let expire = fields["expire"] ?? 0
+        guard total > 0 || expire > 0 else { return nil }
+        used = (fields["upload"] ?? 0) + (fields["download"] ?? 0)
+        self.total = total
+        expires = expire > 0 ? Date(timeIntervalSince1970: TimeInterval(expire)) : nil
+    }
+
+    var isRunningOut: Bool {
+        (total > 0 && total - used < total / 20) || expires.map { $0 < Date() } ?? false
     }
 }
 

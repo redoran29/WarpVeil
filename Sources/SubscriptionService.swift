@@ -234,6 +234,7 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             .value(forHTTPHeaderField: "profile-update-interval")
             .flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }
             .flatMap { $0 > 0 ? $0 : nil }
+        subscriptions[idx].limits = FeedLimits(header: feed.response.value(forHTTPHeaderField: "subscription-userinfo"))
         save()
     }
 
