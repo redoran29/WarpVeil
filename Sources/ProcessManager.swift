@@ -929,11 +929,14 @@ final class ProcessManager {
     }
 
     // A move to another server: the restart path, carrying that server's config in place of the
-    // last one, so a wake or a routing edit after it replays the new server.
-    func reconnect(config: String, _ message: String) {
-        guard isRunning, lastConnection != nil else { return }
+    // last one, so a wake or a routing edit after it replays the new server. False when it is
+    // refused, and then nothing has changed: a stop under way is a disconnect's or a restart's.
+    @discardableResult
+    func reconnect(config: String, _ message: String) -> Bool {
+        guard isRunning, lastConnection != nil, !isStopping else { return false }
         lastConnection?.config = config
         restart(message, after: .seconds(1))
+        return true
     }
 
     func disconnect() {

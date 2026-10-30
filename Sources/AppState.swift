@@ -282,8 +282,9 @@ final class AppState {
             }
             return
         }
-        activeServer = best
-        pm.reconnect(config: best.config, "[Auto: moving to \(best.name), \(delay(of: best) ?? 0) ms]")
+        if pm.reconnect(config: best.config, "[Auto: moving to \(best.name), \(delay(of: best) ?? 0) ms]") {
+            activeServer = best
+        }
     }
 
     // MARK: - Feeds
