@@ -138,6 +138,7 @@ final class AppState {
         }
         activeServer = server
         activeIsAuto = auto
+        lastRetry = nil
         pm.connect(
             config: server.config,
             xrayPath: ProcessManager.findBinary("xray") ?? "",
@@ -186,6 +187,9 @@ final class AppState {
     private(set) var activeIsAuto = false
     private var pickTask: Task<Void, Never>?
     private var watchTask: Task<Void, Never>?
+    // The last reconnect to a dead server that still pinged best. It outlives that reconnect —
+    // the watch does not — and a connect clears it, so it never reaches into another session.
+    private var lastRetry: (serverID: String, at: Date)?
 
     // An Auto connect still measuring, before any session exists.
     var isPicking: Bool { pickTask != nil }
@@ -225,14 +229,16 @@ final class AppState {
     }
 
     // A probe through the tunnel every 10 s, and one at once after a failure to confirm it. Two
-    // that fail in a row, or three in a row slow, and every server is measured. Slow is past 1.5 s
-    // and past three times the session's best probe: a probe is a cold request — new connection,
-    // every handshake — so a distant server is slow by any fixed bar. Runs for an Auto session only.
+    // that fail in a row, or three in a row slow, and every server is measured. Slow is three times
+    // the session's best probe, kept between 1.5 s and 4 s (owner, 2026-10-30): a probe is a cold
+    // request — new connection, every handshake — so a distant server is slow by any fixed bar, and
+    // past the probe's 5 s timeout a slow server would only ever count as dead. Auto sessions only.
     private func watchTunnel() -> Task<Void, Never> {
         Task {
             var failed = 0
             var slow = 0
             var best: Duration?
+            var slowQuietUntil = Date.distantPast
             while !Task.isCancelled {
                 // Stopped during sleep, as the restart's delay is: at wake that restart is the one
                 // that runs, not a probe through a network still coming up.
@@ -241,50 +247,78 @@ final class AppState {
                 let delay = await PingService.probeTunnel()
                 guard !Task.isCancelled else { return }
                 if let delay { best = min(best ?? delay, delay) }
-                let bar = max(.milliseconds(1500), (best ?? .zero) * 3)
+                let bar = min(max(.milliseconds(1500), (best ?? .zero) * 3), .seconds(4))
                 let isSlow = delay.map { $0 > bar } ?? true
                 failed = delay == nil ? failed + 1 : 0
-                slow = isSlow ? slow + 1 : 0
+                slow = isSlow && Date() >= slowQuietUntil ? slow + 1 : 0
                 if failed >= 2 {
                     failed = 0
                     slow = 0
-                    await moveOff(server, isDead: true)
+                    await leaveDead(server)
                 } else if slow >= 3 {
                     slow = 0
-                    await moveOff(server, isDead: false)
-                    // Still here, it is still the fastest: this is its speed now.
-                    best = delay
+                    // Still the fastest: slow is not asked again for 10 minutes (owner, 2026-10-30).
+                    if await !leaveSlow(server) { slowQuietUntil = Date().addingTimeInterval(600) }
                 }
             }
         }
     }
 
-    // A dead server is left for the fastest other one that answers — its session failed twice,
-    // whatever the cause — and reconnected to only when no other one does. A slow one is left only
-    // for one that pings faster. The measurement is a fresh run: one started before the failure
-    // would vouch for the server.
-    private func moveOff(_ server: Server, isDead: Bool) async {
-        pm.logError("[Auto: \(server.name) \(isDead ? "stopped answering" : "is slow") — measuring every server...]")
-        ping.start(xrayServers)
-        await ping.waitUntilDone()
-        guard !Task.isCancelled, pm.isTunnelUp else { return }
-        guard let best = isDead ? fastest(excluding: server.id) ?? fastestServer : fastestServer else {
+    // A dead server that still pings best is reconnected to — the network blinked or the session
+    // broke, not the server. Dead again within 5 minutes of that, the next best is taken; when it is
+    // the only one that answers, it is reconnected to after 30 s (owner, 2026-10-30).
+    private func leaveDead(_ server: Server) async {
+        guard await measureForMove("\(server.name) stopped answering") else { return }
+        let justRetried = lastRetry.map { $0.serverID == server.id && Date().timeIntervalSince($0.at) < 300 } ?? false
+        guard let best = (justRetried ? fastest(excluding: server.id) : nil) ?? fastestServer else {
             pm.logError("[Auto: no server answered — staying on \(server.name)]")
             // The network itself is likely down; measuring again at once would only repeat that.
-            try? await Task.sleep(for: .seconds(30))
+            try? await Task.sleep(for: .seconds(30), clock: .suspending)
             return
+        }
+        guard best.id == server.id else {
+            move(to: best)
+            return
+        }
+        if justRetried {
+            pm.logError("[Auto: \(server.name) is the only server that answers — reconnecting to it in 30 s]")
+            try? await Task.sleep(for: .seconds(30), clock: .suspending)
+            guard !Task.isCancelled, pm.isTunnelUp else { return }
+        }
+        if pm.reconnect(config: best.config, "[Auto: \(server.name) still pings best — reconnecting to it]") {
+            lastRetry = (server.id, Date())
+        }
+    }
+
+    // A slow server is left only for one that pings faster. False when the tunnel stays.
+    private func leaveSlow(_ server: Server) async -> Bool {
+        guard await measureForMove("\(server.name) is slow") else { return false }
+        guard let best = fastestServer else {
+            pm.logError("[Auto: no server answered — staying on \(server.name)]")
+            return false
         }
         guard best.id != server.id else {
-            if isDead {
-                pm.reconnect(config: best.config, "[Auto: \(server.name) is the only server that answers — reconnecting to it]")
-            } else {
-                pm.log("[Auto: \(server.name) still pings best — staying on it]")
-            }
-            return
+            pm.log("[Auto: \(server.name) is still the fastest — staying on it]")
+            return false
         }
-        if pm.reconnect(config: best.config, "[Auto: moving to \(best.name), \(delay(of: best) ?? 0) ms]") {
-            activeServer = best
-        }
+        return move(to: best)
+    }
+
+    // A fresh run: one started before the failure would vouch for the server. False when the
+    // session ended meanwhile.
+    private func measureForMove(_ reason: String) async -> Bool {
+        pm.logError("[Auto: \(reason) — measuring every server...]")
+        ping.start(xrayServers)
+        await ping.waitUntilDone()
+        return !Task.isCancelled && pm.isTunnelUp
+    }
+
+    @discardableResult
+    private func move(to server: Server) -> Bool {
+        guard pm.reconnect(config: server.config, "[Auto: moving to \(server.name), \(delay(of: server) ?? 0) ms]")
+        else { return false }
+        activeServer = server
+        return true
     }
 
     // MARK: - Feeds

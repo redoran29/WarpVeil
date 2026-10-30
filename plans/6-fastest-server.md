@@ -29,16 +29,17 @@ slow, reconnects to a faster one by itself. Backlog 6.
   with close pings, so sites see the exit address hop (owner, 2026-10-30).
 - Replaces the 2026-10-15 decision "Fastest is picked at connect only; no switching away from a
   server that dies later" (owner, 2026-10-30).
+- A dead server that still pings best is reconnected to — a blink of the network does not move the
+  tunnel off the fastest. Dead again within 5 minutes of that, the next best is taken; when it is the
+  only one that answers, it is reconnected to after a 30 s pause (owner, 2026-10-30).
+- Slow is three times the session's best probe, kept between 1.5 s and 4 s. A slow server that is
+  still the fastest stays, and slow is not asked again for 10 minutes (owner, 2026-10-30).
 
 ### Open for the owner
 - How the running server is watched. Default: an HTTPS request to the ping's test URL through xray's
   SOCKS port every 10 s, 5 s timeout, a new connection each time; after a failure the next one goes
   at once.
-- What counts as degraded. Default: two failed probes in a row, or three in a row slower than 1.5 s
-  and than three times the session's best probe.
-- Where a degraded server goes. Default: a dead one to the fastest other server that answers, back
-  to itself only when no other one does; a slow one only to a server that pings faster, else it
-  stays and its speed becomes the new bar.
+- What counts as dead. Default: two failed probes in a row.
 - How fresh a measurement must be at connect. Default: 10 minutes.
 - Ties. Default: the first in the list.
 
@@ -86,8 +87,10 @@ slow, reconnects to a faster one by itself. Backlog 6.
 - Step 2, live: the session's xray frozen with `kill -STOP` — Logs read `stopped answering —
   measuring every server...`, then `still pings best — reconnecting to it` (only xray was frozen,
   the server pinged fine), and a probe through the new session answered 204 in 0.3 s. 44 s from
-  the freeze to the new xray with a probe every 10 s; the confirming probe now goes at once. A move
-  to another server, and the slow path, are not yet seen live.
+  the freeze to the new xray with a probe every 10 s; the confirming probe now goes at once.
+- After round 2, live: the same freeze moved the tunnel to another server — the exit address went
+  from New Jersey's to Chicago 1's, a probe answered 204 in 0.34 s — 34 s from the freeze to the new
+  xray, 5 s of it the KILL a frozen xray needs. The slow path is not seen live.
 
 ### Review round 1 (2026-10-30)
 - A run where every server failed still counted as fresh, so a connect within 10 minutes refused
@@ -117,4 +120,21 @@ slow, reconnects to a faster one by itself. Backlog 6.
   replaced. The update hold is checked at the click as well, so Auto does not measure for nothing.
 - The watch ran for hand-picked sessions to do nothing: it starts for Auto ones only. An interval
   over 720 h is capped rather than dropped to 24 h.
+
+### Review round 3 (2026-10-30)
+- It disagreed with rounds 1 and 2 on the same two points — rounds 1 and 3 against a dead server's
+  reconnect loop or against landing on a slower server for good, round 2 against the state that
+  bounded the loop; rounds 1, 2 and 3 against a fixed slow bar, a rest lost at restarts, and a
+  relative bar that rose past the timeout. Taken to the owner instead of a fourth fix: both
+  decisions above. The retry marker now clears at every connect, and falls back to the server
+  itself when nothing else answers, which is what round 2 found wrong with it.
+- The watch's wait ran on through sleep and read the server as dead at wake: it stops during sleep.
+- A move landing during a stop rewrote the last connection with no restart to follow: a refused
+  reconnect changes nothing, and the session's server is named only once one is accepted.
+- A failed update resumed a server captured at the stop, maybe dropped by a refresh since, and
+  then nothing came back: Auto picks again, a hand-picked one is looked up by its ID.
+- A disconnect during a measurement left the ping's engines running three passes: a cancelled
+  waiter takes the run with it.
+- An update clicked within a restart's pending second finds no session to resume — as before this
+  plan; not fixed here.
 
