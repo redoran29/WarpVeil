@@ -71,7 +71,7 @@ struct ServersView: View {
     }
 
     private var autoRow: some View {
-        let pick = app.fastestServer
+        let pick = app.autoPick
         return HStack(spacing: 12) {
             Image(systemName: "bolt.fill")
                 .font(.system(size: 18))
@@ -81,7 +81,7 @@ struct ServersView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Auto")
                     .font(.system(size: 14, weight: .medium))
-                Text(pick.map { "Fastest now: \($0.name)" } ?? "The fastest server, and off one that slows down")
+                Text(pick.map { "Connects to \($0.name)" } ?? "Stays on one server, leaves it only when it stops answering")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

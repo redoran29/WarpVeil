@@ -461,8 +461,8 @@ final class PingService {
 
     // One request through the session's xray, the way the user's traffic goes, on a connection of
     // its own: a session is per probe, so a server that takes no new connections cannot hide
-    // behind one that stays open. nil when nothing answered in 5 s.
-    static func probeTunnel() async -> Duration? {
+    // behind one that stays open. False when nothing answered in 5 s.
+    static func probeTunnel() async -> Bool {
         let config = URLSessionConfiguration.ephemeral
         config.proxyConfigurations = [ProxyConfiguration(socksv5Proxy: .hostPort(
             host: "127.0.0.1", port: NWEndpoint.Port(rawValue: ProcessManager.xraySocksPort) ?? 10808))]
@@ -470,10 +470,8 @@ final class PingService {
         config.timeoutIntervalForResource = 5
         let session = URLSession(configuration: config)
         defer { session.invalidateAndCancel() }
-        guard let url = URL(string: testURL) else { return nil }
-        let start = ContinuousClock.now
-        guard (try? await session.data(from: url)) != nil else { return nil }
-        return ContinuousClock.now - start
+        guard let url = URL(string: testURL) else { return false }
+        return (try? await session.data(from: url)) != nil
     }
 
     // MARK: - Helpers

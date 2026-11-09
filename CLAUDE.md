@@ -405,24 +405,24 @@ Write the simplest code that works. Prioritize readability over cleverness.
   clean account (owner closed plan 17 without it, 2026-10-25): whether the engines nested in a
   quarantined bundle run after Open Anyway — if a user reports they do not, the planned way out is
   the app clearing the quarantine from its own bundle at launch
-- **Auto** (owner, 2026-10-15 and 2026-10-30): the Auto row above the subscriptions connects to
-  the lowest ping — measured first when the last full run is older than 10 minutes — and, while
-  connected, probes the tunnel through xray's SOCKS port every 10 s, a failure confirmed at once.
-  Two failures in a row, or three probes slower than three times the session's best kept between
-  1.5 and 4 s (a probe is a cold request, so a distant server is slow by any fixed bar, and past the
-  5 s timeout slow would only read as dead), and every server is pinged afresh. A tunnel that
-  answers again by then stays — the office network blinks for seconds. A dead server that still
-  pings best is reconnected to; dead again within 5 minutes, the next best is taken, and when it
-  alone answers it is reconnected to after 30 s; from the third death within 5 minutes of the one
-  before, each waits 30, 60, then 120 s. A slow one goes only to a faster one, else it stays and slow
-  rests 10 minutes. Three review rounds disagreed on these points before the owner settled them — a
-  change to either goes to the owner. The streak and the rest outlive a reconnect and are cleared by
-  a connect. Whether Auto started a session is the session's, not the selection's: a tap only
-  selects.
-  A move is a reconnect to one server (`ProcessManager.reconnect(config:)`, the restart
-  path, so a wake or a routing restart after it replays the new server): the exit address changes
-  only then. Not xray's balancer and observatory, which spread connections over servers with close
-  pings, so sites see the exit address hop. A server chosen by hand is never left
+- **Auto stays put** (owner, 2026-11-09, replacing 2026-10-15 and 2026-10-30): sites sign out when the
+  exit address changes, so the Auto row connects to the server it last had a tunnel on, unless that failed
+  its ping — measured first when the last full run is older than 10 minutes — and leaves it only when it
+  stops answering. With none remembered, or that one silent, it takes the lowest ping, and xhttp only when
+  nothing else answers, a remembered xhttp server included (Key Decisions, xhttp): a ping is one cold request, and the servers sit within 20-50 ms of each
+  other, so the lowest ping changed from run to run and every connect could change the address. While
+  connected it probes the tunnel through xray's SOCKS port every 10 s, a failure confirmed at once. Two
+  failures in a row and every server is pinged afresh. A tunnel that answers again by then stays — the office
+  network blinks for seconds. A dead server that still answers a ping is reconnected to; dead again within 5
+  minutes, the next best is taken, and when no better one answers it is reconnected to after 30 s; from the third
+  death within 5 minutes of the one before, each waits 30, 60, then 120 s. Slowness moves nothing: a move for
+  speed cost the address and a ping cannot promise the speed. A change to any of this goes to the owner. The
+  streak outlives a reconnect and is cleared by a connect. Whether Auto started a session is the session's,
+  not the selection's: a tap only selects. A move is a reconnect to one server
+  (`ProcessManager.reconnect(config:)`, the restart path, so a wake or a routing restart after it replays the
+  new server): the exit address changes only then. Not xray's balancer and observatory, which spread
+  connections over servers with close pings, so sites see the exit address hop. A server chosen by hand is
+  never left
 - **Feeds refresh themselves** (owner, 2026-10-15): every feed at launch, then each once its
   `profile-update-interval` (hours; 24 when it sends none) has passed since its last refresh, asked
   hourly; Logs show each one. `subscription-userinfo` shows under the feed's name only when it has a
