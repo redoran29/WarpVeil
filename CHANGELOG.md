@@ -2,6 +2,11 @@
 
 Each `## <version>` section is what `release.sh` publishes as that release's notes.
 
+## 1.3.5
+
+- **Auto keeps your address.** It goes back to the server it was last on, and leaves one only when that stops answering, so sites stop signing you out. It no longer moves for a slower connection, and takes xhttp servers only when nothing else answers.
+- The first connect after this update asks for your password once, to install this version's helper.
+
 ## 1.3.4
 
 - **The window holds still.** The timer, the speed boxes and the location keep their place through a reconnect, and an update no longer slides the window's content under the title bar. That fix takes effect after this update: this one install can still slide it.
