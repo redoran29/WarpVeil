@@ -435,6 +435,14 @@ Write the simplest code that works. Prioritize readability over cleverness.
   as a duplicate, so the link gets an xray twin and the old row is removed by hand; a feed's row
   does — the feed's next refresh rebuilds it (owner, 2026-10-15). xray's own TUN, which would retire sing-box, sets
   no routes on macOS before Xray 26.7.11, and every release since is a prerelease
+- **xhttp is multiplexed by default** (measured 2026-11-09, from the owner's network): a link's `extra`
+  reaches xray, and a config with no xmux of its own gets `maxConcurrency: 16-32` in the frame. As stored,
+  xray dialed one connection per stream and a few at once stalled the server for about 2 minutes, while
+  TCP and camouflage TLS to its address kept working; headless Chrome loaded 0 of 9 pages on two servers
+  and 7 of 9 on the third. With xmux github and youtube load through the real tunnel. It is not a cure:
+  heavy pages take 10-30 s and can still stall with only 2-3 connections, where gRPC takes 5 s, and
+  `stream-up` and `packet-up` are no better, so the rest is not a client setting. Who stalls, the server or
+  the ISP's DPI, is not known. A single-request ping passes throughout, so it cannot see any of this
 - **Ping is a user-space measurement**: `PingService` runs a user-space xray with a socks inbound
   per server, chained into a user-space sing-box as socks outbounds behind
   `experimental.clash_api` on a free localhost port, and asks `/proxies/<Server.id>/delay` per
