@@ -47,6 +47,12 @@ answers 127.0.0.1 for a blocked name defeats the VPN for every app on the machin
   finds that the system falls back; a fallback would bring the blocked answer back for that moment.
 - Names only the LAN or a router knows stop resolving while connected, unless step 1 shows otherwise.
 
+### State (2026-11-09)
+- Nothing of it is built. Step 1 waits for the owner's word at the machine: it drops the tunnel and asks for the
+  password. Do not switch or restart the installed app while the owner works: a test that did cost an interruption.
+- Not yet run on a live tunnel, for that same window: Auto leaving a dead server (1.3.5), and the connection
+  column through a real reconnect (1.3.4).
+
 ### Steps
 1. **Experiment, no shipping.** With a root shell on the live machine, settle what puts a catch-all resolver in
    place through a temporary dynamic-store key, what answers it in the wrapper, what happens to a lookup while
