@@ -2,6 +2,12 @@
 
 Each `## <version>` section is what `release.sh` publishes as that release's notes.
 
+## 1.3.3
+
+- **xhttp servers open pages again.** Several at once no longer stall such a server for minutes. Heavy pages can still be slow on them; gRPC servers remain the faster choice.
+- Settings a subscription sends for an xhttp server in its link are no longer dropped.
+- The first connect after this update asks for your password once, to install this version's helper.
+
 ## 1.3.2
 
 - **Connects after an update.** An app that had just updated itself could not install its helper and so could not connect; 1.3.2 fixes it. If 1.3.1 does not connect, install 1.3.2 from the banner.
