@@ -2,6 +2,12 @@
 
 Each `## <version>` section is what `release.sh` publishes as that release's notes.
 
+## 1.3.4
+
+- **The window holds still.** The timer, the speed boxes and the location keep their place through a reconnect, and an update no longer slides the window's content under the title bar. That fix takes effect after this update: this one install can still slide it.
+- **The sidebar's foot** shows the running version, when updates were last checked, and a button to check now.
+- The first connect after this update asks for your password once, to install this version's helper.
+
 ## 1.3.3
 
 - **xhttp servers open pages again.** Several at once no longer stall such a server for minutes. Heavy pages can still be slow on them; gRPC servers remain the faster choice.
