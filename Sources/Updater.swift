@@ -13,6 +13,7 @@ final class Updater {
     }
 
     var state: State = .idle
+    private(set) var lastAnswered: Date?
 
     // The release found newer than the running app, kept through a later check, an install and a
     // failed install — what the banner, Advanced and the status menu offer until the app is
@@ -62,7 +63,6 @@ final class Updater {
     }
 
     private var release: Release?
-    private var lastAnswered: Date?
     private var checkGeneration = 0
 
     private static let feed = (Bundle.main.object(forInfoDictionaryKey: "WVUpdateFeed") as? String).flatMap(URL.init)

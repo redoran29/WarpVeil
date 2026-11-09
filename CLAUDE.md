@@ -75,8 +75,9 @@ Sources/
 └── Models.swift               # Server, Subscription, Engine types
 ```
 
-Sidebar: Servers, Routing, Advanced, Logs. It is an icon rail, collapsed to 60 pt by default and
-expanded to 180 pt with labels by its own arrow — the built-in sidebar toggle is removed so there
+Sidebar: Servers, Routing, Advanced, Logs, and at its foot the running version, the age of the last
+update check that got an answer, and the manual check. It is an icon rail, collapsed to 60 pt by default
+and expanded to 180 pt with labels by its own arrow — the built-in sidebar toggle is removed so there
 is one control, not two. The connection panel is the right column on every page.
 
 Every service is created and owned by `AppState`, which `AppDelegate` holds and every view
@@ -372,7 +373,7 @@ Write the simplest code that works. Prioritize readability over cleverness.
 - **In-app updates** (owner, 2026-10-14): `Updater` reads `WVUpdateFeed` from `Info.plist` —
   GitHub's `releases/latest`, the newest release that is neither a draft nor a prerelease — 15 s
   after bootstrap, then a day after the last check that got an answer (asked hourly, so one that
-  failed offline after a wake is retried within the hour), and on Check for Updates in Advanced; a
+  failed offline after a wake is retried within the hour), and on the check button at the sidebar's foot; a
   version numerically newer than the running one shows Install there, `Update to X…` in the
   status menu, and a banner with Install at the foot of the connection column, on every page
   (owner, 2026-10-25: an update has to be seen). Homegrown, since the canon takes no packages (no Sparkle); no toggle, no

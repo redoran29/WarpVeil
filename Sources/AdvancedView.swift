@@ -52,8 +52,6 @@ struct AdvancedView: View {
                 LabeledContent {
                     if app.updater.newerVersion != nil {
                         Button("Install") { app.installUpdate() }
-                    } else {
-                        Button("Check for Updates") { Task { await app.updater.check(manual: true) } }
                     }
                 } label: {
                     Text("WarpVeil \(Updater.currentVersion)")

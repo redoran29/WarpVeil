@@ -28,7 +28,7 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            SidebarRail(selection: $page, isExpanded: $sidebarExpanded)
+            SidebarRail(updater: app.updater, selection: $page, isExpanded: $sidebarExpanded)
                 // The rail carries its own expand control; the built-in one would be a
                 // second, differently-behaving toggle next to it.
                 .toolbar(removing: .sidebarToggle)
@@ -57,6 +57,7 @@ struct ContentView: View {
 }
 
 private struct SidebarRail: View {
+    var updater: Updater
     @Binding var selection: Page
     @Binding var isExpanded: Bool
 
@@ -114,8 +115,83 @@ private struct SidebarRail: View {
             }
 
             Spacer()
+
+            updateFooter
         }
         .padding(.top, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // Collapsed, the rail is 60 pt: the three parts stack, and the age has to stay short.
+    @ViewBuilder
+    private var updateFooter: some View {
+        Group {
+            if isExpanded {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        versionText
+                        lastCheckText
+                    }
+                    Spacer(minLength: 0)
+                    checkButton
+                }
+                .padding(.horizontal, 16)
+            } else {
+                VStack(spacing: 3) {
+                    checkButton
+                    versionText
+                    lastCheckText
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.bottom, 10)
+    }
+
+    private var versionText: some View {
+        Text(Updater.currentVersion)
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+    }
+
+    private var lastCheckText: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            Text(Self.age(of: updater.lastAnswered, at: context.date))
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        }
+    }
+
+    private var checkButton: some View {
+        Button {
+            Task { await updater.check(manual: true) }
+        } label: {
+            Image(systemName: Self.isFailed(updater.state) ? "exclamationmark.arrow.circlepath" : "arrow.clockwise")
+                .font(.system(size: 13))
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .disabled(updater.state == .checking || updater.state == .installing)
+        .help(updater.statusText)
+        .accessibilityLabel("Check for updates")
+    }
+
+    private static func isFailed(_ state: Updater.State) -> Bool {
+        if case .failed = state { return true }
+        return false
+    }
+
+    private static func age(of date: Date?, at now: Date) -> String {
+        guard let date else { return "not checked" }
+        let minutes = Int(now.timeIntervalSince(date) / 60)
+        if minutes < 1 { return "just now" }
+        if minutes < 60 { return "\(minutes) min ago" }
+        if minutes < 24 * 60 { return "\(minutes / 60) h ago" }
+        return "\(minutes / (24 * 60)) d ago"
     }
 }
