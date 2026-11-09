@@ -20,7 +20,9 @@ answers 127.0.0.1 for a blocked name defeats the VPN for every app on the machin
   bind nor the IPv6 restart moves.
 - Cold-cache page load, resolver cache and sing-box both fresh, is no worse than the baseline step 1 records by
   more than the spread between that baseline's own runs (github, cnn, youtube, 5 runs each, headless Chrome
-  through the real tunnel, on a gRPC server and on an xhttp one).
+  through the real tunnel, on a gRPC server). An xhttp server's load is recorded, not gated: it already varies
+  from 10 s to a timeout with no change here.
+- A resolver that fails to go in place does not read as Connected with blocked names still answered locally.
 
 ### Decided
 - System DNS goes into the tunnel while connected (owner, 2026-11-09, reversing 2026-10-15).
@@ -28,6 +30,8 @@ answers 127.0.0.1 for a blocked name defeats the VPN for every app on the machin
 - A name in the bypass list resolves outside the tunnel, as its traffic does (default, 2026-11-09).
 - If the experiment finds no resolver override that disappears with its holder, nothing ships and the plan
   goes back to the owner: the survival condition is not traded away (owner, 2026-11-09).
+- A cold-load result past the gate in Done when goes to the owner with the numbers, rather than shipping or
+  dropping it (default, 2026-11-09).
 
 ### Depends on
 - The owner at the machine, with the password, for the experiment and for step 2: root is needed for each kill,
@@ -47,7 +51,8 @@ answers 127.0.0.1 for a blocked name defeats the VPN for every app on the machin
 1. **Experiment, no shipping.** With a root shell on the live machine, settle what puts a catch-all resolver in
    place through a temporary dynamic-store key, what answers it in the wrapper, what happens to a lookup while
    the tunnel is dead, how the app's own lookups (ping, connect) reach a resolver outside it, and that the
-   override goes when each part in Done when is killed. Record the baseline and the result here; a failure ends
+   override goes when each part in Done when is killed, the app's death with the real app as the parent: after
+   the config is fed nothing on the root side is tied to it. Record the baseline and the result here; a failure ends
    the plan, and a change Auto would need goes to the owner first (canon, Auto).
 2. **Tunnel-up DNS.** The engine shell puts the resolver in place only once its TUN is up, the wrapper answers
    it, and Done when holds on the real app.
@@ -76,7 +81,9 @@ answers 127.0.0.1 for a blocked name defeats the VPN for every app on the machin
 
 ### Measured / What we know (2026-11-09)
 - Router answers 127.0.0.1 for www.instagram.com, www.facebook.com and static.xx.fbcdn.net: `dig @<router>`.
-  Headless Chrome through the tunnel: ERR_CONNECTION_REFUSED, 6 of 6 loads.
+  Headless Chrome through the tunnel, www.instagram.com: ERR_CONNECTION_REFUSED, 6 of 6 loads.
+- Chrome's Secure DNS with Cloudflare, in a throwaway profile through the tunnel: www.instagram.com and
+  www.facebook.com load, where a stock profile is refused. A browser's own workaround, not the fix.
 - The real address through the tunnel returns 200: `curl --resolve`.
 - The owner's seven servers are all given by IP today, so blockers about names were read in the code, not seen
   on this machine: read from the stored configs.
