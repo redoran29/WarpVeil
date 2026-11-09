@@ -429,6 +429,10 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
             if let path = params["path"] { xhttpSettings["path"] = path }
             if let xHost = params["host"], !xHost.isEmpty { xhttpSettings["host"] = xHost }
             if let mode = params["mode"], !mode.isEmpty { xhttpSettings["mode"] = mode }
+            if let extra = params["extra"]?.data(using: .utf8),
+               let object = try? JSONSerialization.jsonObject(with: extra) as? [String: Any] {
+                xhttpSettings["extra"] = object
+            }
             streamSettings["xhttpSettings"] = xhttpSettings
         case "ws":
             var wsSettings: [String: Any] = [:]
@@ -500,13 +504,30 @@ final class SubscriptionService: NSObject, URLSessionDelegate {
                     "settings": ["udp": true]
                 ] as [String: Any]
             ],
-            "outbounds": [outbound] + dialers + direct,
+            "outbounds": [Self.multiplexingXhttp(outbound)] + dialers + direct,
             "routing": [
                 "domainStrategy": "AsIs",
                 "rules": [] as [[String: Any]]
             ] as [String: Any]
         ]
         return serializeJSON(config) ?? "{}"
+    }
+
+    // With no xmux, xray opens a TCP connection per stream, and from the owner's network a few at
+    // once stall an xhttp server for about 2 minutes (measured 2026-11-09). What a panel sets wins.
+    private static func multiplexingXhttp(_ outbound: [String: Any]) -> [String: Any] {
+        guard var stream = outbound["streamSettings"] as? [String: Any],
+              canonicalTransport(stream["network"] as? String ?? "") == "xhttp" else { return outbound }
+        let key = stream["xhttpSettings"] == nil && stream["splithttpSettings"] != nil ? "splithttpSettings" : "xhttpSettings"
+        var settings = stream[key] as? [String: Any] ?? [:]
+        var extra = settings["extra"] as? [String: Any] ?? [:]
+        guard settings["xmux"] == nil, extra["xmux"] == nil else { return outbound }
+        extra["xmux"] = ["maxConcurrency": "16-32"]
+        settings["extra"] = extra
+        stream[key] = settings
+        var multiplexed = outbound
+        multiplexed["streamSettings"] = stream
+        return multiplexed
     }
 
     // MARK: - xray JSON parsing (for ?format=xray)
