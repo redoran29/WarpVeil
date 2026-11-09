@@ -11,18 +11,20 @@ struct ConnectionView: View {
             statusSection
                 .padding(.bottom, 16)
 
-            if app.pm.isTunnelUp {
-                statsSection
-                    .frame(maxWidth: 360)
-                    .padding(.bottom, 20)
-            }
+            statsSection
+                .frame(maxWidth: 360)
+                .padding(.bottom, 20)
 
             locationSection
         }
         .padding(.horizontal, 20)
+        // Every row keeps its place in every state, so nothing here moves on a reconnect.
+        .padding(.bottom, Self.bannerSpace)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // This column is on every page, so a new version is seen without opening Advanced.
-        .safeAreaInset(edge: .bottom) {
+        // This column is on every page, so a new version is seen without opening Advanced. An
+        // overlay, because the window takes its minimum from the columns, measured at no width:
+        // a banner in the layout turned its text into a column of words as tall as the window.
+        .overlay(alignment: .bottom) {
             if let version = app.updater.newerVersion {
                 updateBanner(version: version)
                     .frame(maxWidth: 360)
@@ -32,6 +34,8 @@ struct ConnectionView: View {
     }
 
     // MARK: - Update
+
+    private static let bannerSpace: CGFloat = 76
 
     private func updateBanner(version: String) -> some View {
         let state = app.updater.state
@@ -44,10 +48,12 @@ struct ConnectionView: View {
                 Text(isInstalling ? "Installing WarpVeil \(version)…" : "WarpVeil \(version) is available")
                     .font(.system(size: 13, weight: .medium))
                 // A failed install says why here too, or the banner would only lose its button.
+                // Two lines fit the space kept for the banner at the smallest window; Advanced has the rest.
                 Text(state == .available(version) ? "You have \(Updater.currentVersion)" : app.updater.statusText)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(2)
+                    .help(app.updater.statusText)
             }
             Spacer()
             if !isInstalling {
@@ -110,12 +116,19 @@ struct ConnectionView: View {
 
             if let connectedAt = app.connectedAt, app.pm.isTunnelUp {
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
-                    Text(uptimeString(from: connectedAt))
-                        .font(.system(size: 30, weight: .light, design: .monospaced))
-                        .monospacedDigit()
+                    uptimeLabel(uptimeString(from: connectedAt))
                 }
+            } else {
+                uptimeLabel("00:00:00")
+                    .foregroundStyle(.tertiary)
             }
         }
+    }
+
+    private func uptimeLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 30, weight: .light, design: .monospaced))
+            .monospacedDigit()
     }
 
     // The session's server while one runs: a tap only selects.
@@ -134,7 +147,8 @@ struct ConnectionView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .lineLimit(3)
+                .lineLimit(2, reservesSpace: true)
+                .help(app.loc.location)
         }
     }
 

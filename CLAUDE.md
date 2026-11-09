@@ -267,11 +267,16 @@ Write the simplest code that works. Prioritize readability over cleverness.
   content is a three-column `NavigationSplitView` and the window owns its size. Traps:
   `NSHostingController.sizingOptions` is `[.minSize]`, so the window minimum comes from the column
   minimums and the root's `minHeight` (`[]` lets the window shrink under its content); assigning
-  the controller zeroes the content size, so `setContentSize` has to follow it;
+  the controller zeroes the content size, so `setContentSize` has to follow it; that minimum is measured at
+  no width, so a `fixedSize` text in a column's layout comes out a word per line, and a minimum past the
+  current frame is applied to no frame: the root overflows the window, half of it above the title bar (a
+  banner's sentence did that, 270 pt, 1.3.3) — what may grow goes in an overlay;
   `.toolbar(removing: .sidebarToggle)` only works on the sidebar column's content — on the split
   view it compiles and does nothing; `.doubleColumn` hides the sidebar, not the middle column, so
   every sidebar item needs middle-column content. The frame is autosaved as `MainWindow`; the
   column widths are not
+- **The connection column does not move** (owner, 2026-11-09): the timer, the speed boxes and two lines of
+  location keep their place in every state, and the update banner rides over space kept for it
 - **Page chrome**: every middle-column page wears the grouped-`Form` look. Servers, Routing and
   Advanced are real `Form { Section }`s. Logs is not: a grouped `Form` on macOS builds every log
   row at once — up to 1,800 at Everything — its row separators and insets cannot be removed, and
