@@ -20,28 +20,23 @@ is its research, read by the item's new plan, not copied into it. Never delete t
 
 ### 1. Plan
 
-The plan is written with the global `stage-plan` skill, in the main session — it audits the
-owner one question at a time — and goes to `plans/<n>-<slug>.md`, `<n>` being its backlog
-item's number. It says what and why, never which files: that is read from the code when the
-work starts.
+The plan is written with the global `pf-plan` skill as an OpenSpec change in `openspec/changes/`,
+its id starting with its backlog item's number.
 
-### 2. Implement
+### 2. Build
 
-Follow the plan; every step leaves the project compiling. When reality contradicts it, correct
-the plan file in the same commit as the deviation — the file must never describe something that
-was not built.
+`pf-ship` builds it: an executor, the checks and a reviewer after each attempt, within the
+attempt limit; every attempt leaves the project compiling. When reality contradicts the change,
+correct it in the same commit as the deviation — it must never describe something that was not
+built.
 
 ### 3. Close
 
-- Once every step is implemented, run `/code-review` over the finished work and fix everything
-  it surfaces; each round is recorded in the plan. Work on a plan is not over while review
-  findings are open.
 - A finding that would undo what an earlier pass asked for is not fixed: it goes to the owner
   with both positions. Two passes that disagree mark a question the plan never settled, and
   fixing each in turn is a loop.
-- Then delete the plan. `plans/` holds only work that is ahead or under way; a finished plan
-  lives in git history. Whatever has to outlive the work — a decision, a convention, a gotcha —
-  is written into this file before the plan goes.
+- Whatever has to outlive the work — a decision, a convention, a gotcha — is written into this
+  file before the change is archived.
 
 ### The third fix is a signal
 
