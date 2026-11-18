@@ -1,4 +1,5 @@
 ## 5. Subscriptions refresh by themselves and show their limits
+<!-- queue: {"priority": "medium","order": 30} -->
 Owner, 2026-10-15: subscriptions are fetched only at launch, so an app that runs for days keeps a
 stale server list. They should refresh on the interval the feed asks for, with no setting, and show
 traffic and expiry when the feed has a limit or an end date. Backlog 5.

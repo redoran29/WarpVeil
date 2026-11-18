@@ -1,4 +1,5 @@
 ## 11. Feeds and the Add field take ss, trojan and hysteria2 links
+<!-- queue: {"priority": "low","order": 10} -->
 Owner, 2026-10-15: a feed understands only `vless://` and `vmess://` and silently drops every other
 line, so a provider with a mixed list loses servers without a word. The owner's own feed is vless; this
 is for the people the public build (backlog 17) brings, with other providers. Backlog 11.

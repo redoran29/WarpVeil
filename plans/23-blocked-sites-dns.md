@@ -1,4 +1,5 @@
 ## 23. Blocked sites open with the VPN up
+<!-- queue: {"priority": "high","order": 20,"hold": "The owner needs to be at the Mac with the admin password and agree to a window when the tunnel may drop."} -->
 Owner, 2026-11-09: approved reversing the 2026-10-15 decision to keep system DNS outside the tunnel,
 on the condition checked first: the network has to survive the app dying. Today a local resolver that
 answers 127.0.0.1 for a blocked name defeats the VPN for every app on the machine.

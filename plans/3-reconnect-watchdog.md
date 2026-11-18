@@ -1,4 +1,5 @@
 ## 3. The tunnel comes back by itself after an engine dies
+<!-- queue: {"priority": "high","order": 10} -->
 Owner, 2026-10-15: when an engine dies, the app stays Disconnected and traffic leaves with the real IP
 until someone presses the button. The app should reconnect on its own — always, with no setting. A pf
 kill switch that blocks traffic while there is no tunnel is not wanted. Backlog 3.

@@ -1,4 +1,5 @@
 ## 7. Chosen apps bypass the VPN
+<!-- queue: {"priority": "low","order": 20} -->
 Owner, 2026-10-15: like domain bypass, but for apps — the apps on the list go direct, everything else
 goes through the VPN. One list, no modes (routing modes were dropped). Backlog 7.
 

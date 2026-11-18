@@ -1,4 +1,5 @@
 ## 13. The speed panel counts each byte once
+<!-- queue: {"priority": "medium","order": 40} -->
 Owner, 2026-10-15: the upload and download speeds add up every network interface, so tunnel traffic is
 counted on the TUN, on loopback (the hop to xray) and on the physical interface, plus virtual-machine
 bridges. The numbers should be the Mac's real internet speed. No traffic chart. Backlog 13 (and 12,

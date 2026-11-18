@@ -1,4 +1,5 @@
 ## 4. The tunnel is up after login, and the app says when it stays down
+<!-- queue: {"priority": "medium","order": 20} -->
 Owner, 2026-10-15: the VPN should come up by itself when the owner logs in, with no new setting, and
 the app should speak up when the tunnel is down and not coming back — not for drops the watchdog
 fixes in seconds. Backlog 4.

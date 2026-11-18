@@ -1,4 +1,5 @@
 ## 9. Choosing another server while connected moves the tunnel to it
+<!-- queue: {"priority": "medium","order": 10} -->
 Owner, 2026-10-15: today a tap on a server while connected changes only the selection — the power
 button names the new server while the tunnel still runs the old one. A tap should move the tunnel.
 Backlog 9.
